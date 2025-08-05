@@ -193,10 +193,12 @@ namespace BCH
 
         if (OpOut.rank_J > 0)
         {
+          auto id5 = OpOut.modelspace->GetOrbitIndex(0,2,5,+1);
           std::cout << "Tensor BCH, i=" << i << "  Norm = " << std::setw(12) << std::setprecision(8) << std::fixed << OpNested.OneBodyNorm() << " "
                     << std::setw(12) << std::setprecision(8) << std::fixed << OpNested.TwoBodyNorm() << " "
                     << std::setw(12) << std::setprecision(8) << std::fixed << OpNested.ThreeBody.Norm() << " "
                     << std::setw(12) << std::setprecision(8) << std::fixed << OpNested.Norm() << std::endl;
+//                    << std::setw(12) << std::setprecision(8) << std::fixed << OpNested.Norm() << "    d5d5 = " << OpNested.OneBody(id5,id5) << " sum " << OpOut.OneBody(id5,id5) << std::endl;
         }
         epsilon *= i + 1;
         if (OpNested.Norm() < epsilon)
@@ -208,7 +210,8 @@ namespace BCH
       }
     }
     //   std::cout << "Done with BCH_Transform, 3-body norm of OpOut = " << OpOut.ThreeBodyNorm() << std::endl;
-    OpIn.profiler.timer["BCH_Transform"] += omp_get_wtime() - t_start;
+//    OpIn.profiler.timer["BCH_Transform"] += omp_get_wtime() - t_start;
+    OpIn.profiler.timer[__func__] += omp_get_wtime() - t_start;
     return OpOut;
   }
 
@@ -241,7 +244,7 @@ namespace BCH
         goosetank_chi.OneBody(i, j) *= oi.occ * oj.occ + (1.0 - oi.occ) * (1.0 - oj.occ);
       }
     }
-    OpNested.profiler.timer["GooseTankUpdate"] += omp_get_wtime() - t_start;
+    OpNested.profiler.timer[__func__] += omp_get_wtime() - t_start;
     return goosetank_chi;
   }
 
@@ -356,7 +359,7 @@ namespace BCH
 
     Commutator::use_imsrg3 = _save_imsrg3; // set it back to how it was.
 
-    X.profiler.timer["BCH_Product"] += omp_get_wtime() - tstart;
+    X.profiler.timer[__func__] += omp_get_wtime() - tstart;
     return Z;
   }
 

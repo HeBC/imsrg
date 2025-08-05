@@ -607,11 +607,11 @@ PYBIND11_MODULE(pyIMSRG, m)
           .def("SetDenominatorPartitioning", &IMSRGSolver::SetDenominatorPartitioning) // Can be Epstein_Nesbet (default) or Moller_Plesset
           .def("GetSystemDimension", &IMSRGSolver::GetSystemDimension)
           // .def("GetOmega", &IMSRGSolver::GetOmega)
-          .def("GetOmega", py::overload_cast<int>(&IMSRGSolver::GetOmega),
+          .def("GetOmega", py::overload_cast<int>(&IMSRGSolver::GetOmega), py::arg("index"),
                "Get an Operator at a specific index")
           .def("GetOmega", py::overload_cast<>(&IMSRGSolver::GetOmega),
                "Get the entire deque of Operators")
-          .def("SetOmega", &IMSRGSolver::SetOmega)
+          .def("SetOmega", &IMSRGSolver::SetOmega, py::arg("index"), py::arg("Omega") )
           //      .def("GetH_s",&IMSRGSolver::GetH_s,return_value_policy<reference_existing_object>())
           .def("GetH_s", &IMSRGSolver::GetH_s)
           .def("SetH_s", &IMSRGSolver::SetH_s)
@@ -1052,6 +1052,8 @@ PYBIND11_MODULE(pyIMSRG, m)
       m.def("FillFactorialLists", AngMom::FillFactorialLists);
       m.def("factorial", AngMom::factorial);
       m.def("double_fact", AngMom::double_fact);
+      m.def("AngMomJmin",AngMom::Jmin);
+      m.def("AngMomJmax",AngMom::Jmax);
 
       m.attr("HBARC") = py::float_(PhysConst::HBARC);
       m.attr("M_PROTON") = py::float_(PhysConst::M_PROTON);

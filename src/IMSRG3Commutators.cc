@@ -4942,7 +4942,6 @@ namespace Commutator
     if ((std::abs(X2.Norm() * Y2.Norm()) < 1e-6) and not Z.modelspace->scalar3b_transform_first_pass)
       return;
 
-//    std::cout << "Z particle rank = " << Z.GetParticleRank() << "   is Z3 allocated? " << Z3.IsAllocated() << std::endl;
 
     Z.modelspace->PreCalculateSixJ(); // If we already did this, this does nothing.
 
@@ -5235,7 +5234,6 @@ namespace Commutator
 
 
                       } // for a
-                        //                }// for j2a
                     }   // for it_obc
                   }     // for J2p
                 }       // for tz2a
@@ -5286,7 +5284,7 @@ namespace Commutator
     }
 
     Z.profiler.timer[__func__] += omp_get_wtime() - tstart;
-  }
+  }// comm223ss
 
 
 

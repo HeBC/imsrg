@@ -1738,6 +1738,7 @@ double ModelSpace::GetSixJ(double j1, double j2, double j3, double J1, double J2
   return sixj;
 }
 
+
 /// Loop over all the 6j symbols that we expect to encounter, and
 /// store them in a hash table.
 /// Calculate all symbols
@@ -1761,45 +1762,62 @@ void ModelSpace::PreCalculateSixJ()
   std::cout << "Precalculating SixJ's" << std::endl;
   double t_start = omp_get_wtime();
   std::vector<uint64_t> KEYS;
-  int upperLimit_j2a = (2 * Emax + 1);
-  int upperLimit_j2b = 3 * (2 * Emax + 1);
-  int upperLimit_j2c = (2 * Emax + 1);
-  int upperLimit_j2d = 3 * (2 * Emax + 1);
+  SixJList.clear();
 
-  for (int j2a = 1; j2a <= upperLimit_j2a; j2a += 2)
+  int jmax_1b = 2*Emax+1; // maximum j a single particle can have
+  int jmax_2b = 2*jmax_1b; // max j two particles can have
+  int jmax_3b = 3*jmax_1b; // max j three particles can have
+
+  // { ja jb J1 }  for IMSRG(2), a,b,c,d are all single-particle js.
+  // { jc jd J2 }  for many IMSRG(3) terms,  jd can be a 3-particle j
+  //               and for 333_pph_hhp, both jb and jd can be 3-particle
+  //               for 133 both jc and jd can be 3-particle
+
+  for (int j2a = 1; j2a <= jmax_1b; j2a += 2)
   {
-    for (int j2b = 1; j2b <= upperLimit_j2b; j2b += 2)
+    for (int j2b = 1; j2b <= jmax_3b; j2b += 2)
     {
-      for (int j2c = 1; j2c <= upperLimit_j2c; j2c += 2)
+      for (int j2c = 1; j2c <= jmax_1b; j2c += 2)
       {
         // four half-integer j's,  two integer J's
-        for (int j2d = 1; j2d <= upperLimit_j2d; j2d += 2)
+        for (int j2d = 1; j2d <= jmax_3b; j2d += 2)
         {
-          if (j2b > std::max(j2d, 2 * Emax + 1))
+          if (j2b > std::max(j2d, jmax_1b))
             continue;
           // J1 couples a,b, and c,d;  J2 couples a,d and b,c
           // We extend the hash table to include symbols outside the coupling range for computational gain.
-          // We may want to revert this change at some point.
-          for (int J1 = 0; J1 <= 2 * (Emax * 2 + 1); J1 += 2)
+          // We may want to revert this change at some point. SRS: I reverted it.
+          for (int J1 = 0; J1 <= jmax_2b; J1 += 2)
           {
-            for (int J2 = 0; J2 <= 2 * (Emax * 2 + 1); J2 += 2)
+            if (not ( AngMom::Triangle(j2a,j2b,J1) and AngMom::Triangle(j2c,j2d,J1) ) ) continue;
+            for (int J2 = 0; J2 <= jmax_2b; J2 += 2)
             {
+              if (not ( AngMom::Triangle(j2a,j2d,J2) and AngMom::Triangle(j2c,j2b,J2) ) ) continue;
               uint64_t key = SixJHash(0.5 * j2a, 0.5 * j2b, 0.5 * J1, 0.5 * j2c, 0.5 * j2d, 0.5 * J2);
               if (SixJList.count(key) == 0)
               {
-                KEYS.push_back(key);
                 SixJList[key] = 0.; // Make sure eveything's in there to avoid a rehash in the parallel loop
               }
             } // for J2
           } // for J1
         } // for j2d
+      } // for j2c
+    } // for j2b
+  } // for j2a
 
-        // three half-integer j's, three integer J's
-        // <J1,J2|J3>  <a,b|J3>,  <J1,b|c>  <a,J2|c>
+  // three half-integer j's, three integer J's
+  //  { J1 J2 J3 }    for the tensor 223 commutator, we need this where both
+  //  { ja jb jc }    ja and jb are 3-body Js, which can go up to 3 times the single-particle limit.
+  for (int j2a = 1; j2a <= jmax_3b; j2a += 2)
+  {
+    for (int j2b = 1; j2b <= jmax_3b; j2b += 2)
+    {
+      for (int j2c = 1; j2c <= jmax_1b; j2c += 2)
+      {
         int J1_min = std::abs(j2b - j2c);
-        int J1_max = j2b + j2c;
+        int J1_max = std::min( j2b + j2c,  jmax_2b);
         int J2_min = std::abs(j2a - j2c);
-        int J2_max = j2a + j2c;
+        int J2_max = std::min( j2a + j2c,  jmax_2b);
         for (int J1 = J1_min; J1 <= J1_max; J1 += 2)
         {
           for (int J2 = J2_min; J2 <= J2_max; J2 += 2)
@@ -1811,7 +1829,6 @@ void ModelSpace::PreCalculateSixJ()
               uint64_t key = SixJHash(0.5 * J1, 0.5 * J2, 0.5 * J3, 0.5 * j2a, 0.5 * j2b, 0.5 * j2c);
               if (SixJList.count(key) == 0)
               {
-                KEYS.push_back(key);
                 SixJList[key] = 0.; // Make sure eveything's in there to avoid a rehash in the parallel loop
               }
             } // for J3
@@ -1820,6 +1837,10 @@ void ModelSpace::PreCalculateSixJ()
       } // for j2c
     } // for j2b
   } // for j2a
+  for (auto& iter : SixJList)
+  {
+                KEYS.push_back(iter.first);
+  }
 
 #pragma omp parallel for schedule(dynamic, 1)
   for (size_t i = 0; i < KEYS.size(); ++i)
@@ -1827,6 +1848,7 @@ void ModelSpace::PreCalculateSixJ()
     uint64_t j1, j2, j3, J1, J2, J3;
     uint64_t key = KEYS[i];
     SixJUnHash(key, j1, j2, j3, J1, J2, J3);
+//    std::cout << "   " << j1 << " " << j2 << " " << j3 << " " << J1 << " "<< J2 << " " << J3 << std::endl;
     SixJList[key] = AngMom::SixJ(0.5 * j1, 0.5 * j2, 0.5 * j3, 0.5 * J1, 0.5 * J2, 0.5 * J3);
   }
   sixj_has_been_precalculated = true;

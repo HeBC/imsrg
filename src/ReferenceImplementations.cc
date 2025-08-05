@@ -19,6 +19,7 @@ namespace ReferenceImplementations
   ///
   void comm110ss(const Operator &X, const Operator &Y, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     auto &X1 = X.OneBody;
     auto &Y1 = Y.OneBody;
     double z0 = 0;
@@ -32,6 +33,7 @@ namespace ReferenceImplementations
       }
     }
     Z.ZeroBody += z0;
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   }
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -41,6 +43,7 @@ namespace ReferenceImplementations
   ///
   void comm220ss(const Operator &X, const Operator &Y, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     auto &X2 = X.TwoBody;
     auto &Y2 = Y.TwoBody;
     double z0 = 0;
@@ -74,6 +77,7 @@ namespace ReferenceImplementations
       }
     }
     Z.ZeroBody += z0;
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   }
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -83,6 +87,7 @@ namespace ReferenceImplementations
   ///
   void comm111ss(const Operator &X, const Operator &Y, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     auto &X1 = X.OneBody;
     auto &Y1 = Y.OneBody;
     auto &Z1 = Z.OneBody;
@@ -96,6 +101,7 @@ namespace ReferenceImplementations
         }
       }
     }
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   }
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -105,6 +111,7 @@ namespace ReferenceImplementations
   ///
   void comm121ss(const Operator &X, const Operator &Y, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     auto &X1 = X.OneBody;
     auto &Y1 = Y.OneBody;
     auto &X2 = X.TwoBody;
@@ -136,6 +143,7 @@ namespace ReferenceImplementations
         }
       }
     }
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   }
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -145,6 +153,7 @@ namespace ReferenceImplementations
   ///
   void comm221ss(const Operator &X, const Operator &Y, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     auto &X2 = X.TwoBody;
     auto &Y2 = Y.TwoBody;
     auto &Z1 = Z.OneBody;
@@ -185,6 +194,7 @@ namespace ReferenceImplementations
         } // a
       } // j
     } // i
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   }
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -264,64 +274,9 @@ namespace ReferenceImplementations
         } // iket
       } // ibra
     } // ch
-    X.profiler.timer["ref_" + std::string(__func__)] += omp_get_wtime() - t_start;
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   }
 
-  /*
-  void comm122ss( const Operator& X, const Operator& Y, Operator& Z )
-  {
-     auto& X1 = X.OneBody;
-     auto& Y1 = Y.OneBody;
-     auto& X2 = X.TwoBody;
-     auto& Y2 = Y.TwoBody;
-     auto& Z2 = Z.TwoBody;
-
-     int nch = Z.modelspace->GetNumberTwoBodyChannels();
-     #pragma omp parallel for schedule(dynamic,1)
-     for (int ch=0; ch<nch; ch++)
-     {
-       TwoBodyChannel& tbc = Z.modelspace->GetTwoBodyChannel(ch);
-       int J = tbc.J;
-       int nkets = tbc.GetNumberKets();
-       for (int ibra=0; ibra<nkets; ibra++)
-       {
-         Ket& bra = tbc.GetKet(ibra);
-         size_t i = bra.p;
-         size_t j = bra.q;
-
-         for (int iket=ibra; iket<nkets; iket++)
-         {
-           Ket& ket = tbc.GetKet(iket);
-           size_t k = ket.p;
-           size_t l = ket.q;
-
-           double zijkl = 0;
-           for ( size_t a : Z.modelspace->all_orbits )
-           {
-  //           Orbit& oa = Z.modelspace->GetOrbit(a);
-             double xajkl = X2.GetTBME_J(J,J, a,j,k,l);
-             double yajkl = Y2.GetTBME_J(J,J, a,j,k,l);
-             double xiakl = X2.GetTBME_J(J,J, i,a,k,l);
-             double yiakl = Y2.GetTBME_J(J,J, i,a,k,l);
-             double xijal = X2.GetTBME_J(J,J, i,j,a,l);
-             double yijal = Y2.GetTBME_J(J,J, i,j,a,l);
-             double xijka = X2.GetTBME_J(J,J, i,j,k,a);
-             double yijka = Y2.GetTBME_J(J,J, i,j,k,a);
-
-             zijkl += X1(i,a) * yajkl + X1(j,a) * yiakl - yijal * X1(a,k) - yijka * X1(a,l);
-             zijkl -= Y1(i,a) * xajkl + Y1(j,a) * xiakl - xijal * Y1(a,k) - xijka * Y1(a,l);
-           }//a
-           // Need to normalize here, because AddToTBME expects a normalized TBME.
-           if (i==j) zijkl /= PhysConst::SQRT2;
-           if (k==l) zijkl /= PhysConst::SQRT2;
-
-           Z2.AddToTBME(ch,ch, ibra,iket, zijkl);
-
-         }//iket
-       }//ibra
-     }//ch
-
-  }*/
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////
   ///
@@ -331,6 +286,7 @@ namespace ReferenceImplementations
 
   void comm222_pp_hhss(const Operator &X, const Operator &Y, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     auto &X2 = X.TwoBody;
     auto &Y2 = Y.TwoBody;
     auto &Z2 = Z.TwoBody;
@@ -396,6 +352,7 @@ namespace ReferenceImplementations
         } // iket
       } // ibra
     } // ch
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   } // comm222_pp_hhss
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -408,6 +365,7 @@ namespace ReferenceImplementations
   ///
   void comm222_phss(const Operator &X, const Operator &Y, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     auto &X2 = X.TwoBody;
     auto &Y2 = Y.TwoBody;
     auto &Z2 = Z.TwoBody;
@@ -559,8 +517,8 @@ namespace ReferenceImplementations
         } // iket
       } // ibra
     } // ch
-    // Z.PrintTwoBody();
 
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   } // comm222_phss
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -581,6 +539,7 @@ namespace ReferenceImplementations
   ///
   void comm330ss(const Operator &X, const Operator &Y, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     auto &X3 = X.ThreeBody;
     auto &Y3 = Y.ThreeBody;
     double z0 = 0;
@@ -651,6 +610,7 @@ namespace ReferenceImplementations
       } // b
     } // a
     Z.ZeroBody += z0;
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   } // comm330ss
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -660,6 +620,7 @@ namespace ReferenceImplementations
   ///
   void comm331ss(const Operator &X, const Operator &Y, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     auto &X3 = X.ThreeBody;
     auto &Y3 = Y.ThreeBody;
     auto &Z1 = Z.OneBody;
@@ -731,6 +692,7 @@ namespace ReferenceImplementations
         Z1(i, j) += zij;
       } // j
     } // i
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   } // comm331ss
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -740,6 +702,7 @@ namespace ReferenceImplementations
   ///
   void comm231ss(const Operator &X, const Operator &Y, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     auto &X2 = X.TwoBody;
     auto &Y2 = Y.TwoBody;
     auto &X3 = X.ThreeBody;
@@ -811,6 +774,7 @@ namespace ReferenceImplementations
         Z1(i, j) += zij;
       } // j
     } // i
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   } // comm231ss
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -820,6 +784,7 @@ namespace ReferenceImplementations
   ///
   void comm132ss(const Operator &X, const Operator &Y, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     auto &X1 = X.OneBody;
     auto &Y1 = Y.OneBody;
     auto &X3 = X.ThreeBody;
@@ -889,6 +854,7 @@ namespace ReferenceImplementations
       } // ibra
     } // ch2
 
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   } // comm132ss
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -901,6 +867,7 @@ namespace ReferenceImplementations
   ///
   void comm232ss(const Operator &X, const Operator &Y, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     auto &X2 = X.TwoBody;
     auto &X3 = X.ThreeBody;
     auto &Y2 = Y.TwoBody;
@@ -990,7 +957,7 @@ namespace ReferenceImplementations
                   {
 
                     double Jtot = 0.5 * twoJ;
-                    double sixj = Z.modelspace->GetSixJ(jj, ji, J, jc, Jtot, Jab);
+                    double sixj = AngMom::SixJ(jj, ji, J, jc, Jtot, Jab);
                     double hatfactor = (twoJ + 1) * sqrt((2 * Jab + 1.) / (2 * J + 1));
                     double xabjklc = yicab_good ? X3.GetME_pn(Jab, J, twoJ, a, b, j, k, l, c) : 0;
                     double yabjklc = xicab_good ? Y3.GetME_pn(Jab, J, twoJ, a, b, j, k, l, c) : 0;
@@ -1009,7 +976,7 @@ namespace ReferenceImplementations
                   for (int twoJ = twoJ_min; twoJ <= twoJ_max; twoJ += 2)
                   {
                     double Jtot = 0.5 * twoJ;
-                    double sixj = Z.modelspace->GetSixJ(ji, jj, J, jc, Jtot, Jab);
+                    double sixj = AngMom::SixJ(ji, jj, J, jc, Jtot, Jab);
                     double hatfactor = (twoJ + 1) * sqrt((2 * Jab + 1.) / (2 * J + 1));
                     double xabiklc = yjcab_good ? X3.GetME_pn(Jab, J, twoJ, a, b, i, k, l, c) : 0;
                     double yabiklc = xjcab_good ? Y3.GetME_pn(Jab, J, twoJ, a, b, i, k, l, c) : 0;
@@ -1028,7 +995,7 @@ namespace ReferenceImplementations
                   for (int twoJ = twoJ_min; twoJ <= twoJ_max; twoJ += 2)
                   {
                     double Jtot = 0.5 * twoJ;
-                    double sixj = Z.modelspace->GetSixJ(jl, jk, J, jc, Jtot, Jab);
+                    double sixj = AngMom::SixJ(jl, jk, J, jc, Jtot, Jab);
                     double hatfactor = (twoJ + 1) * sqrt((2 * Jab + 1.) / (2 * J + 1));
                     double xijcabl = yabck_good ? X3.GetME_pn(J, Jab, twoJ, i, j, c, a, b, l) : 0;
                     double yijcabl = xabck_good ? Y3.GetME_pn(J, Jab, twoJ, i, j, c, a, b, l) : 0;
@@ -1047,7 +1014,7 @@ namespace ReferenceImplementations
                   for (int twoJ = twoJ_min; twoJ <= twoJ_max; twoJ += 2)
                   {
                     double Jtot = 0.5 * twoJ;
-                    double sixj = Z.modelspace->GetSixJ(jk, jl, J, jc, Jtot, Jab);
+                    double sixj = AngMom::SixJ(jk, jl, J, jc, Jtot, Jab);
                     double hatfactor = (twoJ + 1) * sqrt((2 * Jab + 1.) / (2 * J + 1));
                     double xijcabk = yabcl_good ? X3.GetME_pn(J, Jab, twoJ, i, j, c, a, b, k) : 0;
                     double yijcabk = xabcl_good ? Y3.GetME_pn(J, Jab, twoJ, i, j, c, a, b, k) : 0;
@@ -1066,6 +1033,7 @@ namespace ReferenceImplementations
       } // for ibra
     } // for ch
 
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   } // comm232ss
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1075,6 +1043,7 @@ namespace ReferenceImplementations
   ///
   void comm332_ppph_hhhpss(const Operator &X, const Operator &Y, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     auto &X3 = X.ThreeBody;
     auto &Y3 = Y.ThreeBody;
     auto &Z2 = Z.TwoBody;
@@ -1165,6 +1134,7 @@ namespace ReferenceImplementations
       } // ibra
     } // ch2
 
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   } // comm332_ppph_hhhpss
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1179,6 +1149,7 @@ namespace ReferenceImplementations
   ///
   void comm332_pphhss(const Operator &X, const Operator &Y, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     auto &X3 = X.ThreeBody;
     auto &Y3 = Y.ThreeBody;
     auto &Z2 = Z.TwoBody;
@@ -1337,6 +1308,7 @@ namespace ReferenceImplementations
         } // for iket
       } // for ibra
     } // for ch
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   }
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1347,6 +1319,7 @@ namespace ReferenceImplementations
   ///
   void comm133ss(const Operator &X, const Operator &Y, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     auto &X3 = X.ThreeBody;
     auto &Y3 = Y.ThreeBody;
     auto &Z3 = Z.ThreeBody;
@@ -1458,6 +1431,7 @@ namespace ReferenceImplementations
       } // for iket
     } // for ich  -> {ch_bra,ch_ket,ibra}
 
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   } // comm133ss
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1468,6 +1442,7 @@ namespace ReferenceImplementations
   ///
   void comm223ss(const Operator &X, const Operator &Y, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     auto &Z3 = Z.ThreeBody;
     auto &X2 = X.TwoBody;
     auto &Y2 = Y.TwoBody;
@@ -1608,8 +1583,8 @@ namespace ReferenceImplementations
                     }
                     else
                     {
-                      sixj = j2a < twoJ ? Z.modelspace->GetSixJ(j6, ja, J1p, j3, 0.5 * twoJ, J2p)
-                                        : Z.modelspace->GetSixJ(j6, 0.5 * twoJ, J2p, j3, ja, J1p);
+                      sixj = j2a < twoJ ? AngMom::SixJ(j6, ja, J1p, j3, 0.5 * twoJ, J2p)
+                                        : AngMom::SixJ(j6, 0.5 * twoJ, J2p, j3, ja, J1p);
                     }
 
                     for (size_t a : Z.modelspace->all_orbits)
@@ -1638,6 +1613,7 @@ namespace ReferenceImplementations
       } // for iket
     } // for ch3
 
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   } // comm233ss
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1649,6 +1625,7 @@ namespace ReferenceImplementations
   /// THIS VERSION IS STILL TOO SLOW FOR GOING BEYOND EMAX=2...
   void comm233_pp_hhss(const Operator &X, const Operator &Y, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     auto &X2 = X.TwoBody;
     auto &Y2 = Y.TwoBody;
     auto &X3 = X.ThreeBody;
@@ -1820,6 +1797,7 @@ namespace ReferenceImplementations
         //    }// for ibra
     } // for ch3
 
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   } // comm233_pp_hhss
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1830,6 +1808,7 @@ namespace ReferenceImplementations
   ///
   void comm233_phss(const Operator &X, const Operator &Y, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     auto &X2 = X.TwoBody;
     auto &Y2 = Y.TwoBody;
     auto &X3 = X.ThreeBody;
@@ -2000,6 +1979,7 @@ namespace ReferenceImplementations
         //    }//ibra
     } // ch
     std::cout << "Ref " << __func__ << " Done" << std::endl;
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   } // comm233_phss
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -2008,6 +1988,7 @@ namespace ReferenceImplementations
   ///
   void comm333_ppp_hhhss(const Operator &X, const Operator &Y, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     auto &X3 = X.ThreeBody;
     auto &Y3 = Y.ThreeBody;
     auto &Z3 = Z.ThreeBody;
@@ -2097,11 +2078,12 @@ namespace ReferenceImplementations
       } // iket : lmn
     } // chbra, chket
 
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   } // comm333_ppp_hhhss
 
   void comm333_pph_hhpss(const Operator &X, const Operator &Y, Operator &Z)
   {
-
+    double t_start = omp_get_wtime();
     auto &X3 = X.ThreeBody;
     auto &Y3 = Y.ThreeBody;
     auto &Z3 = Z.ThreeBody;
@@ -2158,10 +2140,10 @@ namespace ReferenceImplementations
       std::vector<int> J1p_max = {J1, (ok.j2 + oj.j2) / 2, (oi.j2 + ok.j2) / 2};
       std::vector<std::vector<double>> recouple_ijk = {{1}, {}, {}};
       for (int J1p = J1p_min[1]; J1p <= J1p_max[1]; J1p++)
-        recouple_ijk[1].push_back(sqrt((2 * J1 + 1) * (2 * J1p + 1)) * Z.modelspace->GetSixJ(ji, jj, J1, jk, Jtot, J1p));
+        recouple_ijk[1].push_back(sqrt((2 * J1 + 1) * (2 * J1p + 1)) * AngMom::SixJ(ji, jj, J1, jk, Jtot, J1p));
 
       for (int J1p = J1p_min[2]; J1p <= J1p_max[2]; J1p++)
-        recouple_ijk[2].push_back(-Z.modelspace->phase((oj.j2 + ok.j2) / 2 + J1 + J1p) * sqrt((2 * J1 + 1) * (2 * J1p + 1)) * Z.modelspace->GetSixJ(jj, ji, J1, jk, Jtot, J1p));
+        recouple_ijk[2].push_back(-Z.modelspace->phase((oj.j2 + ok.j2) / 2 + J1 + J1p) * sqrt((2 * J1 + 1) * (2 * J1p + 1)) * AngMom::SixJ(jj, ji, J1, jk, Jtot, J1p));
 
       //      for (size_t iket=ibra; iket<nkets3; iket++)
 
@@ -2188,10 +2170,10 @@ namespace ReferenceImplementations
         std::vector<std::vector<double>> recouple_lmn = {{1}, {}, {}};
 
         for (int J2p = J2p_min[1]; J2p <= J2p_max[1]; J2p++)
-          recouple_lmn[1].push_back(sqrt((2 * J2 + 1) * (2 * J2p + 1)) * Z.modelspace->GetSixJ(jl, jm, J2, jn, Jtot, J2p));
+          recouple_lmn[1].push_back(sqrt((2 * J2 + 1) * (2 * J2p + 1)) * AngMom::SixJ(jl, jm, J2, jn, Jtot, J2p));
 
         for (int J2p = J2p_min[2]; J2p <= J2p_max[2]; J2p++)
-          recouple_lmn[2].push_back(-Z.modelspace->phase((om.j2 + on.j2) / 2 + J2 + J2p) * sqrt((2 * J2 + 1) * (2 * J2p + 1)) * Z.modelspace->GetSixJ(jm, jl, J2, jn, Jtot, J2p));
+          recouple_lmn[2].push_back(-Z.modelspace->phase((om.j2 + on.j2) / 2 + J2 + J2p) * sqrt((2 * J2 + 1) * (2 * J2p + 1)) * AngMom::SixJ(jm, jl, J2, jn, Jtot, J2p));
 
         double z_ijklmn = 0;
 
@@ -2306,6 +2288,7 @@ namespace ReferenceImplementations
 
     } // for ch3
 
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   } // comm333_pph_hhpss
 
   /// Start of scalar-tensor commutators
@@ -2313,6 +2296,7 @@ namespace ReferenceImplementations
   void comm111st(const Operator &X, const Operator &Y, Operator &Z)
   {
 
+    double t_start = omp_get_wtime();
     for (auto i : Z.modelspace->all_orbits)
     {
       for (auto j : Z.modelspace->all_orbits)
@@ -2325,6 +2309,7 @@ namespace ReferenceImplementations
         Z.OneBody(i, j) += zij;
       } // for j
     } // for i
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   } // comm111st
 
   // Streightforward implementation of second term of equation (B2) in Parzuchowski et al PRC 96, 034324 (2017).
@@ -2332,7 +2317,7 @@ namespace ReferenceImplementations
   //
   void comm121st(const Operator &X, const Operator &Y, Operator &Z)
   {
-
+    double t_start = omp_get_wtime();
     Z.modelspace->PreCalculateNineJ();
     int lambda = Y.GetJRank();
     for (auto i : Z.modelspace->all_orbits)
@@ -2360,7 +2345,7 @@ namespace ReferenceImplementations
             int J2max = std::min(oi.j2 + ob.j2, oj.j2 + oa.j2) / 2;
             for (int J2 = J2min; J2 <= J2max; J2++)
             {
-              double sixj = Z.modelspace->GetSixJ(ji, jj, lambda, ja, jb, J2);
+              double sixj = AngMom::SixJ(ji, jj, lambda, ja, jb, J2);
               Xbar_ijab -= (2 * J2 + 1) * sixj * X.TwoBody.GetTBME_J(J2, J2, i, b, a, j);
             }
             double Ybar_ijab = 0;
@@ -2383,11 +2368,13 @@ namespace ReferenceImplementations
         Z.OneBody(i, j) += zij;
       } // for j
     } // for i
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   } // comm121st
 
   // This seems to be working --SRS 12/17/2024.
   void comm122st(const Operator &X, const Operator &Y, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     Z.modelspace->PreCalculateSixJ();
     int lambda = Y.GetJRank();
     int phase_lambda = Z.modelspace->phase(lambda); // (-1)^lambda
@@ -2446,28 +2433,28 @@ namespace ReferenceImplementations
           {
             Orbit &oa = Z.modelspace->GetOrbit(a);
             double ja = oa.j2 * 0.5;
-            double sixj = Z.modelspace->GetSixJ(J2, J1, lambda, jp, ja, jq);
+            double sixj = AngMom::SixJ(J2, J1, lambda, jp, ja, jq);
             zpqrs -= J1J2hat * phase_lambda * Z.modelspace->phase(jp + jq + J2) * sixj * Y.OneBody(p, a) * X.TwoBody.GetTBME_J(J2, J2, a, q, r, s);
           }
           for (auto a : Y.GetOneBodyChannel(oq.l, oq.j2, oq.tz2))
           {
             Orbit &oa = Z.modelspace->GetOrbit(a);
             double ja = oa.j2 * 0.5;
-            double sixj = Z.modelspace->GetSixJ(J2, J1, lambda, jq, ja, jp);
+            double sixj = AngMom::SixJ(J2, J1, lambda, jq, ja, jp);
             zpqrs += J1J2hat * phase_lambda * Z.modelspace->phase(J1 - J2) * sixj * Y.OneBody(q, a) * X.TwoBody.GetTBME_J(J2, J2, a, p, r, s);
           }
           for (auto a : Y.GetOneBodyChannel(os.l, os.j2, os.tz2))
           {
             Orbit &oa = Z.modelspace->GetOrbit(a);
             double ja = oa.j2 * 0.5;
-            double sixj = Z.modelspace->GetSixJ(J1, J2, lambda, js, ja, jr);
+            double sixj = AngMom::SixJ(J1, J2, lambda, js, ja, jr);
             zpqrs += J1J2hat * phase_lambda * Z.modelspace->phase(jr + js - J1) * sixj * Y.OneBody(a, s) * X.TwoBody.GetTBME_J(J1, J1, p, q, r, a);
           }
           for (auto a : Y.GetOneBodyChannel(oR.l, oR.j2, oR.tz2))
           {
             Orbit &oa = Z.modelspace->GetOrbit(a);
             double ja = oa.j2 * 0.5;
-            double sixj = Z.modelspace->GetSixJ(J1, J2, lambda, jr, ja, js);
+            double sixj = AngMom::SixJ(J1, J2, lambda, jr, ja, js);
             zpqrs -= J1J2hat * phase_lambda * Z.modelspace->phase(J1 + J2) * sixj * Y.OneBody(a, r) * X.TwoBody.GetTBME_J(J1, J1, p, q, s, a);
           }
 
@@ -2483,12 +2470,13 @@ namespace ReferenceImplementations
 
     } // for ch_bra/ch_ket
     // Z.PrintTwoBody();
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   }
 
   // This has not yet been validated, and is almost certainly wrong.
   void comm221st(const Operator &X, const Operator &Y, Operator &Z)
   {
-
+    double t_start = omp_get_wtime();
     int lambda = Y.GetJRank();
     for (auto i : Z.modelspace->all_orbits)
     {
@@ -2512,7 +2500,7 @@ namespace ReferenceImplementations
           {
             for (int J2 = J2min; J2 <= J2max; J2++)
             {
-              double sixj = Z.modelspace->GetSixJ(J1, J2, lambda, jj, ji, jc);
+              double sixj = AngMom::SixJ(J1, J2, lambda, jj, ji, jc);
               double hats = sqrt((2 * J1 + 1) * (2 * J2 + 1));
               int phase = AngMom::phase(jj + jc + J1 + lambda);
 
@@ -2541,6 +2529,7 @@ namespace ReferenceImplementations
       } // for j
     } // for i
 
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   } // comm221st
 
   // [2,2]->2 ph commutator. Tested against m-scheme expressions and it agrees.
@@ -2549,6 +2538,7 @@ namespace ReferenceImplementations
   //    Zpqrs_J1,J2,lam = sum_ab s sum_J3J4 hat{J1J2J3J4} (na-nb) [ [1 - Ppq(J1)][1-Prs(J2)]  * (-1)^(q+s+J2+J4) { p  s  J3  } Xbar_psab^J3 * Ybar_abrq^J3,J4,lam ]
   void comm222_phst(const Operator &X, const Operator &Y, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     int lambda = Y.GetJRank();
     for (auto &iter : Z.TwoBody.MatEl)
     {
@@ -2681,10 +2671,12 @@ namespace ReferenceImplementations
         } // for iket
       } // for ibra
     } // for iter
-  }
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
+  }//comm222_phst
 
   void comm222_pp_hhst(const Operator &X, const Operator &Y, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     int lambda = Y.GetJRank();
     for (auto &iter : Z.TwoBody.MatEl)
     {
@@ -2741,6 +2733,7 @@ namespace ReferenceImplementations
       } // for ibra
     } // for ch_bra,ch_ket
 
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   } // comm222_pp_hhst
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -2756,12 +2749,12 @@ namespace ReferenceImplementations
   ///
   void comm331st(const Operator &X, const Operator &Y, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     Z.modelspace->PreCalculateSixJ();
     auto &X3 = X.ThreeBody;
     auto &Y3 = Y.ThreeBody;
     auto &Z1 = Z.OneBody;
 
-    double tstart = omp_get_wtime();
     int Lambda = Z.GetJRank();
     int hZ = Z.IsHermitian() ? +1 : -1;
 
@@ -2893,7 +2886,7 @@ namespace ReferenceImplementations
       } // j
     } // i
 
-    X.profiler.timer[__func__] += omp_get_wtime() - tstart;
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   } // comm331st
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -2908,6 +2901,7 @@ namespace ReferenceImplementations
   ///
   void comm223st(const Operator &X, const Operator &Y, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     auto &X2 = X.TwoBody;
     auto &Y2 = Y.TwoBody;
     auto &Z3 = Z.ThreeBody;
@@ -3089,7 +3083,8 @@ namespace ReferenceImplementations
       } // for iket
     } // for ch3
 
-  } // comm233st
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
+  } // comm223st
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////
   ///
@@ -3106,6 +3101,7 @@ namespace ReferenceImplementations
   ///
   void comm231st(const Operator &X, const Operator &Y, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     auto &X2 = X.TwoBody;
     auto &Y2 = Y.TwoBody;
     auto &X3 = X.ThreeBody;
@@ -3227,6 +3223,7 @@ namespace ReferenceImplementations
 
       } // j
     } // i
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   } // comm231st
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -3254,6 +3251,7 @@ namespace ReferenceImplementations
   ///
   void comm232st(const Operator &X, const Operator &Y, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     auto &X2 = X.TwoBody;
     auto &X3 = X.ThreeBody;
     auto &Y2 = Y.TwoBody;
@@ -3572,6 +3570,7 @@ namespace ReferenceImplementations
       } // for ibra
     } // for ch
 
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   } // comm232st
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -3589,6 +3588,7 @@ namespace ReferenceImplementations
   ///
   void comm133st(const Operator &X, const Operator &Y, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     auto &X3 = X.ThreeBody;
     auto &Y3 = Y.ThreeBody;
     auto &X1 = X.OneBody;
@@ -3650,16 +3650,16 @@ namespace ReferenceImplementations
         {
           // eq.(9.1)
           Orbit &oa = Z.modelspace->GetOrbit(a);
-          if (oa.j2 != ok.j2)
-            continue;
+//          if (oa.j2 != ok.j2)
+//            continue;
           zsum += X1(k, a) * Y3.GetME_pn(Jij, twoj1, Jlm, twoj2, i, j, a, l, m, n);
         }
         for (auto a : Y.GetOneBodyChannel(ok.l, ok.j2, ok.tz2))
         {
           // eq.(9.2)
           Orbit &oa = Z.modelspace->GetOrbit(a);
-          if (oa.j2 != ok.j2)
-            continue;
+//          if (oa.j2 != ok.j2)
+//            continue;
 
           int phasefactor = Z.modelspace->phase((oa.j2 + twoj1) / 2 + Jij + Lambda);
           double sixj = AngMom::SixJ(ok.j2 / 2., oa.j2 / 2., Lambda,
@@ -3671,8 +3671,8 @@ namespace ReferenceImplementations
         {
           // eq.(9.3)
           Orbit &oa = Z.modelspace->GetOrbit(a);
-          if (oa.j2 != oi.j2)
-            continue;
+//          if (oa.j2 != oi.j2)
+//            continue;
           int J3min = std::abs(ok.j2 - oj.j2) / 2;
           int J3max = (ok.j2 + oj.j2) / 2;
           for (int J3 = J3min; J3 <= J3max; J3++)
@@ -3689,8 +3689,8 @@ namespace ReferenceImplementations
         {
           // eq.(9.4)
           Orbit &oa = Z.modelspace->GetOrbit(a);
-          if (oa.j2 != oi.j2)
-            continue;
+//          if (oa.j2 != oi.j2)
+//            continue;
 
           int J3min = std::abs(ok.j2 - oj.j2) / 2;
           int J3max = (ok.j2 + oj.j2) / 2;
@@ -3709,8 +3709,8 @@ namespace ReferenceImplementations
         {
           // eq.(9.5)
           Orbit &oa = Z.modelspace->GetOrbit(a);
-          if (oa.j2 != oj.j2)
-            continue;
+//          if (oa.j2 != oj.j2)
+//            continue;
           int J3min = std::abs(ok.j2 - oi.j2) / 2;
           int J3max = (ok.j2 + oi.j2) / 2;
           for (int J3 = J3min; J3 <= J3max; J3++)
@@ -3728,8 +3728,8 @@ namespace ReferenceImplementations
         {
           // eq.(9.6)
           Orbit &oa = Z.modelspace->GetOrbit(a);
-          if (oa.j2 != oj.j2)
-            continue;
+//          if (oa.j2 != oj.j2)
+//            continue;
 
           int J3min = std::abs(ok.j2 - oi.j2) / 2;
           int J3max = (ok.j2 + oi.j2) / 2;
@@ -3750,16 +3750,16 @@ namespace ReferenceImplementations
         {
           // eq.(10.1)
           Orbit &oa = Z.modelspace->GetOrbit(a);
-          if (oa.j2 != on.j2)
-            continue;
+//          if (oa.j2 != on.j2)
+//            continue;
           zsum -= Y3.GetME_pn(Jij, twoj1, Jlm, twoj2, i, j, k, l, m, a) * X1(a, n);
         }
         for (auto a : Y.GetOneBodyChannel(on.l, on.j2, on.tz2))
         {
           // eq.(10.2)
           Orbit &oa = Z.modelspace->GetOrbit(a);
-          if (oa.j2 != on.j2)
-            continue;
+//          if (oa.j2 != on.j2)
+//            continue;
           int phasefactor = Z.modelspace->phase((on.j2 + twoj1) / 2 + Jlm + Lambda);
           double hatfactor = sqrt((twoj1 + 1) * (twoj2 + 1));
           double sixj = AngMom::SixJ(on.j2 / 2., oa.j2 / 2., Lambda,
@@ -3770,8 +3770,8 @@ namespace ReferenceImplementations
         {
           // eq.(10.3)
           Orbit &oa = Z.modelspace->GetOrbit(a);
-          if (oa.j2 != ol.j2)
-            continue;
+//          if (oa.j2 != ol.j2)
+//            continue;
           int J3min = std::abs(on.j2 - om.j2) / 2;
           int J3max = (on.j2 + om.j2) / 2;
           for (int J3 = J3min; J3 <= J3max; J3++)
@@ -3786,8 +3786,8 @@ namespace ReferenceImplementations
         {
           // eq.(10.4)
           Orbit &oa = Z.modelspace->GetOrbit(a);
-          if (oa.j2 != ol.j2)
-            continue;
+//          if (oa.j2 != ol.j2)
+//            continue;
           int J3min = std::abs(on.j2 - om.j2) / 2;
           int J3max = (on.j2 + om.j2) / 2;
           for (int J3 = J3min; J3 <= J3max; J3++)
@@ -3807,8 +3807,8 @@ namespace ReferenceImplementations
         {
           // eq.(10.5)
           Orbit &oa = Z.modelspace->GetOrbit(a);
-          if (oa.j2 != om.j2)
-            continue;
+//          if (oa.j2 != om.j2)
+//            continue;
           int J3min = std::abs(ol.j2 - on.j2) / 2;
           int J3max = (ol.j2 + on.j2) / 2;
           for (int J3 = J3min; J3 <= J3max; J3++)
@@ -3824,8 +3824,8 @@ namespace ReferenceImplementations
         {
           // eq.(10.6)
           Orbit &oa = Z.modelspace->GetOrbit(a);
-          if (oa.j2 != om.j2)
-            continue;
+//          if (oa.j2 != om.j2)
+//            continue;
           int J3min = std::abs(ol.j2 - on.j2) / 2;
           int J3max = (ol.j2 + on.j2) / 2;
           for (int J3 = J3min; J3 <= J3max; J3++)
@@ -3841,12 +3841,15 @@ namespace ReferenceImplementations
             zsum += phasefactor * hatfactor * sixj * X3.GetME_pn(Jij, J3, twoj1, i, j, k, l, n, a) * Y1(a, m);
           }
         }
+/*
+*/
 
         Z3.AddToME_pn_ch(ch_bra, ch_ket, ibra, iket, zsum);
 
       } // for iket
     } // for ich  -> {ch_bra,ch_ket,ibra}
 
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   } // comm133st
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -3860,6 +3863,7 @@ namespace ReferenceImplementations
   ///
   void comm132st(const Operator &X, const Operator &Y, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     auto &X1 = X.OneBody;
     auto &Y1 = Y.OneBody;
     auto &X3 = X.ThreeBody;
@@ -3904,11 +3908,13 @@ namespace ReferenceImplementations
           for (size_t a : Z.modelspace->all_orbits)
           {
             Orbit &oa = Z.modelspace->GetOrbit(a);
-            for (size_t b : Z.modelspace->all_orbits)
+
+//            for (size_t b : Z.modelspace->all_orbits)
+            for (size_t b : X.GetOneBodyChannel( oa.l,oa.j2,oa.tz2 ) )
             {
               Orbit &ob = Z.modelspace->GetOrbit(b);
-              if (oa.j2 != ob.j2)
-                continue;
+//              if (oa.j2 != ob.j2)
+//                continue;
 
               int twoj1min = std::abs(2 * J1 - ob.j2);
               int twoj1max = 2 * J1 + ob.j2;
@@ -3928,9 +3934,14 @@ namespace ReferenceImplementations
                     zijkl += phasefactor * hatfactor * sixj * (oa.occ - ob.occ) * (xab * yijbkla);
                   } // twoj2
                 } // twoj1
+            } // b
 
-              twoj1min = std::max(std::abs(2 * J1 - ob.j2), std::abs(2 * J2 - oa.j2));
-              twoj1max = std::min(2 * J1 + ob.j2, 2 * J2 + oa.j2);
+            for (size_t b : Y.GetOneBodyChannel( oa.l,oa.j2,oa.tz2 ) )
+            {
+
+              Orbit &ob = Z.modelspace->GetOrbit(b);
+              int twoj1min = std::max(std::abs(2 * J1 - ob.j2), std::abs(2 * J2 - oa.j2));
+              int twoj1max = std::min(2 * J1 + ob.j2, 2 * J2 + oa.j2);
               double yab = Y1(a, b);
               if (std::abs(yab) > 1e-8)
                 for (int twoj1 = twoj1min; twoj1 <= twoj1max; twoj1 += 2)
@@ -3940,7 +3951,7 @@ namespace ReferenceImplementations
                     continue;
                   int phasefactor = Z.modelspace->phase((oa.j2 + twoj1) / 2 + J2);
                   double hatfactor = (twoj1 + 1);
-                  double sixj = AngMom::SixJ(J2, Lambda, J1,
+                  double sixj = AngMom::SixJ(J2,         Lambda,     J1,
                                              ob.j2 / 2., twoj1 / 2., oa.j2 / 2.);
                   zijkl -= phasefactor * hatfactor * sixj * (oa.occ - ob.occ) * (yab * xijbkla);
                 } // twoj1
@@ -3951,6 +3962,7 @@ namespace ReferenceImplementations
         } // iket
       } // ibra
     } // ch2
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   } // comm132st
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -3963,6 +3975,7 @@ namespace ReferenceImplementations
   ///
   void comm332_ppph_hhhpst(const Operator &X, const Operator &Y, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     auto &X3 = X.ThreeBody;
     auto &Y3 = Y.ThreeBody;
     auto &Z2 = Z.TwoBody;
@@ -4064,6 +4077,7 @@ namespace ReferenceImplementations
       } // ibra
     } // ch2
 
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   } // comm332_ppph_hhhpst
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -4083,6 +4097,7 @@ namespace ReferenceImplementations
   ///
   void comm332_pphhst(const Operator &X, const Operator &Y, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     auto &X3 = X.ThreeBody;
     auto &Y3 = Y.ThreeBody;
     auto &Z2 = Z.TwoBody;
@@ -4319,6 +4334,7 @@ namespace ReferenceImplementations
         } // for iket
       } // for ibra
     } // for ch
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   }
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -4337,6 +4353,7 @@ namespace ReferenceImplementations
   /// It's also ture for tensor (Bingcheng)
   void comm233_pp_hhst(const Operator &X, const Operator &Y, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     auto &X2 = X.TwoBody;
     auto &Y2 = Y.TwoBody;
     auto &X3 = X.ThreeBody;
@@ -4552,7 +4569,7 @@ namespace ReferenceImplementations
         Z3.AddToME_pn_ch(ch3bra, ch3ket, ibra, iket, zijklmn);
       } // for iket
     } // for ch3 and ibra
-
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   } // comm233_pp_hhst
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -4574,6 +4591,7 @@ namespace ReferenceImplementations
   ///
   void comm233_phst(const Operator &X, const Operator &Y, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     auto &X2 = X.TwoBody;
     auto &Y2 = Y.TwoBody;
     auto &X3 = X.ThreeBody;
@@ -4790,6 +4808,7 @@ namespace ReferenceImplementations
         //    }//ibra
     } // ch
     std::cout << "Ref " << __func__ << " Done" << std::endl;
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   } // comm233_phst
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -4800,6 +4819,7 @@ namespace ReferenceImplementations
   ///
   void comm333_ppp_hhhst(const Operator &X, const Operator &Y, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     auto &X3 = X.ThreeBody;
     auto &Y3 = Y.ThreeBody;
     auto &Z3 = Z.ThreeBody;
@@ -4876,11 +4896,13 @@ namespace ReferenceImplementations
       //    }//ibra : ijk
     } // chbra, chket
 
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   } // comm333_ppp_hhhst
 
   void comm333_pph_hhpst(const Operator &X, const Operator &Y, Operator &Z)
   {
 
+    double t_start = omp_get_wtime();
     auto &X3 = X.ThreeBody;
     auto &Y3 = Y.ThreeBody;
     auto &Z3 = Z.ThreeBody;
@@ -5128,6 +5150,7 @@ namespace ReferenceImplementations
         Z3.AddToME_pn_ch(ch3bra, ch3ket, ibra, iket, zijklmn);
       } // iket : lmn
     } // chbra, chket //ibra : ijk
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   } // comm333_pph_hhpst
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -5204,7 +5227,7 @@ namespace ReferenceImplementations
         }
       }
     }
-    Z.profiler.timer[__func__] += omp_get_wtime() - t_start;
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   }
 
   //
@@ -5278,7 +5301,7 @@ namespace ReferenceImplementations
         }
       }
     }
-    Z.profiler.timer[__func__] += omp_get_wtime() - t_start;
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   }
 
   void diagram_CIIa(const Operator &X, const Operator &Y, Operator &Z)
@@ -5337,7 +5360,7 @@ namespace ReferenceImplementations
         }
       }
     }
-    Z.profiler.timer[__func__] += omp_get_wtime() - t_start;
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   }
 
   void diagram_CIIb(const Operator &X, const Operator &Y, Operator &Z)
@@ -5385,7 +5408,7 @@ namespace ReferenceImplementations
                     for (int J1 = J1min; J1 <= J1max; J1++)
                     {
                       // double xijab = X.TwoBody.GetTBME_J(J1,J1,i,j,a,b);
-                      double sixj1 = AngMom::phase(J1) * (2 * J1 + 1) * Z.modelspace->GetSixJ(oa.j2 * 0.5, oi.j2 * 0.5, J4, oj.j2 * 0.5, ob.j2 * 0.5, J1);
+                      double sixj1 = AngMom::phase(J1) * (2 * J1 + 1) * AngMom::SixJ(oa.j2 * 0.5, oi.j2 * 0.5, J4, oj.j2 * 0.5, ob.j2 * 0.5, J1);
                       xijab += sixj1 * X.TwoBody.GetTBME_J(J1, J1, i, j, a, b);
                     }
 
@@ -5401,7 +5424,7 @@ namespace ReferenceImplementations
                       //                      double ybqjc = Y.TwoBody.GetTBME_J(J2,J2,b,q,j,c);
                       //                      double xbpjc = X.TwoBody.GetTBME_J(J2,J2,b,p,j,c);
                       //                      double xbqjc = X.TwoBody.GetTBME_J(J2,J2,b,q,j,c);
-                      double sixj2 = AngMom::phase(J2) * (2 * J2 + 1) * Z.modelspace->GetSixJ(op.j2 * 0.5, oc.j2 * 0.5, J4, oj.j2 * 0.5, ob.j2 * 0.5, J2);
+                      double sixj2 = AngMom::phase(J2) * (2 * J2 + 1) * AngMom::SixJ(op.j2 * 0.5, oc.j2 * 0.5, J4, oj.j2 * 0.5, ob.j2 * 0.5, J2);
                       ybpjc += sixj2 * Y.TwoBody.GetTBME_J(J2, J2, b, p, j, c);
                       ybqjc += sixj2 * Y.TwoBody.GetTBME_J(J2, J2, b, q, j, c);
                       xbpjc += sixj2 * X.TwoBody.GetTBME_J(J2, J2, b, p, j, c);
@@ -5420,7 +5443,7 @@ namespace ReferenceImplementations
                       // double xacip = X.TwoBody.GetTBME_J(J3,J3,a,c,i,p);
                       // double yaciq = Y.TwoBody.GetTBME_J(J3,J3,a,c,i,q);
                       // double yacip = Y.TwoBody.GetTBME_J(J3,J3,a,c,i,p);
-                      double sixj3 = AngMom::phase(J3) * (2 * J3 + 1) * Z.modelspace->GetSixJ(oa.j2 * 0.5, oi.j2 * 0.5, J4, op.j2 * 0.5, oc.j2 * 0.5, J3);
+                      double sixj3 = AngMom::phase(J3) * (2 * J3 + 1) * AngMom::SixJ(oa.j2 * 0.5, oi.j2 * 0.5, J4, op.j2 * 0.5, oc.j2 * 0.5, J3);
                       xaciq += sixj3 * X.TwoBody.GetTBME_J(J3, J3, a, c, i, q);
                       xacip += sixj3 * X.TwoBody.GetTBME_J(J3, J3, a, c, i, p);
                       yaciq += sixj3 * Y.TwoBody.GetTBME_J(J3, J3, a, c, i, q);
@@ -5432,9 +5455,9 @@ namespace ReferenceImplementations
                     //    double sixj_prod = 0;
                     //    for (int J4=J4min; J4<=J4max; J4++)
                     //    {
-                    //       double sixj1 = Z.modelspace->GetSixJ( oa.j2*0.5, oi.j2*0.5, J4,   oj.j2*0.5, ob.j2*0.5, J1);
-                    //       double sixj2 = Z.modelspace->GetSixJ( op.j2*0.5, oc.j2*0.5, J4,   oj.j2*0.5, ob.j2*0.5, J2);
-                    //       double sixj3 = Z.modelspace->GetSixJ( oa.j2*0.5, oi.j2*0.5, J4,   op.j2*0.5, oc.j2*0.5, J3);
+                    //       double sixj1 = AngMom::SixJ( oa.j2*0.5, oi.j2*0.5, J4,   oj.j2*0.5, ob.j2*0.5, J1);
+                    //       double sixj2 = AngMom::SixJ( op.j2*0.5, oc.j2*0.5, J4,   oj.j2*0.5, ob.j2*0.5, J2);
+                    //       double sixj3 = AngMom::SixJ( oa.j2*0.5, oi.j2*0.5, J4,   op.j2*0.5, oc.j2*0.5, J3);
                     //       sixj_prod += (2*J4+1) * AngMom::phase(J1+J2+J3+(ob.j2+oj.j2)/2) * sixj1*sixj2*sixj3;
                     //    }
 
@@ -5456,7 +5479,7 @@ namespace ReferenceImplementations
         Z.OneBody(p, q) += zpq;
       } // for q
     } // for p
-    Z.profiler.timer[__func__] += omp_get_wtime() - t_start;
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   }
 
   void diagram_CIIc(const Operator &X, const Operator &Y, Operator &Z)
@@ -5514,9 +5537,9 @@ namespace ReferenceImplementations
                         double sixj_prod = 0;
                         for (int J4 = J4min; J4 <= J4max; J4++)
                         {
-                          double sixj1 = Z.modelspace->GetSixJ(oa.j2 * 0.5, oi.j2 * 0.5, J4, oj.j2 * 0.5, ob.j2 * 0.5, J1);
-                          double sixj2 = Z.modelspace->GetSixJ(ok.j2 * 0.5, op.j2 * 0.5, J4, oj.j2 * 0.5, ob.j2 * 0.5, J2);
-                          double sixj3 = Z.modelspace->GetSixJ(oa.j2 * 0.5, oi.j2 * 0.5, J4, ok.j2 * 0.5, op.j2 * 0.5, J3);
+                          double sixj1 = AngMom::SixJ(oa.j2 * 0.5, oi.j2 * 0.5, J4, oj.j2 * 0.5, ob.j2 * 0.5, J1);
+                          double sixj2 = AngMom::SixJ(ok.j2 * 0.5, op.j2 * 0.5, J4, oj.j2 * 0.5, ob.j2 * 0.5, J2);
+                          double sixj3 = AngMom::SixJ(oa.j2 * 0.5, oi.j2 * 0.5, J4, ok.j2 * 0.5, op.j2 * 0.5, J3);
                           sixj_prod += (2 * J4 + 1) * AngMom::phase(J1 + J2 + J3 + (ob.j2 + oj.j2) / 2) * sixj1 * sixj2 * sixj3;
                         }
 
@@ -5537,7 +5560,7 @@ namespace ReferenceImplementations
       }
     }
 
-    Z.profiler.timer[__func__] += omp_get_wtime() - t_start;
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   }
 
   void diagram_CIId(const Operator &X, const Operator &Y, Operator &Z)
@@ -5595,7 +5618,7 @@ namespace ReferenceImplementations
         }
       }
     }
-    Z.profiler.timer[__func__] += omp_get_wtime() - t_start;
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   }
 
   void diagram_CIIIa(const Operator &X, const Operator &Y, Operator &Z)
@@ -5656,7 +5679,7 @@ namespace ReferenceImplementations
         }
       }
     }
-    Z.profiler.timer[__func__] += omp_get_wtime() - t_start;
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   }
 
   void diagram_CIIIb(const Operator &X, const Operator &Y, Operator &Z)
@@ -5716,7 +5739,7 @@ namespace ReferenceImplementations
         }
       }
     }
-    Z.profiler.timer[__func__] += omp_get_wtime() - t_start;
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   }
 
   // Initially, write it as the straightforward N^8 sum.
@@ -5800,7 +5823,7 @@ namespace ReferenceImplementations
 
     } // for itmat
 
-    Z.profiler.timer[__func__] += omp_get_wtime() - t_start;
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   }
 
   /*
@@ -6025,7 +6048,7 @@ namespace ReferenceImplementations
 
     } // for itmat
 
-    Z.profiler.timer[__func__] += omp_get_wtime() - t_start;
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   }
 
   void diagram_DIVa(const Operator &X, const Operator &Y, Operator &Z)
@@ -6117,7 +6140,7 @@ namespace ReferenceImplementations
 
     } // for itmat
 
-    Z.profiler.timer[__func__] += omp_get_wtime() - t_start;
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   }
 
   void diagram_DIVb(const Operator &X, const Operator &Y, Operator &Z)
@@ -6206,7 +6229,7 @@ namespace ReferenceImplementations
 
     } // for itmat
 
-    Z.profiler.timer[__func__] += omp_get_wtime() - t_start;
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   }
 
   /// Now do the DIVa and DIVb together by constructing a one-body intermediate
@@ -6363,7 +6386,7 @@ namespace ReferenceImplementations
 
     } // for itmat
 
-    Z.profiler.timer[__func__] += omp_get_wtime() - t_start;
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
   }
 
   /*
@@ -6529,6 +6552,7 @@ namespace ReferenceImplementations
   // [Omega, [Omega, H]]
   void comm223_231_BruteForce(const Operator &Eta, const Operator &Gamma, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     Z.modelspace->PreCalculateSixJ();
     bool EraseOB = false;
     // determine symmetry
@@ -6729,9 +6753,9 @@ namespace ReferenceImplementations
                         for (int J3 = J3min; J3 <= J3max; J3++)
                         {
                           double phasefactor = Z.modelspace->phase(J0 + J1 + J2 + (oc.j2 + od.j2) / 2);
-                          double sixj = Z.modelspace->GetSixJ(ja, jb, J3, jd, jc, J0);
-                          sixj *= Z.modelspace->GetSixJ(jp, je, J3, jd, jc, J1);
-                          sixj *= Z.modelspace->GetSixJ(jb, jp, J2, je, ja, J3);
+                          double sixj = AngMom::SixJ(ja, jb, J3, jd, jc, J0);
+                          sixj *= AngMom::SixJ(jp, je, J3, jd, jc, J1);
+                          sixj *= AngMom::SixJ(jb, jp, J2, je, ja, J3);
                           zij += phasefactor * (2 * J0 + 1) * (2 * J1 + 1) * (2 * J2 + 1) * (2 * J3 + 1) * sixj * occfactor * Eta.TwoBody.GetTBME_J(J0, J0, b, d, a, c) * Eta.TwoBody.GetTBME_J(J1, J1, c, p, d, e) * Gamma.TwoBody.GetTBME_J(J2, J2, a, e, b, q);
                         }
                       }
@@ -6942,9 +6966,9 @@ namespace ReferenceImplementations
                       {
                         for (int J3 = J3min; J3 <= J3max; J3++)
                         {
-                          double sixj = Z.modelspace->GetSixJ(jd, je, J3, jb, ja, J0);
-                          sixj *= Z.modelspace->GetSixJ(jc, jp, J3, jb, ja, J1);
-                          sixj *= Z.modelspace->GetSixJ(je, jc, J2, jp, jd, J3);
+                          double sixj = AngMom::SixJ(jd, je, J3, jb, ja, J0);
+                          sixj *= AngMom::SixJ(jc, jp, J3, jb, ja, J1);
+                          sixj *= AngMom::SixJ(je, jc, J2, jp, jd, J3);
                           zij += (2 * J0 + 1) * (2 * J1 + 1) * (2 * J2 + 1) * (2 * J3 + 1) * sixj * occfactor * Eta.TwoBody.GetTBME_J(J0, J0, b, e, d, a) * Eta.TwoBody.GetTBME_J(J1, J1, c, a, b, q) * Gamma.TwoBody.GetTBME_J(J2, J2, d, p, c, e);
                         }
                       }
@@ -7225,11 +7249,13 @@ namespace ReferenceImplementations
     if (EraseOB)
       Z.EraseOneBody();
 
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
     return;
   }
 
   void comm223_232_BruteForce(const Operator &Eta, const Operator &Gamma, Operator &Z)
   {
+    double t_start = omp_get_wtime();
     // global variables
     Z.modelspace->PreCalculateSixJ();
     int norbits = Z.modelspace->all_orbits.size();
@@ -7792,9 +7818,9 @@ namespace ReferenceImplementations
                         // double sixj2 = Z.modelspace->GetCachedSixJ(jp, ja, J4, jc, jb, J3);
                         // double sixj3 = Z.modelspace->GetCachedSixJ(jg, jp, J0, ja, jd, J4);
 
-                        double sixj1 = Z.modelspace->GetSixJ(jd, jg, J4, jc, jb, J2);
-                        double sixj2 = Z.modelspace->GetSixJ(jp, ja, J4, jc, jb, J3);
-                        double sixj3 = Z.modelspace->GetSixJ(jg, jp, J0, ja, jd, J4);
+                        double sixj1 = AngMom::SixJ(jd, jg, J4, jc, jb, J2);
+                        double sixj2 = AngMom::SixJ(jp, ja, J4, jc, jb, J3);
+                        double sixj3 = AngMom::SixJ(jg, jp, J0, ja, jd, J4);
 
                         zpgqh -= occfactor * sixj1 * sixj2 * sixj3 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * Eta.TwoBody.GetTBME_J(J2, c, g, d, b) * Eta.TwoBody.GetTBME_J(J3, p, b, c, a) * Gamma.TwoBody.GetTBME_J(J0, d, a, q, h);
                       }
@@ -7821,9 +7847,9 @@ namespace ReferenceImplementations
                         // double sixj2 = Z.modelspace->GetCachedSixJ(jg, ja, J4, jc, jb, J3);
                         // double sixj3 = Z.modelspace->GetCachedSixJ(jp, jg, J0, ja, jd, J4);
 
-                        double sixj1 = Z.modelspace->GetSixJ(jd, jp, J4, jc, jb, J2);
-                        double sixj2 = Z.modelspace->GetSixJ(jg, ja, J4, jc, jb, J3);
-                        double sixj3 = Z.modelspace->GetSixJ(jp, jg, J0, ja, jd, J4);
+                        double sixj1 = AngMom::SixJ(jd, jp, J4, jc, jb, J2);
+                        double sixj2 = AngMom::SixJ(jg, ja, J4, jc, jb, J3);
+                        double sixj3 = AngMom::SixJ(jp, jg, J0, ja, jd, J4);
 
                         zpgqh -= phase_pg * occfactor * sixj1 * sixj2 * sixj3 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * Eta.TwoBody.GetTBME_J(J2, c, p, d, b) * Eta.TwoBody.GetTBME_J(J3, g, b, c, a) * Gamma.TwoBody.GetTBME_J(J0, d, a, q, h);
                       }
@@ -7949,9 +7975,9 @@ namespace ReferenceImplementations
                         // double sixj2 = Z.modelspace->GetCachedSixJ(ja, jh, J4, jc, jb, J3);
                         // double sixj3 = Z.modelspace->GetCachedSixJ(jq, jh, J0, ja, jd, J4);
 
-                        double sixj1 = Z.modelspace->GetSixJ(jq, jd, J4, jc, jb, J2);
-                        double sixj2 = Z.modelspace->GetSixJ(ja, jh, J4, jc, jb, J3);
-                        double sixj3 = Z.modelspace->GetSixJ(jq, jh, J0, ja, jd, J4);
+                        double sixj1 = AngMom::SixJ(jq, jd, J4, jc, jb, J2);
+                        double sixj2 = AngMom::SixJ(ja, jh, J4, jc, jb, J3);
+                        double sixj3 = AngMom::SixJ(jq, jh, J0, ja, jd, J4);
 
                         zpgqh -= occfactor * sixj1 * sixj2 * sixj3 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * Eta.TwoBody.GetTBME_J(J2, c, d, q, b) * Eta.TwoBody.GetTBME_J(J3, a, b, c, h) * Gamma.TwoBody.GetTBME_J(J0, p, g, a, d);
                       }
@@ -7978,9 +8004,9 @@ namespace ReferenceImplementations
                         // double sixj2 = Z.modelspace->GetCachedSixJ(ja, jq, J4, jc, jb, J3);
                         // double sixj3 = Z.modelspace->GetCachedSixJ(jh, jq, J0, ja, jd, J4);
 
-                        double sixj1 = Z.modelspace->GetSixJ(jh, jd, J4, jc, jb, J2);
-                        double sixj2 = Z.modelspace->GetSixJ(ja, jq, J4, jc, jb, J3);
-                        double sixj3 = Z.modelspace->GetSixJ(jh, jq, J0, ja, jd, J4);
+                        double sixj1 = AngMom::SixJ(jh, jd, J4, jc, jb, J2);
+                        double sixj2 = AngMom::SixJ(ja, jq, J4, jc, jb, J3);
+                        double sixj3 = AngMom::SixJ(jh, jq, J0, ja, jd, J4);
 
                         zpgqh -= phase_qh * occfactor * sixj1 * sixj2 * sixj3 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * Eta.TwoBody.GetTBME_J(J2, c, d, h, b) * Eta.TwoBody.GetTBME_J(J3, a, b, c, q) * Gamma.TwoBody.GetTBME_J(J0, p, g, a, d);
                       }
@@ -8114,10 +8140,10 @@ namespace ReferenceImplementations
                           // double sixj3 = Z.modelspace->GetCachedSixJ(J0, J5, J4, jd, jh, jq);
                           // double sixj4 = Z.modelspace->GetCachedSixJ(J0, J4, J5, ja, jp, jg);
 
-                          double sixj1 = Z.modelspace->GetSixJ(jq, jd, J5, jc, jb, J2);
-                          double sixj2 = Z.modelspace->GetSixJ(jp, ja, J5, jc, jb, J3);
-                          double sixj3 = Z.modelspace->GetSixJ(J0, J5, J4, jd, jh, jq);
-                          double sixj4 = Z.modelspace->GetSixJ(J0, J4, J5, ja, jp, jg);
+                          double sixj1 = AngMom::SixJ(jq, jd, J5, jc, jb, J2);
+                          double sixj2 = AngMom::SixJ(jp, ja, J5, jc, jb, J3);
+                          double sixj3 = AngMom::SixJ(J0, J5, J4, jd, jh, jq);
+                          double sixj4 = AngMom::SixJ(J0, J4, J5, ja, jp, jg);
 
                           zpgqh -= occfactor * sixj1 * sixj2 * sixj3 * sixj4 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * (2 * J5 + 1) * Eta.TwoBody.GetTBME_J(J2, d, c, b, q) * Eta.TwoBody.GetTBME_J(J3, b, p, a, c) * Gamma.TwoBody.GetTBME_J(J4, g, a, h, d);
                         }
@@ -8150,10 +8176,10 @@ namespace ReferenceImplementations
                           // double sixj3 = Z.modelspace->GetCachedSixJ(J0, J5, J4, jd, jq, jh);
                           // double sixj4 = Z.modelspace->GetCachedSixJ(J0, J4, J5, ja, jp, jg);
 
-                          double sixj1 = Z.modelspace->GetSixJ(jh, jd, J5, jc, jb, J2);
-                          double sixj2 = Z.modelspace->GetSixJ(jp, ja, J5, jc, jb, J3);
-                          double sixj3 = Z.modelspace->GetSixJ(J0, J5, J4, jd, jq, jh);
-                          double sixj4 = Z.modelspace->GetSixJ(J0, J4, J5, ja, jp, jg);
+                          double sixj1 = AngMom::SixJ(jh, jd, J5, jc, jb, J2);
+                          double sixj2 = AngMom::SixJ(jp, ja, J5, jc, jb, J3);
+                          double sixj3 = AngMom::SixJ(J0, J5, J4, jd, jq, jh);
+                          double sixj4 = AngMom::SixJ(J0, J4, J5, ja, jp, jg);
 
                           zpgqh -= phase_qh * occfactor * sixj1 * sixj2 * sixj3 * sixj4 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * (2 * J5 + 1) * Eta.TwoBody.GetTBME_J(J2, d, c, b, h) * Eta.TwoBody.GetTBME_J(J3, b, p, a, c) * Gamma.TwoBody.GetTBME_J(J4, g, a, q, d);
                         }
@@ -8186,10 +8212,10 @@ namespace ReferenceImplementations
                           // double sixj3 = Z.modelspace->GetCachedSixJ(J0, J5, J4, jd, jh, jq);
                           // double sixj4 = Z.modelspace->GetCachedSixJ(J0, J4, J5, ja, jg, jp);
 
-                          double sixj1 = Z.modelspace->GetSixJ(jq, jd, J5, jc, jb, J2);
-                          double sixj2 = Z.modelspace->GetSixJ(jg, ja, J5, jc, jb, J3);
-                          double sixj3 = Z.modelspace->GetSixJ(J0, J5, J4, jd, jh, jq);
-                          double sixj4 = Z.modelspace->GetSixJ(J0, J4, J5, ja, jg, jp);
+                          double sixj1 = AngMom::SixJ(jq, jd, J5, jc, jb, J2);
+                          double sixj2 = AngMom::SixJ(jg, ja, J5, jc, jb, J3);
+                          double sixj3 = AngMom::SixJ(J0, J5, J4, jd, jh, jq);
+                          double sixj4 = AngMom::SixJ(J0, J4, J5, ja, jg, jp);
 
                           zpgqh -= phase_pg * occfactor * sixj1 * sixj2 * sixj3 * sixj4 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * (2 * J5 + 1) * Eta.TwoBody.GetTBME_J(J2, d, c, b, q) * Eta.TwoBody.GetTBME_J(J3, b, g, a, c) * Gamma.TwoBody.GetTBME_J(J4, p, a, h, d);
                         }
@@ -8222,10 +8248,10 @@ namespace ReferenceImplementations
                           // double sixj3 = Z.modelspace->GetCachedSixJ(J0, J5, J4, jd, jq, jh);
                           // double sixj4 = Z.modelspace->GetCachedSixJ(J0, J4, J5, ja, jg, jp);
 
-                          double sixj1 = Z.modelspace->GetSixJ(jh, jd, J5, jc, jb, J2);
-                          double sixj2 = Z.modelspace->GetSixJ(jg, ja, J5, jc, jb, J3);
-                          double sixj3 = Z.modelspace->GetSixJ(J0, J5, J4, jd, jq, jh);
-                          double sixj4 = Z.modelspace->GetSixJ(J0, J4, J5, ja, jg, jp);
+                          double sixj1 = AngMom::SixJ(jh, jd, J5, jc, jb, J2);
+                          double sixj2 = AngMom::SixJ(jg, ja, J5, jc, jb, J3);
+                          double sixj3 = AngMom::SixJ(J0, J5, J4, jd, jq, jh);
+                          double sixj4 = AngMom::SixJ(J0, J4, J5, ja, jg, jp);
 
                           zpgqh -= phase_pg * phase_qh * occfactor * sixj1 * sixj2 * sixj3 * sixj4 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * (2 * J5 + 1) * Eta.TwoBody.GetTBME_J(J2, d, c, b, h) * Eta.TwoBody.GetTBME_J(J3, b, g, a, c) * Gamma.TwoBody.GetTBME_J(J4, p, a, q, d);
                         }
@@ -8361,10 +8387,10 @@ namespace ReferenceImplementations
                           // double sixj3 = Z.modelspace->GetCachedSixJ(J0, J5, J4, jd, jh, jq);
                           // double sixj4 = Z.modelspace->GetCachedSixJ(J0, J4, J5, ja, jp, jg);
 
-                          double sixj1 = Z.modelspace->GetSixJ(jd, jg, J5, jc, jb, J2);
-                          double sixj2 = Z.modelspace->GetSixJ(ja, jh, J5, jc, jb, J3);
-                          double sixj3 = Z.modelspace->GetSixJ(J0, J5, J4, jd, jp, jg);
-                          double sixj4 = Z.modelspace->GetSixJ(J5, J4, J0, jq, jh, ja);
+                          double sixj1 = AngMom::SixJ(jd, jg, J5, jc, jb, J2);
+                          double sixj2 = AngMom::SixJ(ja, jh, J5, jc, jb, J3);
+                          double sixj3 = AngMom::SixJ(J0, J5, J4, jd, jp, jg);
+                          double sixj4 = AngMom::SixJ(J5, J4, J0, jq, jh, ja);
 
                           zpgqh -= occfactor * sixj1 * sixj2 * sixj3 * sixj4 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * (2 * J5 + 1) * Eta.TwoBody.GetTBME_J(J2, g, c, b, d) * Eta.TwoBody.GetTBME_J(J3, b, a, h, c) * Gamma.TwoBody.GetTBME_J(J4, d, p, a, q);
                         }
@@ -8398,10 +8424,10 @@ namespace ReferenceImplementations
                           // double sixj3 = Z.modelspace->GetCachedSixJ(J0, J5, J4, jd, jq, jh);
                           // double sixj4 = Z.modelspace->GetCachedSixJ(J0, J4, J5, ja, jp, jg);
 
-                          double sixj1 = Z.modelspace->GetSixJ(jd, jg, J5, jc, jb, J2);
-                          double sixj2 = Z.modelspace->GetSixJ(ja, jq, J5, jc, jb, J3);
-                          double sixj3 = Z.modelspace->GetSixJ(J0, J5, J4, jd, jp, jg);
-                          double sixj4 = Z.modelspace->GetSixJ(J5, J4, J0, jh, jq, ja);
+                          double sixj1 = AngMom::SixJ(jd, jg, J5, jc, jb, J2);
+                          double sixj2 = AngMom::SixJ(ja, jq, J5, jc, jb, J3);
+                          double sixj3 = AngMom::SixJ(J0, J5, J4, jd, jp, jg);
+                          double sixj4 = AngMom::SixJ(J5, J4, J0, jh, jq, ja);
 
                           zpgqh -= phase_qh * occfactor * sixj1 * sixj2 * sixj3 * sixj4 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * (2 * J5 + 1) * Eta.TwoBody.GetTBME_J(J2, g, c, b, d) * Eta.TwoBody.GetTBME_J(J3, b, a, q, c) * Gamma.TwoBody.GetTBME_J(J4, d, p, a, h);
                         }
@@ -8435,10 +8461,10 @@ namespace ReferenceImplementations
                           // double sixj3 = Z.modelspace->GetCachedSixJ(J0, J5, J4, jd, jh, jq);
                           // double sixj4 = Z.modelspace->GetCachedSixJ(J0, J4, J5, ja, jg, jp);
 
-                          double sixj1 = Z.modelspace->GetSixJ(jd, jp, J5, jc, jb, J2);
-                          double sixj2 = Z.modelspace->GetSixJ(ja, jh, J5, jc, jb, J3);
-                          double sixj3 = Z.modelspace->GetSixJ(J0, J5, J4, jd, jg, jp);
-                          double sixj4 = Z.modelspace->GetSixJ(J5, J4, J0, jq, jh, ja);
+                          double sixj1 = AngMom::SixJ(jd, jp, J5, jc, jb, J2);
+                          double sixj2 = AngMom::SixJ(ja, jh, J5, jc, jb, J3);
+                          double sixj3 = AngMom::SixJ(J0, J5, J4, jd, jg, jp);
+                          double sixj4 = AngMom::SixJ(J5, J4, J0, jq, jh, ja);
 
                           zpgqh -= phase_pg * occfactor * sixj1 * sixj2 * sixj3 * sixj4 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * (2 * J5 + 1) * Eta.TwoBody.GetTBME_J(J2, p, c, b, d) * Eta.TwoBody.GetTBME_J(J3, b, a, h, c) * Gamma.TwoBody.GetTBME_J(J4, d, g, a, q);
                         }
@@ -8472,10 +8498,10 @@ namespace ReferenceImplementations
                           // double sixj3 = Z.modelspace->GetCachedSixJ(J0, J5, J4, jd, jq, jh);
                           // double sixj4 = Z.modelspace->GetCachedSixJ(J0, J4, J5, ja, jg, jp);
 
-                          double sixj1 = Z.modelspace->GetSixJ(jd, jp, J5, jc, jb, J2);
-                          double sixj2 = Z.modelspace->GetSixJ(ja, jq, J5, jc, jb, J3);
-                          double sixj3 = Z.modelspace->GetSixJ(J0, J5, J4, jd, jg, jp);
-                          double sixj4 = Z.modelspace->GetSixJ(J5, J4, J0, jh, jq, ja);
+                          double sixj1 = AngMom::SixJ(jd, jp, J5, jc, jb, J2);
+                          double sixj2 = AngMom::SixJ(ja, jq, J5, jc, jb, J3);
+                          double sixj3 = AngMom::SixJ(J0, J5, J4, jd, jg, jp);
+                          double sixj4 = AngMom::SixJ(J5, J4, J0, jh, jq, ja);
 
                           zpgqh -= phase_pg * phase_qh * occfactor * sixj1 * sixj2 * sixj3 * sixj4 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * (2 * J5 + 1) * Eta.TwoBody.GetTBME_J(J2, p, c, b, d) * Eta.TwoBody.GetTBME_J(J3, b, a, q, c) * Gamma.TwoBody.GetTBME_J(J4, d, g, a, h);
                         }
@@ -8603,9 +8629,9 @@ namespace ReferenceImplementations
                         // double sixj2 = Z.modelspace->GetCachedSixJ(jq, jg, J4, jb, jd, J3);
                         // double sixj3 = Z.modelspace->GetCachedSixJ(jh, jq, J0, jg, jp, J4);
 
-                        double sixj1 = Z.modelspace->GetSixJ(jp, jh, J4, jb, jd, J2);
-                        double sixj2 = Z.modelspace->GetSixJ(jq, jg, J4, jb, jd, J3);
-                        double sixj3 = Z.modelspace->GetSixJ(jh, jq, J0, jg, jp, J4);
+                        double sixj1 = AngMom::SixJ(jp, jh, J4, jb, jd, J2);
+                        double sixj2 = AngMom::SixJ(jq, jg, J4, jb, jd, J3);
+                        double sixj3 = AngMom::SixJ(jh, jq, J0, jg, jp, J4);
 
                         zpgqh -= occfactor * sixj1 * sixj2 * sixj3 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * Eta.TwoBody.GetTBME_J(J2, a, c, b, h) * Eta.TwoBody.GetTBME_J(J2, p, d, a, c) * Gamma.TwoBody.GetTBME_J(J3, b, g, q, d);
                       }
@@ -8632,9 +8658,9 @@ namespace ReferenceImplementations
                         // double sixj2 = Z.modelspace->GetCachedSixJ(jh, jg, J4, jb, jd, J3);
                         // double sixj3 = Z.modelspace->GetCachedSixJ(jq, jh, J0, jg, jp, J4);
 
-                        double sixj1 = Z.modelspace->GetSixJ(jp, jq, J4, jb, jd, J2);
-                        double sixj2 = Z.modelspace->GetSixJ(jh, jg, J4, jb, jd, J3);
-                        double sixj3 = Z.modelspace->GetSixJ(jq, jh, J0, jg, jp, J4);
+                        double sixj1 = AngMom::SixJ(jp, jq, J4, jb, jd, J2);
+                        double sixj2 = AngMom::SixJ(jh, jg, J4, jb, jd, J3);
+                        double sixj3 = AngMom::SixJ(jq, jh, J0, jg, jp, J4);
 
                         zpgqh -= phase_qh * occfactor * sixj1 * sixj2 * sixj3 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * Eta.TwoBody.GetTBME_J(J2, a, c, b, q) * Eta.TwoBody.GetTBME_J(J2, p, d, a, c) * Gamma.TwoBody.GetTBME_J(J3, b, g, h, d);
                       }
@@ -8661,9 +8687,9 @@ namespace ReferenceImplementations
                         // double sixj2 = Z.modelspace->GetCachedSixJ(jq, jp, J4, jb, jd, J3);
                         // double sixj3 = Z.modelspace->GetCachedSixJ(jh, jq, J0, jp, jg, J4);
 
-                        double sixj1 = Z.modelspace->GetSixJ(jg, jh, J4, jb, jd, J2);
-                        double sixj2 = Z.modelspace->GetSixJ(jq, jp, J4, jb, jd, J3);
-                        double sixj3 = Z.modelspace->GetSixJ(jh, jq, J0, jp, jg, J4);
+                        double sixj1 = AngMom::SixJ(jg, jh, J4, jb, jd, J2);
+                        double sixj2 = AngMom::SixJ(jq, jp, J4, jb, jd, J3);
+                        double sixj3 = AngMom::SixJ(jh, jq, J0, jp, jg, J4);
 
                         zpgqh -= phase_pg * occfactor * sixj1 * sixj2 * sixj3 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * Eta.TwoBody.GetTBME_J(J2, a, c, b, h) * Eta.TwoBody.GetTBME_J(J2, g, d, a, c) * Gamma.TwoBody.GetTBME_J(J3, b, p, q, d);
                       }
@@ -8690,9 +8716,9 @@ namespace ReferenceImplementations
                         // double sixj2 = Z.modelspace->GetCachedSixJ(jh, jp, J4, jb, jd, J3);
                         // double sixj3 = Z.modelspace->GetCachedSixJ(jq, jh, J0, jp, jg, J4);
 
-                        double sixj1 = Z.modelspace->GetSixJ(jg, jq, J4, jb, jd, J2);
-                        double sixj2 = Z.modelspace->GetSixJ(jh, jp, J4, jb, jd, J3);
-                        double sixj3 = Z.modelspace->GetSixJ(jq, jh, J0, jp, jg, J4);
+                        double sixj1 = AngMom::SixJ(jg, jq, J4, jb, jd, J2);
+                        double sixj2 = AngMom::SixJ(jh, jp, J4, jb, jd, J3);
+                        double sixj3 = AngMom::SixJ(jq, jh, J0, jp, jg, J4);
 
                         zpgqh -= phase_pg * phase_qh * occfactor * sixj1 * sixj2 * sixj3 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * Eta.TwoBody.GetTBME_J(J2, a, c, b, q) * Eta.TwoBody.GetTBME_J(J2, g, d, a, c) * Gamma.TwoBody.GetTBME_J(J3, b, p, h, d);
                       }
@@ -8819,9 +8845,9 @@ namespace ReferenceImplementations
                         // double sixj2 = Z.modelspace->GetCachedSixJ(jg, jq, J4, jb, jd, J3);
                         // double sixj3 = Z.modelspace->GetCachedSixJ(jh, jq, J0, jg, jp, J4);
 
-                        double sixj1 = Z.modelspace->GetSixJ(jh, jp, J4, jb, jd, J2);
-                        double sixj2 = Z.modelspace->GetSixJ(jg, jq, J4, jb, jd, J3);
-                        double sixj3 = Z.modelspace->GetSixJ(jh, jq, J0, jg, jp, J4);
+                        double sixj1 = AngMom::SixJ(jh, jp, J4, jb, jd, J2);
+                        double sixj2 = AngMom::SixJ(jg, jq, J4, jb, jd, J3);
+                        double sixj3 = AngMom::SixJ(jh, jq, J0, jg, jp, J4);
 
                         zpgqh -= occfactor * sixj1 * sixj2 * sixj3 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * Eta.TwoBody.GetTBME_J(J2, p, b, a, c) * Eta.TwoBody.GetTBME_J(J2, a, c, d, h) * Gamma.TwoBody.GetTBME_J(J3, d, g, q, b);
                       }
@@ -8848,9 +8874,9 @@ namespace ReferenceImplementations
                         // double sixj2 = Z.modelspace->GetCachedSixJ(jg, jh, J4, jb, jd, J3);
                         // double sixj3 = Z.modelspace->GetCachedSixJ(jq, jh, J0, jg, jp, J4);
 
-                        double sixj1 = Z.modelspace->GetSixJ(jq, jp, J4, jb, jd, J2);
-                        double sixj2 = Z.modelspace->GetSixJ(jg, jh, J4, jb, jd, J3);
-                        double sixj3 = Z.modelspace->GetSixJ(jq, jh, J0, jg, jp, J4);
+                        double sixj1 = AngMom::SixJ(jq, jp, J4, jb, jd, J2);
+                        double sixj2 = AngMom::SixJ(jg, jh, J4, jb, jd, J3);
+                        double sixj3 = AngMom::SixJ(jq, jh, J0, jg, jp, J4);
 
                         zpgqh -= phase_qh * occfactor * sixj1 * sixj2 * sixj3 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * Eta.TwoBody.GetTBME_J(J2, p, b, a, c) * Eta.TwoBody.GetTBME_J(J2, a, c, d, q) * Gamma.TwoBody.GetTBME_J(J3, d, g, h, b);
                       }
@@ -8877,9 +8903,9 @@ namespace ReferenceImplementations
                         // double sixj2 = Z.modelspace->GetCachedSixJ(jp, jq, J4, jb, jd, J3);
                         // double sixj3 = Z.modelspace->GetCachedSixJ(jh, jq, J0, jp, jg, J4);
 
-                        double sixj1 = Z.modelspace->GetSixJ(jh, jg, J4, jb, jd, J2);
-                        double sixj2 = Z.modelspace->GetSixJ(jp, jq, J4, jb, jd, J3);
-                        double sixj3 = Z.modelspace->GetSixJ(jh, jq, J0, jp, jg, J4);
+                        double sixj1 = AngMom::SixJ(jh, jg, J4, jb, jd, J2);
+                        double sixj2 = AngMom::SixJ(jp, jq, J4, jb, jd, J3);
+                        double sixj3 = AngMom::SixJ(jh, jq, J0, jp, jg, J4);
 
                         zpgqh -= phase_pg * occfactor * sixj1 * sixj2 * sixj3 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * Eta.TwoBody.GetTBME_J(J2, g, b, a, c) * Eta.TwoBody.GetTBME_J(J2, a, c, d, h) * Gamma.TwoBody.GetTBME_J(J3, d, p, q, b);
                       }
@@ -8906,9 +8932,9 @@ namespace ReferenceImplementations
                         // double sixj2 = Z.modelspace->GetCachedSixJ(jp, jh, J4, jb, jd, J3);
                         // double sixj3 = Z.modelspace->GetCachedSixJ(jq, jh, J0, jp, jg, J4);
 
-                        double sixj1 = Z.modelspace->GetSixJ(jq, jg, J4, jb, jd, J2);
-                        double sixj2 = Z.modelspace->GetSixJ(jp, jh, J4, jb, jd, J3);
-                        double sixj3 = Z.modelspace->GetSixJ(jq, jh, J0, jp, jg, J4);
+                        double sixj1 = AngMom::SixJ(jq, jg, J4, jb, jd, J2);
+                        double sixj2 = AngMom::SixJ(jp, jh, J4, jb, jd, J3);
+                        double sixj3 = AngMom::SixJ(jq, jh, J0, jp, jg, J4);
 
                         zpgqh -= phase_pg * phase_qh * occfactor * sixj1 * sixj2 * sixj3 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * Eta.TwoBody.GetTBME_J(J2, g, b, a, c) * Eta.TwoBody.GetTBME_J(J2, a, c, d, q) * Gamma.TwoBody.GetTBME_J(J3, d, p, h, b);
                       }
@@ -9041,10 +9067,10 @@ namespace ReferenceImplementations
                           // double sixj3 = Z.modelspace->GetCachedSixJ(jq, jd, J5, ja, jb, J4);
                           // double sixj4 = Z.modelspace->GetCachedSixJ(J3, J0, J5, jq, jd, jh);
 
-                          double sixj1 = Z.modelspace->GetSixJ(ja, jb, J5, jp, jc, J2);
-                          double sixj2 = Z.modelspace->GetSixJ(J3, J0, J5, jp, jc, jg);
-                          double sixj3 = Z.modelspace->GetSixJ(jq, jd, J5, ja, jb, J4);
-                          double sixj4 = Z.modelspace->GetSixJ(J3, J0, J5, jq, jd, jh);
+                          double sixj1 = AngMom::SixJ(ja, jb, J5, jp, jc, J2);
+                          double sixj2 = AngMom::SixJ(J3, J0, J5, jp, jc, jg);
+                          double sixj3 = AngMom::SixJ(jq, jd, J5, ja, jb, J4);
+                          double sixj4 = AngMom::SixJ(J3, J0, J5, jq, jd, jh);
 
                           zpgqh += occfactor * sixj1 * sixj2 * sixj3 * sixj4 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * (2 * J5 + 1) * Eta.TwoBody.GetTBME_J(J2, b, p, c, a) * Eta.TwoBody.GetTBME_J(J3, g, c, h, d) * Gamma.TwoBody.GetTBME_J(J4, d, a, b, q);
                         }
@@ -9078,10 +9104,10 @@ namespace ReferenceImplementations
                           // double sixj3 = Z.modelspace->GetCachedSixJ(jh, jd, J5, ja, jb, J4);
                           // double sixj4 = Z.modelspace->GetCachedSixJ(J3, J0, J5, jh, jd, jq);
 
-                          double sixj1 = Z.modelspace->GetSixJ(ja, jb, J5, jp, jc, J2);
-                          double sixj2 = Z.modelspace->GetSixJ(J3, J0, J5, jp, jc, jg);
-                          double sixj3 = Z.modelspace->GetSixJ(jh, jd, J5, ja, jb, J4);
-                          double sixj4 = Z.modelspace->GetSixJ(J3, J0, J5, jh, jd, jq);
+                          double sixj1 = AngMom::SixJ(ja, jb, J5, jp, jc, J2);
+                          double sixj2 = AngMom::SixJ(J3, J0, J5, jp, jc, jg);
+                          double sixj3 = AngMom::SixJ(jh, jd, J5, ja, jb, J4);
+                          double sixj4 = AngMom::SixJ(J3, J0, J5, jh, jd, jq);
 
                           zpgqh += phase_qh * occfactor * sixj1 * sixj2 * sixj3 * sixj4 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * (2 * J5 + 1) * Eta.TwoBody.GetTBME_J(J2, b, p, c, a) * Eta.TwoBody.GetTBME_J(J3, g, c, q, d) * Gamma.TwoBody.GetTBME_J(J4, d, a, b, h);
                         }
@@ -9115,10 +9141,10 @@ namespace ReferenceImplementations
                           // double sixj3 = Z.modelspace->GetCachedSixJ(jq, jd, J5, ja, jb, J4);
                           // double sixj4 = Z.modelspace->GetCachedSixJ(J3, J0, J5, jq, jd, jh);
 
-                          double sixj1 = Z.modelspace->GetSixJ(ja, jb, J5, jg, jc, J2);
-                          double sixj2 = Z.modelspace->GetSixJ(J3, J0, J5, jg, jc, jp);
-                          double sixj3 = Z.modelspace->GetSixJ(jq, jd, J5, ja, jb, J4);
-                          double sixj4 = Z.modelspace->GetSixJ(J3, J0, J5, jq, jd, jh);
+                          double sixj1 = AngMom::SixJ(ja, jb, J5, jg, jc, J2);
+                          double sixj2 = AngMom::SixJ(J3, J0, J5, jg, jc, jp);
+                          double sixj3 = AngMom::SixJ(jq, jd, J5, ja, jb, J4);
+                          double sixj4 = AngMom::SixJ(J3, J0, J5, jq, jd, jh);
 
                           zpgqh += phase_pg * occfactor * sixj1 * sixj2 * sixj3 * sixj4 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * (2 * J5 + 1) * Eta.TwoBody.GetTBME_J(J2, b, g, c, a) * Eta.TwoBody.GetTBME_J(J3, p, c, h, d) * Gamma.TwoBody.GetTBME_J(J4, d, a, b, q);
                         }
@@ -9152,10 +9178,10 @@ namespace ReferenceImplementations
                           // double sixj3 = Z.modelspace->GetCachedSixJ(jh, jd, J5, ja, jb, J4);
                           // double sixj4 = Z.modelspace->GetCachedSixJ(J3, J0, J5, jh, jd, jq);
 
-                          double sixj1 = Z.modelspace->GetSixJ(ja, jb, J5, jg, jc, J2);
-                          double sixj2 = Z.modelspace->GetSixJ(J3, J0, J5, jg, jc, jp);
-                          double sixj3 = Z.modelspace->GetSixJ(jh, jd, J5, ja, jb, J4);
-                          double sixj4 = Z.modelspace->GetSixJ(J3, J0, J5, jh, jd, jq);
+                          double sixj1 = AngMom::SixJ(ja, jb, J5, jg, jc, J2);
+                          double sixj2 = AngMom::SixJ(J3, J0, J5, jg, jc, jp);
+                          double sixj3 = AngMom::SixJ(jh, jd, J5, ja, jb, J4);
+                          double sixj4 = AngMom::SixJ(J3, J0, J5, jh, jd, jq);
 
                           zpgqh += phase_pg * phase_qh * occfactor * sixj1 * sixj2 * sixj3 * sixj4 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * (2 * J5 + 1) * Eta.TwoBody.GetTBME_J(J2, b, g, c, a) * Eta.TwoBody.GetTBME_J(J3, p, c, q, d) * Gamma.TwoBody.GetTBME_J(J4, d, a, b, h);
                         }
@@ -9286,10 +9312,10 @@ namespace ReferenceImplementations
                           // double sixj3 = Z.modelspace->GetCachedSixJ(jd, jp, J5, ja, jb, J4);
                           // double sixj4 = Z.modelspace->GetCachedSixJ(J0, J3, J5, jd, jp, jg);
 
-                          double sixj1 = Z.modelspace->GetSixJ(ja, jb, J5, jc, jq, J2);
-                          double sixj2 = Z.modelspace->GetSixJ(J0, J3, J5, jc, jq, jh);
-                          double sixj3 = Z.modelspace->GetSixJ(jd, jp, J5, ja, jb, J4);
-                          double sixj4 = Z.modelspace->GetSixJ(J0, J3, J5, jd, jp, jg);
+                          double sixj1 = AngMom::SixJ(ja, jb, J5, jc, jq, J2);
+                          double sixj2 = AngMom::SixJ(J0, J3, J5, jc, jq, jh);
+                          double sixj3 = AngMom::SixJ(jd, jp, J5, ja, jb, J4);
+                          double sixj4 = AngMom::SixJ(J0, J3, J5, jd, jp, jg);
 
                           zpgqh += occfactor * sixj1 * sixj2 * sixj3 * sixj4 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * (2 * J5 + 1) * Eta.TwoBody.GetTBME_J(J2, c, b, a, q) * Eta.TwoBody.GetTBME_J(J3, g, d, h, c) * Gamma.TwoBody.GetTBME_J(J4, a, p, d, b);
                         }
@@ -9322,10 +9348,10 @@ namespace ReferenceImplementations
                           // double sixj3 = Z.modelspace->GetCachedSixJ(jd, jp, J5, ja, jb, J4);
                           // double sixj4 = Z.modelspace->GetCachedSixJ(J0, J3, J5, jd, jp, jg);
 
-                          double sixj1 = Z.modelspace->GetSixJ(ja, jb, J5, jc, jh, J2);
-                          double sixj2 = Z.modelspace->GetSixJ(J0, J3, J5, jc, jh, jq);
-                          double sixj3 = Z.modelspace->GetSixJ(jd, jp, J5, ja, jb, J4);
-                          double sixj4 = Z.modelspace->GetSixJ(J0, J3, J5, jd, jp, jg);
+                          double sixj1 = AngMom::SixJ(ja, jb, J5, jc, jh, J2);
+                          double sixj2 = AngMom::SixJ(J0, J3, J5, jc, jh, jq);
+                          double sixj3 = AngMom::SixJ(jd, jp, J5, ja, jb, J4);
+                          double sixj4 = AngMom::SixJ(J0, J3, J5, jd, jp, jg);
 
                           zpgqh += phase_qh * occfactor * sixj1 * sixj2 * sixj3 * sixj4 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * (2 * J5 + 1) * Eta.TwoBody.GetTBME_J(J2, c, b, a, h) * Eta.TwoBody.GetTBME_J(J3, g, d, q, c) * Gamma.TwoBody.GetTBME_J(J4, a, p, d, b);
                         }
@@ -9358,10 +9384,10 @@ namespace ReferenceImplementations
                           // double sixj3 = Z.modelspace->GetCachedSixJ(jd, jg, J5, ja, jb, J4);
                           // double sixj4 = Z.modelspace->GetCachedSixJ(J0, J3, J5, jd, jg, jp);
 
-                          double sixj1 = Z.modelspace->GetSixJ(ja, jb, J5, jc, jq, J2);
-                          double sixj2 = Z.modelspace->GetSixJ(J0, J3, J5, jc, jq, jh);
-                          double sixj3 = Z.modelspace->GetSixJ(jd, jg, J5, ja, jb, J4);
-                          double sixj4 = Z.modelspace->GetSixJ(J0, J3, J5, jd, jg, jp);
+                          double sixj1 = AngMom::SixJ(ja, jb, J5, jc, jq, J2);
+                          double sixj2 = AngMom::SixJ(J0, J3, J5, jc, jq, jh);
+                          double sixj3 = AngMom::SixJ(jd, jg, J5, ja, jb, J4);
+                          double sixj4 = AngMom::SixJ(J0, J3, J5, jd, jg, jp);
 
                           zpgqh += phase_pg * occfactor * sixj1 * sixj2 * sixj3 * sixj4 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * (2 * J5 + 1) * Eta.TwoBody.GetTBME_J(J2, c, b, a, q) * Eta.TwoBody.GetTBME_J(J3, p, d, h, c) * Gamma.TwoBody.GetTBME_J(J4, a, g, d, b);
                         }
@@ -9394,10 +9420,10 @@ namespace ReferenceImplementations
                           // double sixj3 = Z.modelspace->GetCachedSixJ(jd, jg, J5, ja, jb, J4);
                           // double sixj4 = Z.modelspace->GetCachedSixJ(J0, J3, J5, jd, jg, jp);
 
-                          double sixj1 = Z.modelspace->GetSixJ(ja, jb, J5, jc, jh, J2);
-                          double sixj2 = Z.modelspace->GetSixJ(J0, J3, J5, jc, jh, jq);
-                          double sixj3 = Z.modelspace->GetSixJ(jd, jg, J5, ja, jb, J4);
-                          double sixj4 = Z.modelspace->GetSixJ(J0, J3, J5, jd, jg, jp);
+                          double sixj1 = AngMom::SixJ(ja, jb, J5, jc, jh, J2);
+                          double sixj2 = AngMom::SixJ(J0, J3, J5, jc, jh, jq);
+                          double sixj3 = AngMom::SixJ(jd, jg, J5, ja, jb, J4);
+                          double sixj4 = AngMom::SixJ(J0, J3, J5, jd, jg, jp);
 
                           zpgqh += phase_pg * phase_qh * occfactor * sixj1 * sixj2 * sixj3 * sixj4 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * (2 * J5 + 1) * Eta.TwoBody.GetTBME_J(J2, c, b, a, h) * Eta.TwoBody.GetTBME_J(J3, p, d, q, c) * Gamma.TwoBody.GetTBME_J(J4, a, g, d, b);
                         }
@@ -9522,7 +9548,7 @@ namespace ReferenceImplementations
                         // double sixj2 = Z.modelspace->GetCachedSixJ(J3, J0, J4, jc, ja, jd);
                         // double sixj3 = Z.modelspace->GetCachedSixJ(J4, J3, J0, jh, jq, jb);
 
-                        double sixj1 = Z.modelspace->GetSixJ(jq, jb, J4, jc, ja, J2);
+                        double sixj1 = AngMom::SixJ(jq, jb, J4, jc, ja, J2);
                         double sixj2 = AngMom::SixJ(J3, J0, J4, jc, ja, jd);
                         double sixj3 = AngMom::SixJ(J4, J3, J0, jh, jq, jb);
 
@@ -9550,7 +9576,7 @@ namespace ReferenceImplementations
                         // double sixj2 = Z.modelspace->GetCachedSixJ(J3, J0, J4, jc, ja, jd);
                         // double sixj3 = Z.modelspace->GetCachedSixJ(J4, J3, J0, jq, jh, jb);
 
-                        double sixj1 = Z.modelspace->GetSixJ(jh, jb, J4, jc, ja, J2);
+                        double sixj1 = AngMom::SixJ(jh, jb, J4, jc, ja, J2);
                         double sixj2 = AngMom::SixJ(J3, J0, J4, jc, ja, jd);
                         double sixj3 = AngMom::SixJ(J4, J3, J0, jq, jh, jb);
 
@@ -9679,7 +9705,7 @@ namespace ReferenceImplementations
                         // double sixj2 = Z.modelspace->GetCachedSixJ(J0, J3, J4, jb, jc, jd);
                         // double sixj3 = Z.modelspace->GetCachedSixJ(J4, J3, J0, jg, jp, ja);
 
-                        double sixj1 = Z.modelspace->GetSixJ(ja, jp, J4, jb, jc, J2);
+                        double sixj1 = AngMom::SixJ(ja, jp, J4, jb, jc, J2);
                         double sixj2 = AngMom::SixJ(J0, J3, J4, jb, jc, jd);
                         double sixj3 = AngMom::SixJ(J4, J3, J0, jg, jp, ja);
 
@@ -9711,7 +9737,7 @@ namespace ReferenceImplementations
                         // double sixj2 = Z.modelspace->GetCachedSixJ(J0, J3, J4, jb, jc, jd);
                         // double sixj3 = Z.modelspace->GetCachedSixJ(J4, J3, J0, jp, jg, ja);
 
-                        double sixj1 = Z.modelspace->GetSixJ(ja, jg, J4, jb, jc, J2);
+                        double sixj1 = AngMom::SixJ(ja, jg, J4, jb, jc, J2);
                         double sixj2 = AngMom::SixJ(J0, J3, J4, jb, jc, jd);
                         double sixj3 = AngMom::SixJ(J4, J3, J0, jp, jg, ja);
 
@@ -9842,9 +9868,9 @@ namespace ReferenceImplementations
                         // double sixj2 = Z.modelspace->GetCachedSixJ(J2, J3, J4, jq, jg, jc);
                         // double sixj3 = Z.modelspace->GetCachedSixJ(jh, jq, J0, jg, jp, J4);
 
-                        double sixj1 = Z.modelspace->GetSixJ(J2, J3, J4, jp, jh, jd);
-                        double sixj2 = Z.modelspace->GetSixJ(J2, J3, J4, jq, jg, jc);
-                        double sixj3 = Z.modelspace->GetSixJ(jh, jq, J0, jg, jp, J4);
+                        double sixj1 = AngMom::SixJ(J2, J3, J4, jp, jh, jd);
+                        double sixj2 = AngMom::SixJ(J2, J3, J4, jq, jg, jc);
+                        double sixj3 = AngMom::SixJ(jh, jq, J0, jg, jp, J4);
                         zpgqh -= occfactor * sixj1 * sixj2 * sixj3 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * Eta.TwoBody.GetTBME_J(J2, a, b, h, d) * Eta.TwoBody.GetTBME_J(J3, d, p, c, q) * Gamma.TwoBody.GetTBME_J(J2, g, c, a, b);
                       }
                     }
@@ -9870,9 +9896,9 @@ namespace ReferenceImplementations
                         // double sixj2 = Z.modelspace->GetCachedSixJ(J2, J3, J4, jh, jg, jc);
                         // double sixj3 = Z.modelspace->GetCachedSixJ(jq, jh, J0, jg, jp, J4);
 
-                        double sixj1 = Z.modelspace->GetSixJ(J2, J3, J4, jp, jq, jd);
-                        double sixj2 = Z.modelspace->GetSixJ(J2, J3, J4, jh, jg, jc);
-                        double sixj3 = Z.modelspace->GetSixJ(jq, jh, J0, jg, jp, J4);
+                        double sixj1 = AngMom::SixJ(J2, J3, J4, jp, jq, jd);
+                        double sixj2 = AngMom::SixJ(J2, J3, J4, jh, jg, jc);
+                        double sixj3 = AngMom::SixJ(jq, jh, J0, jg, jp, J4);
 
                         zpgqh -= phase_qh * occfactor * sixj1 * sixj2 * sixj3 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * Eta.TwoBody.GetTBME_J(J2, a, b, q, d) * Eta.TwoBody.GetTBME_J(J3, d, p, c, h) * Gamma.TwoBody.GetTBME_J(J2, g, c, a, b);
                       }
@@ -9899,9 +9925,9 @@ namespace ReferenceImplementations
                         // double sixj2 = Z.modelspace->GetCachedSixJ(J2, J3, J4, jq, jp, jc);
                         // double sixj3 = Z.modelspace->GetCachedSixJ(jh, jq, J0, jp, jg, J4);
 
-                        double sixj1 = Z.modelspace->GetSixJ(J2, J3, J4, jg, jh, jd);
-                        double sixj2 = Z.modelspace->GetSixJ(J2, J3, J4, jq, jp, jc);
-                        double sixj3 = Z.modelspace->GetSixJ(jh, jq, J0, jp, jg, J4);
+                        double sixj1 = AngMom::SixJ(J2, J3, J4, jg, jh, jd);
+                        double sixj2 = AngMom::SixJ(J2, J3, J4, jq, jp, jc);
+                        double sixj3 = AngMom::SixJ(jh, jq, J0, jp, jg, J4);
 
                         zpgqh -= phase_pg * occfactor * sixj1 * sixj2 * sixj3 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * Eta.TwoBody.GetTBME_J(J2, a, b, h, d) * Eta.TwoBody.GetTBME_J(J3, d, g, c, q) * Gamma.TwoBody.GetTBME_J(J2, p, c, a, b);
                       }
@@ -9928,9 +9954,9 @@ namespace ReferenceImplementations
                         // double sixj2 = Z.modelspace->GetCachedSixJ(J2, J3, J4, jh, jp, jc);
                         // double sixj3 = Z.modelspace->GetCachedSixJ(jq, jh, J0, jp, jg, J4);
 
-                        double sixj1 = Z.modelspace->GetSixJ(J2, J3, J4, jg, jq, jd);
-                        double sixj2 = Z.modelspace->GetSixJ(J2, J3, J4, jh, jp, jc);
-                        double sixj3 = Z.modelspace->GetSixJ(jq, jh, J0, jp, jg, J4);
+                        double sixj1 = AngMom::SixJ(J2, J3, J4, jg, jq, jd);
+                        double sixj2 = AngMom::SixJ(J2, J3, J4, jh, jp, jc);
+                        double sixj3 = AngMom::SixJ(jq, jh, J0, jp, jg, J4);
 
                         zpgqh -= phase_pg * phase_qh * occfactor * sixj1 * sixj2 * sixj3 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * Eta.TwoBody.GetTBME_J(J2, a, b, q, d) * Eta.TwoBody.GetTBME_J(J3, d, g, c, h) * Gamma.TwoBody.GetTBME_J(J2, p, c, a, b);
                       }
@@ -10056,9 +10082,9 @@ namespace ReferenceImplementations
                         // double sixj2 = Z.modelspace->GetCachedSixJ(J2, J3, J4, jp, jh, jd);
                         // double sixj3 = Z.modelspace->GetCachedSixJ(jh, jq, J0, jg, jp, J4);
 
-                        double sixj1 = Z.modelspace->GetSixJ(J2, J3, J4, jq, jg, jc);
-                        double sixj2 = Z.modelspace->GetSixJ(J2, J3, J4, jp, jh, jd);
-                        double sixj3 = Z.modelspace->GetSixJ(jh, jq, J0, jg, jp, J4);
+                        double sixj1 = AngMom::SixJ(J2, J3, J4, jq, jg, jc);
+                        double sixj2 = AngMom::SixJ(J2, J3, J4, jp, jh, jd);
+                        double sixj3 = AngMom::SixJ(jh, jq, J0, jg, jp, J4);
 
                         zpgqh -= occfactor * sixj1 * sixj2 * sixj3 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * Eta.TwoBody.GetTBME_J(J2, g, c, a, b) * Eta.TwoBody.GetTBME_J(J3, d, p, c, q) * Gamma.TwoBody.GetTBME_J(J2, a, b, h, d);
                       }
@@ -10085,9 +10111,9 @@ namespace ReferenceImplementations
                         // double sixj2 = Z.modelspace->GetCachedSixJ(J2, J3, J4, jp, jq, jd);
                         // double sixj3 = Z.modelspace->GetCachedSixJ(jq, jh, J0, jg, jp, J4);
 
-                        double sixj1 = Z.modelspace->GetSixJ(J2, J3, J4, jh, jg, jc);
-                        double sixj2 = Z.modelspace->GetSixJ(J2, J3, J4, jp, jq, jd);
-                        double sixj3 = Z.modelspace->GetSixJ(jq, jh, J0, jg, jp, J4);
+                        double sixj1 = AngMom::SixJ(J2, J3, J4, jh, jg, jc);
+                        double sixj2 = AngMom::SixJ(J2, J3, J4, jp, jq, jd);
+                        double sixj3 = AngMom::SixJ(jq, jh, J0, jg, jp, J4);
 
                         zpgqh -= phase_qh * occfactor * sixj1 * sixj2 * sixj3 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * Eta.TwoBody.GetTBME_J(J2, g, c, a, b) * Eta.TwoBody.GetTBME_J(J3, d, p, c, h) * Gamma.TwoBody.GetTBME_J(J2, a, b, q, d);
                       }
@@ -10114,9 +10140,9 @@ namespace ReferenceImplementations
                         // double sixj2 = Z.modelspace->GetCachedSixJ(J2, J3, J4, jg, jh, jd);
                         // double sixj3 = Z.modelspace->GetCachedSixJ(jh, jq, J0, jp, jg, J4);
 
-                        double sixj1 = Z.modelspace->GetSixJ(J2, J3, J4, jq, jp, jc);
-                        double sixj2 = Z.modelspace->GetSixJ(J2, J3, J4, jg, jh, jd);
-                        double sixj3 = Z.modelspace->GetSixJ(jh, jq, J0, jp, jg, J4);
+                        double sixj1 = AngMom::SixJ(J2, J3, J4, jq, jp, jc);
+                        double sixj2 = AngMom::SixJ(J2, J3, J4, jg, jh, jd);
+                        double sixj3 = AngMom::SixJ(jh, jq, J0, jp, jg, J4);
 
                         zpgqh -= phase_pg * occfactor * sixj1 * sixj2 * sixj3 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * Eta.TwoBody.GetTBME_J(J2, p, c, a, b) * Eta.TwoBody.GetTBME_J(J3, d, g, c, q) * Gamma.TwoBody.GetTBME_J(J2, a, b, h, d);
                       }
@@ -10143,9 +10169,9 @@ namespace ReferenceImplementations
                         // double sixj2 = Z.modelspace->GetCachedSixJ(J2, J3, J4, jg, jq, jd);
                         // double sixj3 = Z.modelspace->GetCachedSixJ(jq, jh, J0, jp, jg, J4);
 
-                        double sixj1 = Z.modelspace->GetSixJ(J2, J3, J4, jh, jp, jc);
-                        double sixj2 = Z.modelspace->GetSixJ(J2, J3, J4, jg, jq, jd);
-                        double sixj3 = Z.modelspace->GetSixJ(jq, jh, J0, jp, jg, J4);
+                        double sixj1 = AngMom::SixJ(J2, J3, J4, jh, jp, jc);
+                        double sixj2 = AngMom::SixJ(J2, J3, J4, jg, jq, jd);
+                        double sixj3 = AngMom::SixJ(jq, jh, J0, jp, jg, J4);
 
                         zpgqh -= phase_pg * phase_qh * occfactor * sixj1 * sixj2 * sixj3 * (2 * J2 + 1) * (2 * J3 + 1) * (2 * J4 + 1) * Eta.TwoBody.GetTBME_J(J2, p, c, a, b) * Eta.TwoBody.GetTBME_J(J3, d, g, c, h) * Gamma.TwoBody.GetTBME_J(J2, a, b, q, d);
                       }
@@ -10171,6 +10197,7 @@ namespace ReferenceImplementations
     if (EraseTB)
       Z.EraseTwoBody();
 
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
     return;
   }
 
@@ -10402,7 +10429,7 @@ namespace ReferenceImplementations
           for (int J_std = jmin; J_std <= jmax; J_std += dJ_std)
           {
 
-            double sixj1 = Z.modelspace->GetSixJ(ja, jb, J_cc, jc, jd, J_std);
+            double sixj1 = AngMom::SixJ(ja, jb, J_cc, jc, jd, J_std);
             if (std::abs(sixj1) > 1e-8)
             {
               Xbar -= (2 * J_std + 1) * sixj1 * Eta.TwoBody.GetTBME_J(J_std, a, d, c, b);
@@ -10924,7 +10951,7 @@ namespace ReferenceImplementations
       // std::cout<< "diagram IIIa and IIIb " << Z.OneBodyNorm() << std::endl;
       // Z.EraseOneBody();
 
-    Z.profiler.timer[__func__] += omp_get_wtime() - t_internal;
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
     return;
   }
 
@@ -11234,7 +11261,7 @@ namespace ReferenceImplementations
           }
           for (int J_std = jmin; J_std <= jmax; J_std += dJ_std)
           {
-            double sixj1 = Z.modelspace->GetSixJ(ja, jb, J_cc, jc, jd, J_std);
+            double sixj1 = AngMom::SixJ(ja, jb, J_cc, jc, jd, J_std);
             if (std::abs(sixj1) > 1e-8)
             {
               double temp_eta = Eta.TwoBody.GetTBME_J(J_std, a, d, c, b);
@@ -11565,7 +11592,7 @@ namespace ReferenceImplementations
           for (int Jprime = Jpmin; Jprime <= Jpmax; ++Jprime)
           {
 
-            double sixj = Z.modelspace->GetSixJ(ji * 0.5, jj * 0.5, J0, jk * 0.5, jl * 0.5, Jprime);
+            double sixj = AngMom::SixJ(ji * 0.5, jj * 0.5, J0, jk * 0.5, jl * 0.5, Jprime);
             if (std::abs(sixj) < 1e-8)
               continue;
             int ch_cc = Z.modelspace->GetTwoBodyChannelIndex(Jprime, parity_cc, Tz_cc);
@@ -11590,7 +11617,7 @@ namespace ReferenceImplementations
 
           for (int Jprime = Jpmin; Jprime <= Jpmax; ++Jprime)
           {
-            double sixj = Z.modelspace->GetSixJ(jj * 0.5, ji * 0.5, J0, jk * 0.5, jl * 0.5, Jprime);
+            double sixj = AngMom::SixJ(jj * 0.5, ji * 0.5, J0, jk * 0.5, jl * 0.5, Jprime);
 
             if (std::abs(sixj) < 1e-8)
               continue;
@@ -11789,7 +11816,7 @@ namespace ReferenceImplementations
             if (b > c)
               indx_bc += nkets;
 
-            double sixj1 = Z.modelspace->GetSixJ(ja, jb, J_cc, jc, jd, J_std);
+            double sixj1 = AngMom::SixJ(ja, jb, J_cc, jc, jd, J_std);
             if (std::abs(sixj1) > 1e-8)
             {
               Xbar -= Z.modelspace->phase((ob.j2 + oc.j2) / 2 + J_std) * (2 * J_std + 1) * sixj1 * (barCHI_III[ch_cc_old](indx_bc, indx_ad) + barCHI_III[ch_cc_old](indx_ad, indx_bc));
@@ -11869,7 +11896,7 @@ namespace ReferenceImplementations
 
           for (int Jprime = Jpmin; Jprime <= Jpmax; ++Jprime)
           {
-            double sixj1 = Z.modelspace->GetSixJ(jj * 0.5, ji * 0.5, J0, jk * 0.5, jl * 0.5, Jprime);
+            double sixj1 = AngMom::SixJ(jj * 0.5, ji * 0.5, J0, jk * 0.5, jl * 0.5, Jprime);
             if (std::abs(sixj1) < 1e-8)
               continue;
             int ch_cc = Z.modelspace->GetTwoBodyChannelIndex(Jprime, parity_cc, Tz_cc);
@@ -11906,7 +11933,7 @@ namespace ReferenceImplementations
 
           for (int Jprime = Jpmin; Jprime <= Jpmax; ++Jprime)
           {
-            double sixj1 = Z.modelspace->GetSixJ(ji * 0.5, jj * 0.5, J0, jk * 0.5, jl * 0.5, Jprime);
+            double sixj1 = AngMom::SixJ(ji * 0.5, jj * 0.5, J0, jk * 0.5, jl * 0.5, Jprime);
             if (std::abs(sixj1) < 1e-8)
               continue;
             int ch_cc = Z.modelspace->GetTwoBodyChannelIndex(Jprime, parity_cc, Tz_cc);
@@ -12090,7 +12117,7 @@ namespace ReferenceImplementations
             if (c > b)
               indx_cb += nkets;
 
-            double sixj1 = Z.modelspace->GetSixJ(ja, jb, J_cc, jc, jd, J_std);
+            double sixj1 = AngMom::SixJ(ja, jb, J_cc, jc, jd, J_std);
             if (std::abs(sixj1) > 1e-8)
             {
               Xbar -= (2 * J_std + 1) * sixj1 * CHI_IV[ch](indx_ad, indx_cb);
@@ -12171,7 +12198,7 @@ namespace ReferenceImplementations
           int Jpmax = std::min(ji + jl, jj + jk) / 2;
           for (int Jprime = Jpmin; Jprime <= Jpmax; ++Jprime)
           {
-            double sixj = Z.modelspace->GetSixJ(ji * 0.5, jj * 0.5, J0, jk * 0.5, jl * 0.5, Jprime);
+            double sixj = AngMom::SixJ(ji * 0.5, jj * 0.5, J0, jk * 0.5, jl * 0.5, Jprime);
             if (std::abs(sixj) < 1e-8)
               continue;
             int ch_cc = Z.modelspace->GetTwoBodyChannelIndex(Jprime, parity_cc, Tz_cc);
@@ -12204,7 +12231,7 @@ namespace ReferenceImplementations
           Jpmax = std::min(int(jj + jl), int(jk + ji)) / 2;
           for (int Jprime = Jpmin; Jprime <= Jpmax; ++Jprime)
           {
-            double sixj = Z.modelspace->GetSixJ(jj * 0.5, ji * 0.5, J0, jk * 0.5, jl * 0.5, Jprime);
+            double sixj = AngMom::SixJ(jj * 0.5, ji * 0.5, J0, jk * 0.5, jl * 0.5, Jprime);
             if (std::abs(sixj) < 1e-8)
               continue;
 
@@ -12414,7 +12441,7 @@ namespace ReferenceImplementations
             if (b > c)
               indx_bc += nbras;
 
-            double sixj1 = Z.modelspace->GetSixJ(ja, jb, J_cc, jc, jd, J_std);
+            double sixj1 = AngMom::SixJ(ja, jb, J_cc, jc, jd, J_std);
             if (std::abs(sixj1) > 1e-8)
             {
               Xbar += Z.modelspace->phase((ob.j2 + oc.j2) / 2 + J_std) * (2 * J_std + 1) * sixj1 * (bar_CHI_V[ch_cc_old](indx_ad, indx_bc) - hZ * bar_CHI_V[ch_cc_old](indx_bc, indx_ad));
@@ -12505,7 +12532,7 @@ namespace ReferenceImplementations
           int Jpmax = std::min(jj + jl, ji + jk) / 2;
           for (int Jprime = Jpmin; Jprime <= Jpmax; ++Jprime)
           {
-            double sixj1 = Z.modelspace->GetSixJ(jj * 0.5, ji * 0.5, J0, jk * 0.5, jl * 0.5, Jprime);
+            double sixj1 = AngMom::SixJ(jj * 0.5, ji * 0.5, J0, jk * 0.5, jl * 0.5, Jprime);
             if (std::abs(sixj1) < 1e-8)
               continue;
             int ch_cc = Z.modelspace->GetTwoBodyChannelIndex(Jprime, parity_cc, Tz_cc);
@@ -12541,7 +12568,7 @@ namespace ReferenceImplementations
           Jpmax = std::min(ji + jl, jj + jk) / 2;
           for (int Jprime = Jpmin; Jprime <= Jpmax; ++Jprime)
           {
-            double sixj1 = Z.modelspace->GetSixJ(ji * 0.5, jj * 0.5, J0, jk * 0.5, jl * 0.5, Jprime);
+            double sixj1 = AngMom::SixJ(ji * 0.5, jj * 0.5, J0, jk * 0.5, jl * 0.5, Jprime);
             if (std::abs(sixj1) < 1e-8)
               continue;
             int ch_cc = Z.modelspace->GetTwoBodyChannelIndex(Jprime, parity_cc, Tz_cc);
@@ -12729,7 +12756,7 @@ namespace ReferenceImplementations
           int Jpmax = std::min(ji + jl, jj + jk) / 2;
           for (int Jprime = Jpmin; Jprime <= Jpmax; ++Jprime)
           {
-            double sixj = Z.modelspace->GetSixJ(ji * 0.5, jj * 0.5, J0, jk * 0.5, jl * 0.5, Jprime);
+            double sixj = AngMom::SixJ(ji * 0.5, jj * 0.5, J0, jk * 0.5, jl * 0.5, Jprime);
             if (std::abs(sixj) < 1e-8)
               continue;
             int ch_cc = Z.modelspace->GetTwoBodyChannelIndex(Jprime, parity_cc, Tz_cc);
@@ -12758,7 +12785,7 @@ namespace ReferenceImplementations
           Jpmax = std::min(ji + jk, jj + jl) / 2;
           for (int Jprime = Jpmin; Jprime <= Jpmax; ++Jprime)
           {
-            double sixj = Z.modelspace->GetSixJ(ji * 0.5, jj * 0.5, J0, jl * 0.5, jk * 0.5, Jprime);
+            double sixj = AngMom::SixJ(ji * 0.5, jj * 0.5, J0, jl * 0.5, jk * 0.5, Jprime);
             if (std::abs(sixj) < 1e-8)
               continue;
             int ch_cc = Z.modelspace->GetTwoBodyChannelIndex(Jprime, parity_cc, Tz_cc);
@@ -12986,7 +13013,7 @@ namespace ReferenceImplementations
           for (int J_std = jmin; J_std <= jmax; J_std += dJ_std)
           {
             int phaseFactor = Z.modelspace->phase(J_std + (oc.j2 + ob.j2) / 2);
-            double sixj1 = Z.modelspace->GetSixJ(ja, jb, J_cc, jc, jd, J_std);
+            double sixj1 = AngMom::SixJ(ja, jb, J_cc, jc, jd, J_std);
             if (std::abs(sixj1) > 1e-8)
             {
               int ch_J2_bc = Z.modelspace->GetTwoBodyChannelIndex(J_std, parity_J2, Tz_J2_bc);
@@ -13109,8 +13136,8 @@ namespace ReferenceImplementations
           int Jpmax = std::min(jj + jl, ji + jk) / 2;
           for (int Jprime = Jpmin; Jprime <= Jpmax; ++Jprime)
           {
-            double sixj = Z.modelspace->GetSixJ(jj * 0.5, ji * 0.5, J0, jk * 0.5, jl * 0.5, Jprime);
-            double sixj2 = Z.modelspace->GetSixJ(ji * 0.5, jj * 0.5, J0, jl * 0.5, jk * 0.5, Jprime);
+            double sixj = AngMom::SixJ(jj * 0.5, ji * 0.5, J0, jk * 0.5, jl * 0.5, Jprime);
+            double sixj2 = AngMom::SixJ(ji * 0.5, jj * 0.5, J0, jl * 0.5, jk * 0.5, Jprime);
             if (std::abs(sixj) < 1e-8)
               continue;
 
@@ -13146,8 +13173,8 @@ namespace ReferenceImplementations
           Jpmax = std::min(ji + jl, jj + jk) / 2;
           for (int Jprime = Jpmin; Jprime <= Jpmax; ++Jprime)
           {
-            double sixj = Z.modelspace->GetSixJ(ji * 0.5, jj * 0.5, J0, jk * 0.5, jl * 0.5, Jprime);
-            double sixj2 = Z.modelspace->GetSixJ(jj * 0.5, ji * 0.5, J0, jl * 0.5, jk * 0.5, Jprime);
+            double sixj = AngMom::SixJ(ji * 0.5, jj * 0.5, J0, jk * 0.5, jl * 0.5, Jprime);
+            double sixj2 = AngMom::SixJ(jj * 0.5, ji * 0.5, J0, jl * 0.5, jk * 0.5, Jprime);
             if (std::abs(sixj) < 1e-8)
               continue;
 
@@ -13195,7 +13222,7 @@ namespace ReferenceImplementations
     Z.profiler.timer[std::string(__func__) + " Diagram III"] += omp_get_wtime() - t_type;
 
     // Timer
-    Z.profiler.timer[__func__] += omp_get_wtime() - t_start;
+    Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
     return;
   }
 

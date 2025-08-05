@@ -720,6 +720,38 @@ bool UnitTest::TestCommutators_Tensor(Operator& X, Operator& Y)
   if (Commutator::comm_term_on["comm222_phst"])
                all_good &= Test_comm222_phst(X, Y);
 
+  // 3n7 tensor commutators
+  if (Commutator::comm_term_on["comm331st"])
+               all_good &= Test_comm331st(X, Y);
+  if (Commutator::comm_term_on["comm231st"])
+               all_good &= Test_comm231st(X, Y);
+  if (Commutator::comm_term_on["comm232st"])
+               all_good &= Test_comm232st(X, Y);
+  if (Commutator::comm_term_on["comm132st"])
+               all_good &= Test_comm132st(X, Y);
+  if (Commutator::comm_term_on["comm223st"])
+               all_good &= Test_comm223st(X, Y);
+  if (Commutator::comm_term_on["comm133st"])
+               all_good &= Test_comm133st(X, Y);
+
+  // 3n8 and 3n9 commutators
+  if (Commutator::comm_term_on["comm332_pphhst"])
+               all_good &= Test_comm332_pphhst(X, Y);
+  if (Commutator::comm_term_on["comm332_ppph_hhhpst"])
+               all_good &= Test_comm332_ppph_hhhpst(X, Y);
+  if (Commutator::comm_term_on["comm233_pp_hhst"])
+               all_good &= Test_comm233_pp_hhst(X, Y);
+  if (Commutator::comm_term_on["comm233_phst"])
+               all_good &= Test_comm233_phst(X, Y);
+  if (Commutator::comm_term_on["comm333_ppp_hhhst"])
+               all_good &= Test_comm333_ppp_hhhst(X, Y);
+  if (Commutator::comm_term_on["comm333_pph_hhpst"])
+               all_good &= Test_comm333_pph_hhpst(X, Y);
+
+
+
+
+
 
 
 
@@ -1498,13 +1530,13 @@ bool UnitTest::Test_against_ref_impl(const Operator &X, const Operator &Y, commu
     Z.MakeReduced(); // If Z changes parity or Tz, we by default store it as reduced. So make it as expected. Is that a good idea? Not sure....
   }
 
-  double tstart = omp_get_wtime();
+//  double tstart = omp_get_wtime();
   ComRef(*Xnred, *Ynred, Zref);
   if ( not Zref.IsReduced() and ((Zref.GetParity() != 0) or (Zref.GetTRank() != 0) and z_Jrank==0) )
   {
     Zref.MakeReduced(); // If Z changes parity or Tz, we by default store it as reduced. So make it as expected. Is that a good idea? Not sure....
   }
-  Z.profiler.timer["_ref_" + output_tag] += omp_get_wtime() - tstart;
+//  Z.profiler.timer["_ref_" + output_tag] += omp_get_wtime() - tstart;
   // std::cout<<Z.Norm()<<" "<<Z.ZeroBody<<std::endl;
   // std::cout << Zref.Norm() << " " << Zref.ZeroBody << std::endl;
   double normOpt = Z.Norm() + Z.ZeroBody;
@@ -1625,12 +1657,12 @@ bool UnitTest::Test_comm332_pphhss(const Operator &X, const Operator &Y)
 
 bool UnitTest::Test_comm133ss(const Operator &X, const Operator &Y)
 {
-  Operator Xmod = X;
-  //  Xmod.ThreeBody.Erase();
-  Operator Ymod = Y;
-  Ymod.ThreeBody.Erase();
-  return Test_against_ref_impl(Xmod, Ymod, Commutator::comm133ss, ReferenceImplementations::comm133ss, "comm133ss");
-  //  return Test_against_ref_impl(X,Y,  Commutator::comm133ss,  ReferenceImplementations::comm133ss,  "comm133ss");
+  //Operator Xmod = X;
+  ////  Xmod.ThreeBody.Erase();
+  //Operator Ymod = Y;
+  //Ymod.ThreeBody.Erase();
+  //return Test_against_ref_impl(Xmod, Ymod, Commutator::comm133ss, ReferenceImplementations::comm133ss, "comm133ss");
+  return Test_against_ref_impl(X,Y,  Commutator::comm133ss,  ReferenceImplementations::comm133ss,  "comm133ss");
   //  return Test_against_ref_impl(X,Y,  ReferenceImplementations::comm133ss,  ReferenceImplementations::comm133ss,  "comm133ss");
 }
 
@@ -1673,6 +1705,65 @@ bool UnitTest::Test_comm333_pph_hhpss(const Operator &X, const Operator &Y)
   return Test_against_ref_impl(X, Y, Commutator::comm333_pph_hhpss, ReferenceImplementations::comm333_pph_hhpss, "comm333_pph_hhpss");
 }
 
+bool UnitTest::Test_comm331st(const Operator &X, const Operator &Y)
+{
+  return Test_against_ref_impl(X, Y, Commutator::comm331st, ReferenceImplementations::comm331st, "comm331st");
+}
+bool UnitTest::Test_comm231st(const Operator &X, const Operator &Y)
+{
+  return Test_against_ref_impl(X, Y, Commutator::comm231st, ReferenceImplementations::comm231st, "comm231st");
+}
+bool UnitTest::Test_comm232st(const Operator &X, const Operator &Y)
+{
+  return Test_against_ref_impl(X, Y, Commutator::comm232st, ReferenceImplementations::comm232st, "comm232st");
+}
+bool UnitTest::Test_comm132st(const Operator &X, const Operator &Y)
+{
+  return Test_against_ref_impl(X, Y, Commutator::comm132st, ReferenceImplementations::comm132st, "comm132st");
+}
+bool UnitTest::Test_comm223st(const Operator &X, const Operator &Y)
+{
+  return Test_against_ref_impl(X, Y, Commutator::comm223st, ReferenceImplementations::comm223st, "comm223st");
+}
+bool UnitTest::Test_comm133st(const Operator &X, const Operator &Y)
+{
+  return Test_against_ref_impl(X, Y, Commutator::comm133st, ReferenceImplementations::comm133st, "comm133st");
+}
+
+bool UnitTest::Test_comm332_pphhst(const Operator &X, const Operator &Y)
+{
+  return Test_against_ref_impl(X, Y, Commutator::comm332_pphhst, ReferenceImplementations::comm332_pphhst, "comm332_pphhst");
+}
+bool UnitTest::Test_comm332_ppph_hhhpst(const Operator &X, const Operator &Y)
+{
+  return Test_against_ref_impl(X, Y, Commutator::comm332_ppph_hhhpst, ReferenceImplementations::comm332_ppph_hhhpst, "comm332_ppph_hhhpst");
+}
+bool UnitTest::Test_comm233_pp_hhst(const Operator &X, const Operator &Y)
+{
+  return Test_against_ref_impl(X, Y, Commutator::comm233_pp_hhst, ReferenceImplementations::comm233_pp_hhst, "comm233_pp_hhst");
+}
+bool UnitTest::Test_comm233_phst(const Operator &X, const Operator &Y)
+{
+  return Test_against_ref_impl(X, Y, Commutator::comm233_phst, ReferenceImplementations::comm233_phst, "comm233_phst");
+}
+bool UnitTest::Test_comm333_ppp_hhhst(const Operator &X, const Operator &Y)
+{
+  return Test_against_ref_impl(X, Y, Commutator::comm333_ppp_hhhst, ReferenceImplementations::comm333_ppp_hhhst, "comm333_ppp_hhhst");
+}
+bool UnitTest::Test_comm333_pph_hhpst(const Operator &X, const Operator &Y)
+{
+  return Test_against_ref_impl(X, Y, Commutator::comm333_pph_hhpst, ReferenceImplementations::comm333_pph_hhpst, "comm333_pph_hhpst");
+}
+
+
+
+
+    void comm332_pphhst(const Operator &X, const Operator &Y, Operator &Z);       // PASS the unit test
+    void comm332_ppph_hhhpst(const Operator &X, const Operator &Y, Operator &Z);  // PASS the unit test
+    void comm233_pp_hhst(const Operator &X, const Operator &Y, Operator &Z);      // PASS the unit test
+    void comm233_phst(const Operator &X, const Operator &Y, Operator &Z);         // PASS the unit test
+    void comm333_ppp_hhhst(const Operator &X, const Operator &Y, Operator &Z);    // PASS the unit test
+    void comm333_pph_hhpst(const Operator &X, const Operator &Y, Operator &Z);    // PASS the unit test
 
 
 /// M-Scheme Formula:
@@ -6751,7 +6842,7 @@ bool UnitTest::Mscheme_Test_comm133st(const Operator &X, const Operator &Y)
     Y_copy.MakeReduced();
     Z_J.MakeReduced();
   }
-  // Commutator::comm133st(X, Y_copy, Z_J);
+//  Commutator::comm133st(X, Y_copy, Z_J);
   ReferenceImplementations::comm133st(X, Y_copy, Z_J);
   if (Lambda == 0 and !Y.IsReduced())
   {
@@ -6850,7 +6941,7 @@ bool UnitTest::Mscheme_Test_comm133st(const Operator &X, const Operator &Y)
                               // Bra
                               double xka = 0;
                               double yijalmn = 0;
-                              if (oa.j2 == ok.j2)
+//                              if (oa.j2 == ok.j2)
                               {  
                                 xka = GetMschemeMatrixElement_1b(X, k, m_k, a, m_a);
                                 yijalmn = GetMschemeMatrixElement_3b(Y, i, m_i, j, m_j, a, m_a, l, m_l, m, m_m, n, m_n);
@@ -6859,7 +6950,8 @@ bool UnitTest::Mscheme_Test_comm133st(const Operator &X, const Operator &Y)
 
                               double yka = 0;
                               double xijalmn = 0;
-                              if (oa.j2 == ok.j2 and  m_i + m_j + m_a - m_l - m_m - m_n == 0)
+//                              if (oa.j2 == ok.j2 and  m_i + m_j + m_a - m_l - m_m - m_n == 0)
+//                              if (  m_i + m_j + m_a - m_l - m_m - m_n == 0)
                               {
                                 yka = GetMschemeMatrixElement_1b(Y, k, m_k, a, m_a);
                                 xijalmn = GetMschemeMatrixElement_3b(X, i, m_i, j, m_j, a, m_a, l, m_l, m, m_m, n, m_n);
@@ -6868,7 +6960,7 @@ bool UnitTest::Mscheme_Test_comm133st(const Operator &X, const Operator &Y)
 
                               double xja = 0;
                               double yiaklmn = 0;
-                              if (oa.j2 == oj.j2 and m_a == m_j and m_i + m_k + m_a - m_l - m_m - m_n == Tm)
+//                              if (oa.j2 == oj.j2 and m_a == m_j and m_i + m_k + m_a - m_l - m_m - m_n == Tm)
                               {
                                 xja = GetMschemeMatrixElement_1b(X, j, m_j, a, m_a);
                                 yiaklmn = GetMschemeMatrixElement_3b(Y, i, m_i, a, m_a, k, m_k, l, m_l, m, m_m, n, m_n);
@@ -6877,7 +6969,7 @@ bool UnitTest::Mscheme_Test_comm133st(const Operator &X, const Operator &Y)
 
                               double xiaklmn = 0;
                               double yja = 0;
-                              if (oa.j2 == oj.j2 and m_i + m_k + m_a - m_l - m_m - m_n == 0)
+//                              if (oa.j2 == oj.j2 and m_i + m_k + m_a - m_l - m_m - m_n == 0)
                               {
                                 xiaklmn = GetMschemeMatrixElement_3b(X, i, m_i, a, m_a, k, m_k, l, m_l, m, m_m, n, m_n);
                                 yja = GetMschemeMatrixElement_1b(Y, j, m_j, a, m_a);
@@ -6886,7 +6978,7 @@ bool UnitTest::Mscheme_Test_comm133st(const Operator &X, const Operator &Y)
 
                               double xia = 0;
                               double yajklmn = 0;
-                              if (oa.j2 == oi.j2 and m_a == m_i and m_j + m_k + m_a - m_l - m_m - m_n == Tm)
+//                              if (oa.j2 == oi.j2 and m_a == m_i and m_j + m_k + m_a - m_l - m_m - m_n == Tm)
                               {  
                                 xia = GetMschemeMatrixElement_1b(X, i, m_i, a, m_a);
                                 yajklmn = GetMschemeMatrixElement_3b(Y, a, m_a, j, m_j, k, m_k, l, m_l, m, m_m, n, m_n);
@@ -6895,7 +6987,7 @@ bool UnitTest::Mscheme_Test_comm133st(const Operator &X, const Operator &Y)
 
                               double yia = 0;
                               double xajklmn = 0;
-                              if (oa.j2 == oi.j2 and m_j + m_k + m_a - m_l - m_m - m_n == 0)
+//                              if (oa.j2 == oi.j2 and m_j + m_k + m_a - m_l - m_m - m_n == 0)
                               {
                                 xajklmn = GetMschemeMatrixElement_3b(X, a, m_a, j, m_j, k, m_k, l, m_l, m, m_m, n, m_n);
                                 yia = GetMschemeMatrixElement_1b(Y, i, m_i, a, m_a);
@@ -6905,7 +6997,7 @@ bool UnitTest::Mscheme_Test_comm133st(const Operator &X, const Operator &Y)
                               /// Ket
                               double xal = 0;
                               double yijkamn = 0;
-                              if (oa.j2 == ol.j2 and m_a == m_l and m_i + m_j + m_k - m_a - m_m - m_n == Tm)
+//                              if (oa.j2 == ol.j2 and m_a == m_l and m_i + m_j + m_k - m_a - m_m - m_n == Tm)
                               { 
                                 xal = GetMschemeMatrixElement_1b(X, a, m_a, l, m_l);
                                 yijkamn = GetMschemeMatrixElement_3b(Y, i, m_i, j, m_j, k, m_k, a, m_a, m, m_m, n, m_n);
@@ -6914,7 +7006,7 @@ bool UnitTest::Mscheme_Test_comm133st(const Operator &X, const Operator &Y)
 
                               double yal = 0;
                               double xijkamn = 0;
-                              if (oa.j2 == ol.j2 and m_i + m_j + m_k - m_a - m_m - m_n == 0)
+//                              if (oa.j2 == ol.j2 and m_i + m_j + m_k - m_a - m_m - m_n == 0)
                               {
                                 xijkamn = GetMschemeMatrixElement_3b(X, i, m_i, j, m_j, k, m_k, a, m_a, m, m_m, n, m_n);
                                 yal = GetMschemeMatrixElement_1b(Y, a, m_a, l, m_l);
@@ -6923,7 +7015,7 @@ bool UnitTest::Mscheme_Test_comm133st(const Operator &X, const Operator &Y)
 
                               double xam = 0;
                               double yijklan = 0;
-                              if (oa.j2 == om.j2 and m_a == m_m and m_i + m_j + m_k - m_a - m_l - m_n == Tm)
+//                              if (oa.j2 == om.j2 and m_a == m_m and m_i + m_j + m_k - m_a - m_l - m_n == Tm)
                               { 
                                 xam = GetMschemeMatrixElement_1b(X, a, m_a, m, m_m);
                                 yijklan = GetMschemeMatrixElement_3b(Y, i, m_i, j, m_j, k, m_k, l, m_l, a, m_a, n, m_n);
@@ -6932,8 +7024,8 @@ bool UnitTest::Mscheme_Test_comm133st(const Operator &X, const Operator &Y)
 
                               double yam = 0;
                               double xijklan = 0;
-                              if (oa.j2 == om.j2 and m_i + m_j + m_k - m_a - m_l - m_n == 0)
-                              if (oa.j2 == om.j2)
+//                              if (oa.j2 == om.j2 and m_i + m_j + m_k - m_a - m_l - m_n == 0)
+//                              if (oa.j2 == om.j2)
                               {
                                 yam = GetMschemeMatrixElement_1b(Y, a, m_a, m, m_m);
                                 xijklan = GetMschemeMatrixElement_3b(X, i, m_i, j, m_j, k, m_k, l, m_l, a, m_a, n, m_n);
@@ -6942,7 +7034,7 @@ bool UnitTest::Mscheme_Test_comm133st(const Operator &X, const Operator &Y)
 
                               double xan = 0;
                               double yijklma = 0;
-                              if (oa.j2 == on.j2 and m_a == m_n and m_i + m_j + m_k - m_a - m_l - m_m == Tm)
+//                              if (oa.j2 == on.j2 and m_a == m_n and m_i + m_j + m_k - m_a - m_l - m_m == Tm)
                               {
                                 xan = GetMschemeMatrixElement_1b(X, a, m_a, n, m_n);
                                 yijklma = GetMschemeMatrixElement_3b(Y, i, m_i, j, m_j, k, m_k, l, m_l, m, m_m, a, m_a);
@@ -6952,7 +7044,7 @@ bool UnitTest::Mscheme_Test_comm133st(const Operator &X, const Operator &Y)
 
                               double yan = 0;
                               double xijklma = 0;
-                              if (oa.j2 == on.j2 and m_i + m_j + m_k - m_a - m_l - m_m == 0)
+//                              if (oa.j2 == on.j2 and m_i + m_j + m_k - m_a - m_l - m_m == 0)
                               {
                                 xijklma = GetMschemeMatrixElement_3b(X, i, m_i, j, m_j, k, m_k, l, m_l, m, m_m, a, m_a);
                                 yan = GetMschemeMatrixElement_1b(Y, a, m_a, n, m_n);
@@ -7014,7 +7106,7 @@ bool UnitTest::Mscheme_Test_comm132st(const Operator &X, const Operator &Y)
     Y_copy.MakeReduced();
     Z_J.MakeReduced();
   }
-  // Commutator::comm133st(X, Y_copy, Z_J);
+  // Commutator::comm132st(X, Y_copy, Z_J);
   ReferenceImplementations::comm132st(X, Y_copy, Z_J);
   if (Lambda == 0 and !Y.IsReduced())
   {
@@ -7087,8 +7179,8 @@ bool UnitTest::Mscheme_Test_comm132st(const Operator &X, const Operator &Y)
 
                     for (auto b : X.OneBodyChannels.at({oa.l, oa.j2, oa.tz2}))
                     {
-                      if (a == b)
-                        continue;
+//                      if (a == b)
+//                        continue;
                       
                       Orbit &ob = X.modelspace->GetOrbit(b);
                       double nb = ob.occ;
@@ -7110,12 +7202,12 @@ bool UnitTest::Mscheme_Test_comm132st(const Operator &X, const Operator &Y)
 
                     for (auto b : Y.OneBodyChannels.at({oa.l, oa.j2, oa.tz2}))
                     {
-                      if (a == b)
-                        continue;
+//                      if (a == b)
+//                        continue;
                       Orbit &ob = Y.modelspace->GetOrbit(b);
                       double nb = ob.occ;
-                      if ( oa.j2 != ob.j2 )
-                        continue;
+//                      if ( oa.j2 != ob.j2 )
+//                        continue;
                       for (int ma = -oa.j2; ma <= oa.j2; ma += 2)
                       {
                         for (int mb = -ob.j2; mb <= ob.j2; mb += 2)
