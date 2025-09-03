@@ -2716,6 +2716,7 @@ namespace Commutator
   ///                                                                                   { j2 j1 jd    }
   ///                                       *  ( X^(J1j1,J3j1)0_ijdabc Y^(J3j1,J2j2)Lamda_abckld  
   ///                                          - Y^(J1j1,J3j2)Lamda_ijdabc X^(J3j2,J2j2)0_abckld )
+  /// OVERALL MINUS SIGN ERROR CORRECTED Sep 3 2025 (SRS)
   ///
   void comm332_ppph_hhhpst(const Operator &X, const Operator &Y, Operator &Z)
   {
@@ -2770,7 +2771,8 @@ namespace Commutator
                 for (size_t d : Z.modelspace->all_orbits)
                 {
                   Orbit &od = Z.modelspace->GetOrbit(d);
-                  double occfactor = oa.occ * ob.occ * oc.occ * (1 - od.occ) - (1 - oa.occ) * (1 - ob.occ) * (1 - oc.occ) * od.occ;
+//                  double occfactor = oa.occ * ob.occ * oc.occ * (1 - od.occ) - (1 - oa.occ) * (1 - ob.occ) * (1 - oc.occ) * od.occ;
+                  double occfactor = (1 - oa.occ) * (1 - ob.occ) * (1 - oc.occ) * od.occ - oa.occ * ob.occ * oc.occ * (1 - od.occ);
                   if (std::abs(occfactor) < 1e-7)
                     continue;
                   //if ((oi.l + oj.l + od.l + oa.l + ob.l + oc.l) % 2 > 0)
@@ -3092,7 +3094,7 @@ namespace Commutator
   ///                                                             { J3 J1 lambda } X^(J1j1,J3j1)0_ijkabn Y^(J3,J2)Lamda_ablm )
   ///                                                             { j2 j1 jn     }
   ///
-  /// THIS VERSION (scalar) IS STILL TOO SLOW FOR GOING BEYOND EMAX=2... (Rangar)
+  /// THIS VERSION (scalar) IS STILL TOO SLOW FOR GOING BEYOND EMAX=2... (Ragnar)
   /// It's also ture for tensor (Bingcheng)
   void comm233_pp_hhst(const Operator &X, const Operator &Y, Operator &Z)
   {
