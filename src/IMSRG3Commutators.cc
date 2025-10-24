@@ -9,6 +9,7 @@ namespace Commutator
 {
 
   bool imsrg3_no_qqq = false;
+  bool imsrg3_only_vvv = false;
   bool imsrg3_valence_2b = false;
   bool discard_0b_from_3b = false;
   bool discard_1b_from_3b = false;
@@ -5038,6 +5039,8 @@ namespace Commutator
         continue;
       if (imsrg3_no_qqq and (oi.cvq + oj.cvq + ok.cvq) > 5)
         continue; // Need at least one core or valence particle
+      if (imsrg3_only_vvv and ((oi.cvq!=1) or (oj.cvq!=1) or (ok.cvq!=1) ))
+        continue; // everything should be valence
 
       int J1 = bra.Jpq;
 
@@ -5072,6 +5075,8 @@ namespace Commutator
         if (perturbative_triples and (std::abs(occ_ijk*unocc_lmn - unocc_ijk*occ_lmn)<1e-8) )
           continue;
         if (imsrg3_no_qqq and (ol.cvq + om.cvq + on.cvq) > 5)
+          continue;
+        if (imsrg3_only_vvv and ((ol.cvq!=1) or (om.cvq!=1) or (on.cvq!=1) ))
           continue;
         int J2 = ket.Jpq;
 
@@ -5315,8 +5320,20 @@ namespace Commutator
   {
     //  std::cout << "ENTER " <<__func__ << std::endl;
     double tstart = omp_get_wtime();
-    if (Commutator::verbose)
+    if (Commutator::verbose )
       std::cout << __func__ << std::endl;
+
+    if ( X.GetTRank() != 0 or Y.GetTRank() !=0 or X.GetParity() !=0 or Y.GetParity() !=0 )
+    {
+      Operator Yred = Y;
+      Yred.MakeReduced();
+      Z.MakeReduced();
+      comm233_pp_hhst(X,Yred,Z);
+      Z.MakeNotReduced();
+      return;
+    }
+
+
     auto &X3 = X.ThreeBody;
     auto &Y3 = Y.ThreeBody;
     auto &Z3 = Z.ThreeBody;
@@ -5344,6 +5361,7 @@ namespace Commutator
 #pragma omp parallel for schedule(dynamic, 1) if (not Z.modelspace->scalar3b_transform_first_pass)
     for (size_t ch3 = 0; ch3 < nch3; ch3++)
     {
+//      std::cout << __func__ <<  "  ch3 = " << ch3 << std::endl;
       auto &Tbc = Z.modelspace->GetThreeBodyChannel(ch3);
       int twoJ = Tbc.twoJ;
       double Jtot = 0.5 * twoJ;
@@ -5374,7 +5392,7 @@ namespace Commutator
       arma::mat Y3MAT(nkets_kept, nkets_kept, arma::fill::zeros);
       arma::mat Z3MAT(nkets_kept, nkets_kept, arma::fill::zeros);
 
-      //    std::cout << "   fill the 2b matrices ch = " << ch3 << std::endl;
+//          std::cout << __func__<< "   fill the 2b matrices ch = " << ch3 << std::endl;
 
       for (size_t index_bra = 0; index_bra < nkets_kept; index_bra++)
       {
@@ -5558,7 +5576,7 @@ namespace Commutator
 
       } // for index_bra
 
-      //     std::cout << "Fill the 3b matrices " << std::endl;
+//           std::cout << __func__ <<  "Fill the 3b matrices " << std::endl;
 
       // Fill X3 and Y3
       // kept_lookup is a map   Full index => Kept index, so iter_bra.first gives the full index, and iter_bra.second is the
@@ -5580,7 +5598,7 @@ namespace Commutator
       Z3MAT = X2MAT * Y3MAT - Y2MAT * X3MAT;
       Z3MAT -= hermX * hermY * Z3MAT.t();
 
-      //    std::cout << "Unpack..." << std::endl;
+//          std::cout << "Unpack..." << std::endl;
 
       // unpack the result
       for (auto &iter_bra : kept_lookup)
@@ -5892,8 +5910,20 @@ namespace Commutator
   {
 
     double tstart = omp_get_wtime();
-    if (Commutator::verbose)
+    if (Commutator::verbose or true)
       std::cout << __func__ << std::endl;
+
+    if ( X.GetTRank() != 0 or Y.GetTRank() !=0 or X.GetParity() !=0 or Y.GetParity() !=0 )
+    {
+      Operator Yred = Y;
+      Yred.MakeReduced();
+      Z.MakeReduced();
+      comm233_phst(X,Yred,Z);
+      Z.MakeNotReduced();
+      return;
+    }
+
+
     double t_internal = omp_get_wtime();
     auto &X2 = X.TwoBody;
     auto &Y2 = Y.TwoBody;
