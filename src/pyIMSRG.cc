@@ -166,6 +166,9 @@ PYBIND11_MODULE(pyIMSRG, m)
           .def("SetScalar3bFirstPass", &ModelSpace::SetScalar3bFirstPass)
           .def("ClearVectors", &ModelSpace::ClearVectors)
           .def("Print", &ModelSpace::Print)
+//          .def("Print_CC", &ModelSpace::Print_CC)
+          .def("GetTwoBodyJmax",&ModelSpace::GetTwoBodyJmax)
+          .def("GetThreeBodyJmax",&ModelSpace::GetThreeBodyJmax)
           .def_readwrite("holes", &ModelSpace::holes)
           .def_readwrite("particles", &ModelSpace::particles)
           .def_readwrite("core", &ModelSpace::core)
@@ -251,8 +254,16 @@ PYBIND11_MODULE(pyIMSRG, m)
           .def("GetMP2_3BEnergy", &Operator::GetMP2_3BEnergy)
           .def("GetMP3_Energy", &Operator::GetMP3_Energy)
           .def("GetPPHH_Ladders", &Operator::GetPPHH_Ladders)
-          .def("ReadBinary",  [](Operator &self, std::string fname) { std::ifstream ifs(fname,std::ios::binary);  self.ReadBinary(ifs); },  py::arg("filename"))
-          .def("WriteBinary", [](Operator &self, std::string fname) { std::ofstream ofs(fname,std::ios::binary);  self.WriteBinary(ofs); }, py::arg("filename"))
+          .def(
+              "ReadBinary", [](Operator &self, std::string fname)
+              { std::ifstream ifs(fname,std::ios::binary);  self.ReadBinary(ifs); },
+              py::arg("filename"))
+          .def(
+              "WriteBinary", [](Operator &self, std::string fname)
+              { std::ofstream ofs(fname,std::ios::binary);  self.WriteBinary(ofs); },
+              py::arg("filename"))
+          .def("GetMultipole", &Operator::GetMultipole, py::arg("j"), py::arg("p"), py::arg("t"))
+          //      .def("IsospinProject", &Operator::IsospinProject)
           ;
 
       py::class_<arma::mat>(m, "ArmaMat")
