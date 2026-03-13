@@ -10317,6 +10317,8 @@ namespace ReferenceImplementations
   }
 
 
+  
+
   void comm223_231_f_I(const Operator &Eta, const Operator &Gamma, Operator &Z)
   {
     // determine symmetry
