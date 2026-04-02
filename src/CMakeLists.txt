@@ -620,6 +620,20 @@ target_link_libraries(
 )
 
 add_library(
+    EOMImsrg
+    EOMImsrg.hh EOMImsrg.cc
+)
+target_link_libraries(
+    EOMImsrg
+    PUBLIC
+    armadillo
+    ModelSpace
+    Operator
+    PRIVATE
+    AngMom
+)
+
+add_library(
     ReferenceImplementations
     OBJECT
     ReferenceImplementations.hh ReferenceImplementations.cc
@@ -683,6 +697,7 @@ add_library(
     UnitTest
     PhysicalConstants
     RPA
+    EOMImsrg
 )
 target_link_libraries(
     IMSRG
@@ -707,6 +722,7 @@ target_link_libraries(
     UnitTest
     PhysicalConstants
     RPA
+    EOMImsrg
 )
 set_target_properties(IMSRG PROPERTIES SUFFIX ".so")
 
@@ -771,3 +787,4 @@ add_test(NAME Factorized   COMMAND  python3 ../test/UnitTestFactorized.py )
 add_test(NAME Triples      COMMAND  python3 ../test/UnitTestTriples.py )
 add_test(NAME Tensor       COMMAND  python3 ../test/UnitTestTensor.py )
 add_test(NAME NormalOrdering    COMMAND  python3 ../test/UnitTestNormalOrdering.py )
+add_test(NAME EOM              COMMAND  python3 ../test/UnitTestEOM.py )

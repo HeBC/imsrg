@@ -893,6 +893,44 @@ PYBIND11_MODULE(pyIMSRG, m)
                { std::cout << self.B << std::endl; })
           .def("GetEgs", &RPA::GetEgs);
 
+      // EOMImsrg: Equation-of-Motion IMSRG excited-state solver.
+      // Takes an IMSRG-evolved Hamiltonian and solves for excitation energies
+      // and transition matrix elements in the 1p-1h sector.
+      py::class_<EOMChannel>(m, "EOMChannel")
+          .def(py::init<>())
+          .def("GetEnergies", [](EOMChannel &self)
+               { std::vector<double> v; for (auto e : self.Energies) v.push_back(e); return v; })
+          .def("GetX", [](EOMChannel &self, size_t i)
+               { arma::vec col = self.X.col(i); std::vector<double> v; for (auto x : col) v.push_back(x); return v; })
+          .def("GetY", [](EOMChannel &self, size_t i)
+               { arma::vec col = self.Y.col(i); std::vector<double> v; for (auto y : col) v.push_back(y); return v; });
+
+      py::class_<EOMImsrg>(m, "EOMImsrg")
+          .def(py::init<Operator &>())
+          .def("BuildAMatrix", &EOMImsrg::BuildAMatrix,
+               py::arg("J"), py::arg("parity"), py::arg("Tz"))
+          .def("BuildBMatrix", &EOMImsrg::BuildBMatrix,
+               py::arg("J"), py::arg("parity"), py::arg("Tz"))
+          .def("Solve", &EOMImsrg::Solve,
+               py::arg("J"), py::arg("parity"), py::arg("Tz"), py::arg("mode") = "TDA")
+          .def("SolveAllChannels", &EOMImsrg::SolveAllChannels,
+               py::arg("mode") = "TDA")
+          .def("GetExcitationEnergies", [](EOMImsrg &self)
+               { arma::vec v = self.GetExcitationEnergies();
+                 std::vector<double> out; for (auto e : v) out.push_back(e); return out; })
+          .def("GetAmplitudesX", [](EOMImsrg &self, size_t i)
+               { arma::vec v = self.GetAmplitudesX(i);
+                 std::vector<double> out; for (auto x : v) out.push_back(x); return out; })
+          .def("GetAmplitudesY", [](EOMImsrg &self, size_t i)
+               { arma::vec v = self.GetAmplitudesY(i);
+                 std::vector<double> out; for (auto y : v) out.push_back(y); return out; })
+          .def("ComputeTransitionME", &EOMImsrg::ComputeTransitionME,
+               py::arg("Op"), py::arg("state_index"))
+          .def("GetChannelResults", &EOMImsrg::GetChannelResults,
+               py::arg("ich_CC"))
+          .def_readwrite("A", &EOMImsrg::A)
+          .def_readwrite("B", &EOMImsrg::B);
+
       py::class_<UnitTest>(m, "UnitTest")
           //      .def(py::init<>())
           .def(py::init<ModelSpace &>())
