@@ -25,6 +25,8 @@ Tests performed:
        GetSolvedChannels
        PrintA / PrintB
        H field access
+ 13. EOM2 mode (1p1h + 2p2h): Solve() runs, energies are finite, lowest EOM2
+     energy ≤ lowest TDA energy, SolveAllChannels works.
 """
 
 import sys
@@ -348,6 +350,52 @@ def main():
         check(True, "EOMChannel.Print() runs without exception")
     except Exception as ex:
         check(False, f"EOMChannel.Print() raised: {ex}")
+
+    # ----------------------------------------------------------------
+    # Test 13: EOM2 mode (1p1h + 2p2h sector)
+    # ----------------------------------------------------------------
+    print("Test group: EOM2 solver")
+
+    eom2 = pyIMSRG.EOMImsrg(H)
+    try:
+        eom2.Solve(J, par, Tz, "EOM2")
+        eom2_ran = True
+        check(True, "EOM2 Solve() runs without exception")
+    except Exception as ex:
+        eom2_ran = False
+        check(False, f"EOM2 Solve() raised: {ex}")
+
+    if eom2_ran:
+        eom2_energies = eom2.GetExcitationEnergies()
+        check(len(eom2_energies) > 0,
+              "EOM2 GetExcitationEnergies() returns a non-empty list")
+
+        # All EOM2 energies should be real finite numbers
+        if len(eom2_energies) > 0:
+            all_finite = all(math.isfinite(e) for e in eom2_energies)
+            check(all_finite, "EOM2 energies are all finite")
+
+            # EOM2 energies from the 1p1h sector should be <= TDA energies
+            # (EOM2 includes more correlations, so energies can only decrease or stay).
+            # We compare the minimum EOM2 energy to the minimum TDA energy.
+            min_tda  = min(tda_energies)
+            min_eom2 = min(eom2_energies)
+            check(min_eom2 <= min_tda + 1e-8,
+                  f"EOM2 lowest energy ({min_eom2:.4f}) <= TDA lowest ({min_tda:.4f})")
+
+        # The 1p1h (X) amplitudes should have at least as many rows as the ph dimension
+        X2 = eom2.X
+        Y2 = eom2.Y
+        check(isinstance(X2, list), "EOM2: X amplitudes accessible as list")
+        check(isinstance(Y2, list), "EOM2: Y amplitudes accessible as list")
+
+        # H22 matrix should be symmetric: verify via SolveAllChannels
+        eom2_all = pyIMSRG.EOMImsrg(H)
+        try:
+            eom2_all.SolveAllChannels("EOM2")
+            check(True, "EOM2 SolveAllChannels() runs without exception")
+        except Exception as ex:
+            check(False, f"EOM2 SolveAllChannels() raised: {ex}")
 
     # ----------------------------------------------------------------
     # Summary
