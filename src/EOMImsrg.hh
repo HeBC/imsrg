@@ -29,12 +29,18 @@
 /// states cheaply by diagonalising in the 1p-1h (particle-hole) sector of
 /// \f$\tilde{H}\f$.
 ///
-/// Two levels of approximation are supported:
+/// Three levels of approximation are supported:
 ///   - **TDA** (Tamm-Dancoff Approximation): diagonalises the A matrix in the
 ///     1p-1h sector. Equivalent to IMSRG-TDA.
 ///   - **EOM** (full Equation of Motion): solves the RPA-like secular equation
 ///     including the B matrix that couples forward and backward amplitudes.
 ///     Equivalent to IMSRG-RPA.
+///   - **EOM2** (EOM-IMSRG with 2p-2h): diagonalises the full
+///     [H_11 H_12; H_21 H_22] block matrix in the combined 1p-1h + 2p-2h space.
+///     This is the proper EOM-IMSRG following Parzuchowski et al. (PRC 2017).
+///     H_11 is the TDA A matrix; H_22 contains the 2p-2h diagonal energies
+///     plus pp-pp, hh-hh ladder and ph ring interactions; H_21 is the
+///     coupling from [Γ, Q_{ph}] → 2p-2h (4 terms from commutator_212).
 ///
 /// The A matrix is
 /// \f[
@@ -49,7 +55,7 @@
 /// Usage example:
 /// \code
 ///   EOMImsrg eom( imsrg_solver.GetH_s() );
-///   eom.Solve(2, 1, 0);            // J=2, positive parity, Tz=0
+///   eom.Solve(2, 1, 0, "EOM2");    // full 1p1h+2p2h EOM-IMSRG
 ///   arma::vec E = eom.GetExcitationEnergies();
 ///   double B_E2 = eom.ComputeTransitionME(E2op, 0); // lowest 2+ state
 /// \endcode
@@ -68,13 +74,24 @@
 struct EOMChannel
 {
   arma::vec Energies; ///< Excitation energies (MeV), sorted ascending
-  arma::mat X;        ///< Forward amplitudes  (nph x nstates)
-  arma::mat Y;        ///< Backward amplitudes (nph x nstates); zero for TDA
+  arma::mat X;        ///< Forward 1p1h amplitudes  (nph x nstates)
+  arma::mat Y;        ///< Backward amplitudes (nph x nstates); zero for TDA/EOM2
+};
+
+/// Compact representation of one 2p-2h basis state.
+struct TwoPTwoHState
+{
+  size_t a; ///< First particle orbit index  (a <= b by TwoBodyChannel convention)
+  size_t b; ///< Second particle orbit index
+  size_t i; ///< First hole orbit index      (i <= j)
+  size_t j; ///< Second hole orbit index
+  int Jab;  ///< Angular momentum coupling of the pp pair (actual value, e.g. 0,1,2,…)
+  int Jij;  ///< Angular momentum coupling of the hh pair
 };
 
 ///
 /// \class EOMImsrg
-/// \brief EOM-IMSRG excited-state solver (1p-1h sector).
+/// \brief EOM-IMSRG excited-state solver (1p-1h and 1p1h+2p2h sectors).
 ///
 class EOMImsrg
 {
@@ -88,6 +105,11 @@ class EOMImsrg
   /// Current working matrices (populated by BuildAMatrix / BuildBMatrix)
   arma::mat A;
   arma::mat B;
+
+  /// 2p2h working matrices (populated when mode == "EOM2")
+  arma::mat H22; ///< 2p2h × 2p2h block
+  arma::mat H21; ///< 2p2h × 1p1h coupling block
+  std::vector<TwoPTwoHState> tpth_basis; ///< 2p2h basis for current channel
 
   /// Results for the most recently solved channel
   arma::vec Energies;
@@ -120,12 +142,20 @@ class EOMImsrg
   /// Build the B matrix by TwoBodyChannel_CC index.
   void BuildBMatrix_byIndex(size_t ich_CC);
 
+  /// Enumerate the 2p2h basis states compatible with EOM channel ich_CC.
+  void Build2p2hBasis_byIndex(size_t ich_CC);
+  /// Build the 2p2h × 2p2h block H22 (diagonal + pp-pp + hh-hh + ph ring).
+  void BuildH22_byIndex(size_t ich_CC);
+  /// Build the 2p2h × 1p1h coupling block H21 from [Γ, Q_ph] → 2p2h.
+  void BuildH21_byIndex(size_t ich_CC);
+
   // -----------------------------------------------------------------------
   // Solvers
   // -----------------------------------------------------------------------
   /// Solve for excitation energies and amplitudes in one (J, parity, Tz) channel.
-  /// @param mode  "TDA"  – diagonalise A only (no B matrix).
-  ///              "EOM"  – solve the full EOM secular equation (A and B).
+  /// @param mode  "TDA"   – diagonalise A only (no B matrix).
+  ///              "EOM"   – solve the RPA secular equation (A and B).
+  ///              "EOM2"  – full EOM-IMSRG with 1p1h+2p2h block matrix.
   void Solve(int J, int parity, int Tz, std::string mode = "TDA");
   /// Same as Solve() but addressed by channel index.
   void Solve_byIndex(size_t ich_CC, std::string mode = "TDA");
