@@ -15,6 +15,16 @@ Tests performed:
   7. SolveAllChannels runs without error.
   8. ComputeTransitionME returns a finite float.
   9. GetChannelResults raises for unsolved channel.
+ 10. New Python-binding functions:
+       BuildAMatrix_byIndex / BuildBMatrix_byIndex
+       Solve_byIndex
+       ComputeTransitionME_byIndex
+       GetNStates / GetNBasis (EOMChannel)
+       EOMChannel.Print / EOMChannel.energies / X_matrix / Y_matrix
+       EOMImsrg.Energies / X / Y / current_channel properties
+       GetSolvedChannels
+       PrintA / PrintB
+       H field access
 """
 
 import sys
@@ -55,7 +65,6 @@ def main():
 
     rpa = pyIMSRG.RPA(H)
     rpa.ConstructAMatrix(J, par, Tz, False)
-    rpa_energies = rpa.GetEnergies()   # RPA: just A diagonalised in SolveTDA
     rpa.SolveTDA()
     rpa_energies_tda = rpa.GetEnergies()
 
@@ -82,7 +91,6 @@ def main():
     print("Test group: TDA amplitudes")
 
     if len(tda_energies) > 0:
-        n = len(tda_energies)
         X0 = eom.GetAmplitudesX(0)
         Y0 = eom.GetAmplitudesY(0)
 
@@ -178,6 +186,170 @@ def main():
         check(True, "GetChannelResults(unsolved) raises as expected")
 
     # ----------------------------------------------------------------
+    # Test 9: New binding functions — index-based variants
+    # ----------------------------------------------------------------
+    print("Test group: index-based variants")
+    ich = ms.GetTwoBodyChannelIndex(J, par, Tz)
+
+    eom_idx = pyIMSRG.EOMImsrg(H)
+    try:
+        eom_idx.BuildAMatrix_byIndex(ich)
+        check(True, "BuildAMatrix_byIndex runs without exception")
+    except Exception as ex:
+        check(False, f"BuildAMatrix_byIndex raised: {ex}")
+
+    try:
+        eom_idx.BuildBMatrix_byIndex(ich)
+        check(True, "BuildBMatrix_byIndex runs without exception")
+    except Exception as ex:
+        check(False, f"BuildBMatrix_byIndex raised: {ex}")
+
+    try:
+        eom_idx2 = pyIMSRG.EOMImsrg(H)
+        eom_idx2.Solve_byIndex(ich, "TDA")
+        energies_idx = eom_idx2.GetExcitationEnergies()
+        # Must match the (J, parity, Tz) variant
+        if sizes_match and len(tda_energies) > 0 and len(energies_idx) > 0:
+            diff = max(abs(a - b) for a, b in zip(sorted(tda_energies),
+                                                   sorted(energies_idx)))
+            check(diff < 1e-10,
+                  f"Solve_byIndex gives same energies as Solve (diff={diff:.2e})")
+        else:
+            check(True, "Solve_byIndex ran without exception")
+    except Exception as ex:
+        check(False, f"Solve_byIndex raised: {ex}")
+
+    # ComputeTransitionME_byIndex
+    try:
+        eom_idx3 = pyIMSRG.EOMImsrg(H)
+        eom_idx3.Solve(J, par, Tz, "TDA")
+        ens3 = eom_idx3.GetExcitationEnergies()
+        if len(ens3) > 0:
+            E2op = ut.RandomOp(ms, 2, 0, 1, 1, +1)
+            T_idx = eom_idx3.ComputeTransitionME_byIndex(ich, E2op, 0)
+            T_direct = eom_idx3.ComputeTransitionME(E2op, 0)
+            check(abs(T_idx - T_direct) < 1e-14,
+                  f"ComputeTransitionME_byIndex matches ComputeTransitionME")
+        else:
+            check(True, "ComputeTransitionME_byIndex: no states (trivial pass)")
+    except Exception as ex:
+        check(False, f"ComputeTransitionME_byIndex raised: {ex}")
+
+    # ----------------------------------------------------------------
+    # Test 10: EOMImsrg property fields
+    # ----------------------------------------------------------------
+    print("Test group: EOMImsrg property fields")
+
+    eom_props = pyIMSRG.EOMImsrg(H)
+    eom_props.Solve(J, par, Tz, "TDA")
+
+    # GetNStates
+    n_states = eom_props.GetNStates()
+    check(isinstance(n_states, int) and n_states >= 0,
+          f"GetNStates returns non-negative int ({n_states})")
+
+    # Energies property
+    energies_prop = eom_props.Energies
+    check(isinstance(energies_prop, list),
+          "Energies property returns a list")
+    if len(energies_prop) > 0 and len(tda_energies) > 0:
+        check(abs(energies_prop[0] - tda_energies[0]) < 1e-10,
+              "Energies property matches GetExcitationEnergies()[0]")
+
+    # X property (2D list)
+    X_prop = eom_props.X
+    check(isinstance(X_prop, list),
+          "X property returns a 2D list")
+    if len(X_prop) > 0:
+        check(isinstance(X_prop[0], list),
+              "X property inner elements are lists")
+
+    # Y property (2D list)
+    Y_prop = eom_props.Y
+    check(isinstance(Y_prop, list), "Y property returns a 2D list")
+
+    # current_channel (read-only)
+    cc = eom_props.current_channel
+    check(isinstance(cc, int) and cc >= 0,
+          f"current_channel is non-negative int ({cc})")
+
+    # H field accessible (read/write)
+    try:
+        H_field = eom_props.H
+        check(True, "H field is accessible")
+    except Exception as ex:
+        check(False, f"H field raised: {ex}")
+
+    # A and B matrices
+    A_mat = eom_props.A
+    check(isinstance(A_mat, pyIMSRG.arma_mat) if hasattr(pyIMSRG, 'arma_mat')
+          else True, "A field is accessible (type check skipped if arma_mat not exposed)")
+
+    # PrintA / PrintB don't raise
+    try:
+        eom_props.PrintA()
+        check(True, "PrintA() runs without exception")
+    except Exception as ex:
+        check(False, f"PrintA raised: {ex}")
+
+    try:
+        eom_props.PrintB()
+        check(True, "PrintB() runs without exception")
+    except Exception as ex:
+        check(False, f"PrintB raised: {ex}")
+
+    # ----------------------------------------------------------------
+    # Test 11: GetSolvedChannels
+    # ----------------------------------------------------------------
+    print("Test group: GetSolvedChannels")
+    eom_sc = pyIMSRG.EOMImsrg(H)
+    eom_sc.Solve(J, par, Tz, "TDA")
+    solved = eom_sc.GetSolvedChannels()
+    check(isinstance(solved, list), "GetSolvedChannels returns a list")
+    check(ich in solved, f"GetSolvedChannels contains the solved channel ({ich})")
+
+    # After SolveAllChannels, list must be non-empty
+    eom_sc2 = pyIMSRG.EOMImsrg(H)
+    eom_sc2.SolveAllChannels("TDA")
+    solved_all = eom_sc2.GetSolvedChannels()
+    check(len(solved_all) > 0, "GetSolvedChannels non-empty after SolveAllChannels")
+
+    # ----------------------------------------------------------------
+    # Test 12: EOMChannel extra methods
+    # ----------------------------------------------------------------
+    print("Test group: EOMChannel extra methods")
+    eom_ch = pyIMSRG.EOMImsrg(H)
+    eom_ch.Solve(J, par, Tz, "TDA")
+    ch_result = eom_ch.GetChannelResults(ich)
+
+    n_st = ch_result.GetNStates()
+    check(isinstance(n_st, int) and n_st >= 0,
+          f"EOMChannel.GetNStates() = {n_st}")
+
+    n_basis = ch_result.GetNBasis()
+    check(isinstance(n_basis, int) and n_basis >= 0,
+          f"EOMChannel.GetNBasis() = {n_basis}")
+
+    energies_ch = ch_result.energies
+    check(isinstance(energies_ch, list),
+          "EOMChannel.energies property returns a list")
+    if n_st > 0:
+        check(len(energies_ch) == n_st,
+              f"EOMChannel.energies length ({len(energies_ch)}) == GetNStates ({n_st})")
+
+    Xmat = ch_result.X_matrix
+    check(isinstance(Xmat, list), "EOMChannel.X_matrix returns a 2D list")
+
+    Ymat = ch_result.Y_matrix
+    check(isinstance(Ymat, list), "EOMChannel.Y_matrix returns a 2D list")
+
+    try:
+        ch_result.Print()
+        check(True, "EOMChannel.Print() runs without exception")
+    except Exception as ex:
+        check(False, f"EOMChannel.Print() raised: {ex}")
+
+    # ----------------------------------------------------------------
     # Summary
     # ----------------------------------------------------------------
     print(f"\npassed? {PASS}")
@@ -186,3 +358,4 @@ def main():
 if __name__ == '__main__':
     ok = main()
     sys.exit(0 if ok else 1)
+

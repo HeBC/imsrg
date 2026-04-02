@@ -106,14 +106,47 @@ def main():
         print(f"  Transition ME: skipped ({ex})")
 
     # ------------------------------------------------------------------
-    # 6. Solve all channels at once
+    # 6. Solve all channels at once; inspect via GetSolvedChannels
     # ------------------------------------------------------------------
     print("\n--- SolveAllChannels (TDA) ---")
     eom2 = pyIMSRG.EOMImsrg(H)
     eom2.SolveAllChannels("TDA")
-    print("  SolveAllChannels completed successfully.")
+    solved_channels = eom2.GetSolvedChannels()
+    print(f"  SolveAllChannels completed. Solved {len(solved_channels)} channels.")
+
+    # ------------------------------------------------------------------
+    # 7. Demonstrate index-based API and EOMChannel introspection
+    # ------------------------------------------------------------------
+    print("\n--- Index-based API ---")
+    ich = ms.GetTwoBodyChannelIndex(2, 1, 0)   # J=2+
+    eom3 = pyIMSRG.EOMImsrg(H)
+    eom3.Solve_byIndex(ich, "TDA")
+    ch_result = eom3.GetChannelResults(ich)
+    n_states = ch_result.GetNStates()
+    n_basis  = ch_result.GetNBasis()
+    print(f"  J=2+ channel (ich={ich}): {n_states} states, {n_basis} 1p-1h basis pairs")
+    if n_states > 0:
+        print(f"  Lowest energy (from EOMChannel): {ch_result.energies[0]:.4f} MeV")
+        ch_result.Print()
+
+    # ------------------------------------------------------------------
+    # 8. Demonstrate EOMImsrg property accessors
+    # ------------------------------------------------------------------
+    print("\n--- Property accessors ---")
+    eom4 = pyIMSRG.EOMImsrg(H)
+    eom4.Solve(2, 1, 0, "TDA")
+    print(f"  current_channel = {eom4.current_channel}")
+    print(f"  GetNStates()    = {eom4.GetNStates()}")
+    ens = eom4.Energies
+    if ens:
+        print(f"  Energies[0]     = {ens[0]:.4f} MeV  (via .Energies property)")
+    X_rows = len(eom4.X)
+    X_cols = len(eom4.X[0]) if X_rows > 0 else 0
+    print(f"  X matrix shape  = {X_rows} x {X_cols}")
+    eom4.PrintA()
 
     print("\nDone.")
 
 if __name__ == '__main__':
     main()
+

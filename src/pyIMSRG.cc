@@ -896,25 +896,70 @@ PYBIND11_MODULE(pyIMSRG, m)
       // EOMImsrg: Equation-of-Motion IMSRG excited-state solver.
       // Takes an IMSRG-evolved Hamiltonian and solves for excitation energies
       // and transition matrix elements in the 1p-1h sector.
+
+      // EOMChannel: holds per-channel results (energies + X/Y amplitudes).
       py::class_<EOMChannel>(m, "EOMChannel")
           .def(py::init<>())
+          // ---- accessors ----
           .def("GetEnergies", [](EOMChannel &self)
                { std::vector<double> v; for (auto e : self.Energies) v.push_back(e); return v; })
           .def("GetX", [](EOMChannel &self, size_t i)
                { arma::vec col = self.X.col(i); std::vector<double> v; for (auto x : col) v.push_back(x); return v; })
           .def("GetY", [](EOMChannel &self, size_t i)
-               { arma::vec col = self.Y.col(i); std::vector<double> v; for (auto y : col) v.push_back(y); return v; });
+               { arma::vec col = self.Y.col(i); std::vector<double> v; for (auto y : col) v.push_back(y); return v; })
+          // Number of excited states stored in this channel
+          .def("GetNStates", [](EOMChannel &self)
+               { return (size_t)self.Energies.n_elem; })
+          // Number of 1p-1h basis states (rows of X)
+          .def("GetNBasis", [](EOMChannel &self)
+               { return (size_t)self.X.n_rows; })
+          // Direct field access (read-only views as Python lists)
+          .def_property_readonly("energies", [](EOMChannel &self)
+               { std::vector<double> v; for (auto e : self.Energies) v.push_back(e); return v; })
+          .def_property_readonly("X_matrix", [](EOMChannel &self)
+               { std::vector<std::vector<double>> out;
+                 for (size_t r = 0; r < self.X.n_rows; r++) {
+                   std::vector<double> row;
+                   for (size_t c = 0; c < self.X.n_cols; c++) row.push_back(self.X(r,c));
+                   out.push_back(row);
+                 }
+                 return out; })
+          .def_property_readonly("Y_matrix", [](EOMChannel &self)
+               { std::vector<std::vector<double>> out;
+                 for (size_t r = 0; r < self.Y.n_rows; r++) {
+                   std::vector<double> row;
+                   for (size_t c = 0; c < self.Y.n_cols; c++) row.push_back(self.Y(r,c));
+                   out.push_back(row);
+                 }
+                 return out; })
+          // Print summary
+          .def("Print", [](EOMChannel &self)
+               { std::cout << "EOMChannel: " << self.Energies.n_elem
+                           << " states, " << self.X.n_rows << " basis pairs" << std::endl;
+                 for (size_t i = 0; i < self.Energies.n_elem; i++)
+                   std::cout << "  E[" << i << "] = " << self.Energies(i) << " MeV" << std::endl; });
 
+      // EOMImsrg: main solver class.
       py::class_<EOMImsrg>(m, "EOMImsrg")
           .def(py::init<Operator &>())
+          // ---- matrix construction ----
           .def("BuildAMatrix", &EOMImsrg::BuildAMatrix,
                py::arg("J"), py::arg("parity"), py::arg("Tz"))
           .def("BuildBMatrix", &EOMImsrg::BuildBMatrix,
                py::arg("J"), py::arg("parity"), py::arg("Tz"))
+          // index-addressed variants (use TwoBodyChannel_CC index directly)
+          .def("BuildAMatrix_byIndex", &EOMImsrg::BuildAMatrix_byIndex,
+               py::arg("ich_CC"))
+          .def("BuildBMatrix_byIndex", &EOMImsrg::BuildBMatrix_byIndex,
+               py::arg("ich_CC"))
+          // ---- solvers ----
           .def("Solve", &EOMImsrg::Solve,
                py::arg("J"), py::arg("parity"), py::arg("Tz"), py::arg("mode") = "TDA")
+          .def("Solve_byIndex", &EOMImsrg::Solve_byIndex,
+               py::arg("ich_CC"), py::arg("mode") = "TDA")
           .def("SolveAllChannels", &EOMImsrg::SolveAllChannels,
                py::arg("mode") = "TDA")
+          // ---- accessors for current channel ----
           .def("GetExcitationEnergies", [](EOMImsrg &self)
                { arma::vec v = self.GetExcitationEnergies();
                  std::vector<double> out; for (auto e : v) out.push_back(e); return out; })
@@ -924,12 +969,53 @@ PYBIND11_MODULE(pyIMSRG, m)
           .def("GetAmplitudesY", [](EOMImsrg &self, size_t i)
                { arma::vec v = self.GetAmplitudesY(i);
                  std::vector<double> out; for (auto y : v) out.push_back(y); return out; })
+          // Number of states in the most recently solved channel
+          .def("GetNStates", [](EOMImsrg &self)
+               { return (size_t)self.Energies.n_elem; })
+          // ---- transition matrix elements ----
           .def("ComputeTransitionME", &EOMImsrg::ComputeTransitionME,
                py::arg("Op"), py::arg("state_index"))
+          // index-addressed variant (allows querying a previously solved channel)
+          .def("ComputeTransitionME_byIndex", &EOMImsrg::ComputeTransitionME_byIndex,
+               py::arg("ich_CC"), py::arg("Op"), py::arg("state_index"))
+          // ---- stored per-channel results ----
           .def("GetChannelResults", &EOMImsrg::GetChannelResults,
                py::arg("ich_CC"))
+          // list of all channel indices that have been solved
+          .def("GetSolvedChannels", [](EOMImsrg &self)
+               { std::vector<size_t> keys;
+                 for (auto &kv : self.ChannelResults) keys.push_back(kv.first);
+                 return keys; })
+          // ---- print helpers ----
+          .def("PrintA", [](EOMImsrg &self)
+               { std::cout << self.A << std::endl; })
+          .def("PrintB", [](EOMImsrg &self)
+               { std::cout << self.B << std::endl; })
+          // ---- read/write fields ----
           .def_readwrite("A", &EOMImsrg::A)
-          .def_readwrite("B", &EOMImsrg::B);
+          .def_readwrite("B", &EOMImsrg::B)
+          // current-channel result vectors (read-only from Python to avoid corruption)
+          .def_property_readonly("Energies", [](EOMImsrg &self)
+               { std::vector<double> v; for (auto e : self.Energies) v.push_back(e); return v; })
+          .def_property_readonly("X", [](EOMImsrg &self)
+               { std::vector<std::vector<double>> out;
+                 for (size_t r = 0; r < self.X.n_rows; r++) {
+                   std::vector<double> row;
+                   for (size_t c = 0; c < self.X.n_cols; c++) row.push_back(self.X(r,c));
+                   out.push_back(row);
+                 }
+                 return out; })
+          .def_property_readonly("Y", [](EOMImsrg &self)
+               { std::vector<std::vector<double>> out;
+                 for (size_t r = 0; r < self.Y.n_rows; r++) {
+                   std::vector<double> row;
+                   for (size_t c = 0; c < self.Y.n_cols; c++) row.push_back(self.Y(r,c));
+                   out.push_back(row);
+                 }
+                 return out; })
+          .def_readonly("current_channel", &EOMImsrg::current_channel)
+          // access to the stored Hamiltonian
+          .def_readwrite("H", &EOMImsrg::H);
 
       py::class_<UnitTest>(m, "UnitTest")
           //      .def(py::init<>())

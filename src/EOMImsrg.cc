@@ -23,6 +23,11 @@
 #include <iostream>
 #include <stdexcept>
 
+// Tolerance for warning about non-zero imaginary parts of EOM eigenvalues
+static const double EOM_IMAG_TOL = 1e-3;
+// Tolerance below which we skip renormalization of an EOM amplitude pair
+static const double EOM_NORM_TOL = 1e-10;
+
 // ---------------------------------------------------------------------------
 // Constructors
 // ---------------------------------------------------------------------------
@@ -278,7 +283,7 @@ void EOMImsrg::SolveCurrentChannel(std::string mode)
     arma::eig_gen(cx_eigvals, cx_eigvecs, M);
 
     double norm_imag = arma::norm(arma::imag(cx_eigvals), "fro");
-    if (norm_imag > 1e-3)
+    if (norm_imag > EOM_IMAG_TOL)
     {
       std::cout << "WARNING EOMImsrg: non-zero imaginary eigenvalues ("
                 << norm_imag << ") in channel " << current_channel
@@ -304,7 +309,7 @@ void EOMImsrg::SolveCurrentChannel(std::string mode)
     {
       double nxy = arma::dot(X.col(mu), X.col(mu))
                    - arma::dot(Y.col(mu), Y.col(mu));
-      if (std::abs(nxy) > 1e-10)
+      if (std::abs(nxy) > EOM_NORM_TOL)
       {
         double inv_sqrt_nxy = 1.0 / std::sqrt(std::abs(nxy));
         X.col(mu) *= inv_sqrt_nxy;
