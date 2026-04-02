@@ -4,6 +4,6 @@
 
 namespace version {
 std::string BuildVersion() {
-    return "devel_a39c68e+";
+    return "copilot/fix-eom-redefinition-errors_7026c33+";
 }
 }

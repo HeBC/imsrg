@@ -34,11 +34,11 @@ static const double EOM_NORM_TOL = 1e-10;
 // ---------------------------------------------------------------------------
 
 EOMImsrg::EOMImsrg()
-  : modelspace(nullptr), current_channel(0)
+  : modelspace(nullptr), current_channel(0), lanczos_nev(0)
 {}
 
 EOMImsrg::EOMImsrg(Operator& H_imsrg)
-  : modelspace(H_imsrg.modelspace), H(H_imsrg), current_channel(0)
+  : modelspace(H_imsrg.modelspace), H(H_imsrg), current_channel(0), lanczos_nev(0)
 {}
 
 // ---------------------------------------------------------------------------
@@ -765,7 +765,10 @@ void EOMImsrg::SolveCurrentChannel(std::string mode)
     // Full 1p1h + 2p2h block matrix:
     //   H_EOM = [ A     H12 ]   where H12 = H21^T
     //           [ H21   H22 ]
-    // Diagonalise with arma::eig_sym (symmetric by Hermiticity of H).
+    // Diagonalise with either the dense LAPACK driver (all eigenvalues) or the
+    // newarp Implicitly Restarted Arnoldi / Lanczos solver (lowest lanczos_nev
+    // eigenvalues only).  The latter mirrors the ARPACK-based approach used by
+    // the reference Fortran EOM-IMSRG code of Parzuchowski et al.
     size_t nph = A.n_rows;
     arma::mat H12 = H21.t();
     arma::mat Hfull = arma::join_vert(
@@ -774,18 +777,66 @@ void EOMImsrg::SolveCurrentChannel(std::string mode)
     // Enforce exact symmetry
     Hfull = 0.5 * (Hfull + Hfull.t());
 
-    arma::vec eigvals;
-    arma::mat eigvecs;
-    arma::eig_sym(eigvals, eigvecs, Hfull);
+    size_t N = Hfull.n_rows;
 
-    // Keep only positive eigenvalues (physical excitation energies)
-    arma::uvec pos_idx = arma::find(eigvals > 0);
-    Energies = eigvals(pos_idx);
-    arma::mat Vpos = eigvecs.cols(pos_idx);
+    if (lanczos_nev > 0 && (size_t)lanczos_nev < N)
+    {
+      // --- Lanczos / IRAM path ---
+      // Uses armadillo's built-in newarp SymEigsSolver (same algorithm as
+      // ARPACK's dsaupd/dseupd used by the reference Fortran code).
+      // SMALLEST_ALGE retrieves the algebraically smallest eigenvalues first,
+      // giving the lowest-lying physical excitation energies.
+      //
+      // ncv = number of Lanczos basis vectors; must satisfy ncv > lanczos_nev + 1.
+      // Following the reference Fortran code: ncv ≈ 5*nev, capped to N.
+      size_t nev_u = static_cast<size_t>(lanczos_nev);
+      size_t ncv   = std::min(N,
+                              std::max(static_cast<size_t>(5 * lanczos_nev),
+                                       nev_u + 2));  // ncv > nev + 1 always
 
-    // X = 1p1h part of eigenvectors; Y = 2p2h part
-    X = Vpos.head_rows(nph);
-    Y = Vpos.tail_rows(Vpos.n_rows - nph);
+      arma::newarp::DenseGenMatProd<double> op(Hfull);
+      arma::newarp::SymEigsSolver<double,
+          arma::newarp::EigsSelect::SMALLEST_ALGE,
+          arma::newarp::DenseGenMatProd<double>> solver(op, nev_u, ncv);
+      solver.init();
+      arma::uword nconv = solver.compute(/*maxit=*/1000, /*tol=*/1e-10);
+
+      if (nconv < (arma::uword)lanczos_nev)
+      {
+        std::cout << "WARNING EOMImsrg Lanczos: only " << nconv
+                  << " of " << lanczos_nev << " eigenvalues converged"
+                  << " in channel " << current_channel
+                  << "  " << __FILE__ << ":" << __LINE__ << std::endl;
+      }
+
+      arma::vec all_evals = solver.eigenvalues();
+      arma::mat all_evecs = solver.eigenvectors();
+
+      // Keep only positive eigenvalues (physical excitation energies)
+      arma::uvec pos_idx = arma::find(all_evals > 0);
+      Energies = all_evals(pos_idx);
+      arma::mat Vpos = all_evecs.cols(pos_idx);
+
+      // X = 1p1h part of eigenvectors; Y = 2p2h part
+      X = Vpos.head_rows(nph);
+      Y = Vpos.tail_rows(Vpos.n_rows - nph);
+    }
+    else
+    {
+      // --- Dense LAPACK path (default): all eigenvalues ---
+      arma::vec eigvals;
+      arma::mat eigvecs;
+      arma::eig_sym(eigvals, eigvecs, Hfull);
+
+      // Keep only positive eigenvalues (physical excitation energies)
+      arma::uvec pos_idx = arma::find(eigvals > 0);
+      Energies = eigvals(pos_idx);
+      arma::mat Vpos = eigvecs.cols(pos_idx);
+
+      // X = 1p1h part of eigenvectors; Y = 2p2h part
+      X = Vpos.head_rows(nph);
+      Y = Vpos.tail_rows(Vpos.n_rows - nph);
+    }
   }
   else
   {

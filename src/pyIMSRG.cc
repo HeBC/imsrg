@@ -1032,6 +1032,9 @@ PYBIND11_MODULE(pyIMSRG, m)
           // ---- read/write fields ----
           .def_readwrite("A", &EOMImsrg::A)
           .def_readwrite("B", &EOMImsrg::B)
+          // Lanczos control: set to n>0 to use IRAM Lanczos for EOM2
+          // (computes only n algebraically-lowest eigenvalues; 0 = dense full diag)
+          .def_readwrite("lanczos_nev", &EOMImsrg::lanczos_nev)
           // current-channel result vectors (read-only from Python to avoid corruption)
           .def_property_readonly("Energies", [](EOMImsrg &self)
                { std::vector<double> v; for (auto e : self.Energies) v.push_back(e); return v; })
