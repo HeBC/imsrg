@@ -76,7 +76,8 @@ ADD_CUSTOM_COMMAND(
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/version.cc
            ${CMAKE_CURRENT_BINARY_DIR}/_version.cc
     COMMAND ${CMAKE_COMMAND} -P
-            ${CMAKE_CURRENT_SOURCE_DIR}/git_version.cmake)
+            ${CMAKE_CURRENT_SOURCE_DIR}/git_version.cmake
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
 
 add_library(

@@ -1,6 +1,7 @@
 #ifndef PWD_h
 #define PWD_h 1
 
+#include <cstdint>
 #include <iostream>
 #include <unordered_map>
 #include <gsl/gsl_integration.h>

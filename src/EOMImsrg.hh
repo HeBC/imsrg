@@ -41,6 +41,13 @@
 ///     H_11 is the TDA A matrix; H_22 contains the 2p-2h diagonal energies
 ///     plus pp-pp, hh-hh ladder and ph ring interactions; H_21 is the
 ///     coupling from [Γ, Q_{ph}] → 2p-2h (4 terms from commutator_212).
+///     By default the full matrix is diagonalised with LAPACK's dsyev (all
+///     eigenvalues).  Set `lanczos_nev > 0` before calling Solve() to instead
+///     use an Implicitly Restarted Lanczos/Arnoldi method (IRAM, identical in
+///     spirit to ARPACK's dsaupd/dseupd used by the reference Fortran code) that
+///     computes only the `lanczos_nev` algebraically smallest eigenvalues.  This
+///     is much cheaper for large model spaces where only a few low-lying
+///     excitation energies are needed.
 ///
 /// The A matrix is
 /// \f[
@@ -118,6 +125,14 @@ class EOMImsrg
 
   /// Index of the most recently solved TwoBodyChannel_CC
   size_t current_channel;
+
+  /// Number of eigenvalues to compute with Lanczos (EOM2 mode only).
+  /// When 0 (default) the full dense LAPACK driver is used and all eigenvalues
+  /// are returned.  When > 0 the armadillo newarp Implicitly Restarted Arnoldi
+  /// solver computes only the \p lanczos_nev algebraically smallest eigenvalues,
+  /// which is much faster for large (1p1h + 2p2h) spaces where only a handful of
+  /// low-lying excited states are needed.
+  int lanczos_nev;
 
   /// Results indexed by TwoBodyChannel_CC index
   std::map<size_t, EOMChannel> ChannelResults;
