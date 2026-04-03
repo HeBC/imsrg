@@ -347,6 +347,10 @@ def main():
     Ymat = ch_result.Y_matrix
     check(isinstance(Ymat, list), "EOMChannel.Y_matrix returns a 2D list")
 
+    one_ph_norms_ch = ch_result.one_ph_norms
+    check(isinstance(one_ph_norms_ch, list),
+          "EOMChannel.one_ph_norms returns a list")
+
     try:
         ch_result.Print()
         check(True, "EOMChannel.Print() runs without exception")
@@ -398,6 +402,20 @@ def main():
         Y2 = eom2.Y
         check(isinstance(X2, list), "EOM2: X amplitudes accessible as list")
         check(isinstance(Y2, list), "EOM2: Y amplitudes accessible as list")
+        check(eom2.GetOnePhCount() == len(X2),
+              "EOM2: reported 1p1h count matches X row count")
+        check(eom2.GetTwoPhCount() > 0,
+              "EOM2: reported 2p2h count is positive")
+        one_ph_norms = eom2.GetOnePhNorms()
+        check(len(one_ph_norms) == len(eom2_energies),
+              "EOM2: one_ph_norms length matches number of states")
+        check(all(n >= 0.0 for n in one_ph_norms),
+              "EOM2: one_ph_norms are non-negative")
+        try:
+            eom2.PrintSummary()
+            check(True, "EOM2 PrintSummary() runs without exception")
+        except Exception as ex:
+            check(False, f"EOM2 PrintSummary() raised: {ex}")
 
         # H22 matrix should be symmetric: verify via SolveAllChannels
         eom2_all = pyIMSRG.EOMImsrg(H)
@@ -438,6 +456,8 @@ def main():
 
     if lanczos_ran and len(dense_energies) > 0:
         lanczos_energies = sorted(eom2_lanczos.GetExcitationEnergies())
+        check(eom2_lanczos.GetLanczosIterations() > 0,
+              "EOM2 Lanczos reports a positive iteration count")
 
         # All returned energies must be finite and positive (the pos-filter is applied)
         if len(lanczos_energies) > 0:
@@ -472,4 +492,3 @@ def main():
 if __name__ == '__main__':
     ok = main()
     sys.exit(0 if ok else 1)
-

@@ -21,6 +21,7 @@
 #include "AngMom.hh"
 
 #include <cmath>
+#include <iomanip>
 #include <iostream>
 #include <stdexcept>
 
@@ -29,16 +30,31 @@ static const double EOM_IMAG_TOL = 1e-3;
 // Tolerance below which we skip renormalization of an EOM amplitude pair
 static const double EOM_NORM_TOL = 1e-10;
 
+namespace
+{
+arma::vec ComputeOnePhNorms(const arma::mat& X)
+{
+  arma::vec norms(X.n_cols, arma::fill::zeros);
+  for (size_t i = 0; i < X.n_cols; i++)
+  {
+    norms(i) = arma::dot(X.col(i), X.col(i));
+  }
+  return norms;
+}
+}
+
 // ---------------------------------------------------------------------------
 // Constructors
 // ---------------------------------------------------------------------------
 
 EOMImsrg::EOMImsrg()
-  : modelspace(nullptr), current_channel(0), lanczos_nev(0)
+  : modelspace(nullptr), one_ph_count(0), two_ph_count(0),
+    lanczos_iterations(0), current_channel(0), lanczos_nev(0)
 {}
 
 EOMImsrg::EOMImsrg(Operator& H_imsrg)
-  : modelspace(H_imsrg.modelspace), H(H_imsrg), current_channel(0), lanczos_nev(0)
+  : modelspace(H_imsrg.modelspace), H(H_imsrg), one_ph_count(0),
+    two_ph_count(0), lanczos_iterations(0), current_channel(0), lanczos_nev(0)
 {}
 
 // ---------------------------------------------------------------------------
@@ -668,6 +684,10 @@ void EOMImsrg::Solve_byIndex(size_t ich_CC, std::string mode)
 {
   current_channel = ich_CC;
   BuildAMatrix_byIndex(ich_CC);
+  one_ph_count = A.n_rows;
+  two_ph_count = 0;
+  lanczos_iterations = 0;
+  OnePhNorms.reset();
   if (mode == "EOM")
     BuildBMatrix_byIndex(ich_CC);
   else
@@ -676,6 +696,7 @@ void EOMImsrg::Solve_byIndex(size_t ich_CC, std::string mode)
   if (mode == "EOM2")
   {
     Build2p2hBasis_byIndex(ich_CC);
+    two_ph_count = tpth_basis.size();
     BuildH22_byIndex(ich_CC);
     BuildH21_byIndex(ich_CC);
   }
@@ -687,6 +708,10 @@ void EOMImsrg::Solve_byIndex(size_t ich_CC, std::string mode)
   ch.Energies = Energies;
   ch.X        = X;
   ch.Y        = Y;
+  ch.OnePhNorms = OnePhNorms;
+  ch.OnePhCount = one_ph_count;
+  ch.TwoPhCount = two_ph_count;
+  ch.LanczosIterations = lanczos_iterations;
   ChannelResults[ich_CC] = ch;
 }
 
@@ -713,6 +738,7 @@ void EOMImsrg::SolveCurrentChannel(std::string mode)
     Energies = eigvals;
     X = eigvecs;
     Y = arma::zeros(arma::size(X));
+    OnePhNorms = ComputeOnePhNorms(X);
   }
   else if (mode == "EOM")
   {
@@ -759,6 +785,7 @@ void EOMImsrg::SolveCurrentChannel(std::string mode)
         Y.col(mu) *= inv_sqrt_nxy;
       }
     }
+    OnePhNorms = ComputeOnePhNorms(X);
   }
   else if (mode == "EOM2")
   {
@@ -800,6 +827,7 @@ void EOMImsrg::SolveCurrentChannel(std::string mode)
           arma::newarp::DenseGenMatProd<double>> solver(op, nev_u, ncv);
       solver.init();
       arma::uword nconv = solver.compute(/*maxit=*/1000, /*tol=*/1e-10);
+      lanczos_iterations = solver.num_iterations();
 
       if (nconv < (arma::uword)lanczos_nev)
       {
@@ -820,6 +848,7 @@ void EOMImsrg::SolveCurrentChannel(std::string mode)
       // X = 1p1h part of eigenvectors; Y = 2p2h part
       X = Vpos.head_rows(nph);
       Y = Vpos.tail_rows(Vpos.n_rows - nph);
+      OnePhNorms = ComputeOnePhNorms(X);
     }
     else
     {
@@ -836,6 +865,7 @@ void EOMImsrg::SolveCurrentChannel(std::string mode)
       // X = 1p1h part of eigenvectors; Y = 2p2h part
       X = Vpos.head_rows(nph);
       Y = Vpos.tail_rows(Vpos.n_rows - nph);
+      OnePhNorms = ComputeOnePhNorms(X);
     }
   }
   else
@@ -859,6 +889,50 @@ arma::vec EOMImsrg::GetAmplitudesX(size_t state_index) const
 arma::vec EOMImsrg::GetAmplitudesY(size_t state_index) const
 {
   return Y.col(state_index);
+}
+
+arma::vec EOMImsrg::GetOnePhNorms() const { return OnePhNorms; }
+
+size_t EOMImsrg::GetOnePhCount() const { return one_ph_count; }
+
+size_t EOMImsrg::GetTwoPhCount() const { return two_ph_count; }
+
+size_t EOMImsrg::GetLanczosIterations() const { return lanczos_iterations; }
+
+void EOMImsrg::PrintSummary() const
+{
+  std::streamsize old_prec = std::cout.precision();
+  std::ios::fmtflags old_flags = std::cout.flags();
+
+  if (one_ph_count > 0 || two_ph_count > 0)
+  {
+    std::cout << " 1p1h Amplitudes:" << std::setw(13) << one_ph_count << std::endl;
+    std::cout << " 2p2h Amplitudes:" << std::setw(13) << two_ph_count << std::endl;
+  }
+  if (lanczos_iterations > 0)
+  {
+    std::cout << "Lanczos iteration:" << std::setw(13)
+              << lanczos_iterations << std::endl;
+  }
+
+  std::cout << std::fixed << std::setprecision(9);
+  std::cout << std::endl;
+  std::cout << "Ground State Energy:" << std::setw(17) << H.ZeroBody << std::endl;
+  std::cout << std::endl;
+  std::cout << " EXCITED STATE ENERGIES:" << std::endl;
+  std::cout << " ==============================================" << std::endl;
+  std::cout << "       dE           E_0 + dE         n(1p1h)" << std::endl;
+  std::cout << " ==============================================" << std::endl;
+  for (size_t i = 0; i < Energies.n_elem; i++)
+  {
+    double one_ph_norm = (i < OnePhNorms.n_elem) ? OnePhNorms(i) : 0.0;
+    std::cout << std::setw(16) << Energies(i)
+              << std::setw(16) << (H.ZeroBody + Energies(i))
+              << std::setw(16) << one_ph_norm << std::endl;
+  }
+
+  std::cout.precision(old_prec);
+  std::cout.flags(old_flags);
 }
 
 EOMChannel EOMImsrg::GetChannelResults(size_t ich_CC) const

@@ -944,16 +944,24 @@ PYBIND11_MODULE(pyIMSRG, m)
           .def("GetX", [](EOMChannel &self, size_t i)
                { arma::vec col = self.X.col(i); std::vector<double> v; for (auto x : col) v.push_back(x); return v; })
           .def("GetY", [](EOMChannel &self, size_t i)
-               { arma::vec col = self.Y.col(i); std::vector<double> v; for (auto y : col) v.push_back(y); return v; })
+                { arma::vec col = self.Y.col(i); std::vector<double> v; for (auto y : col) v.push_back(y); return v; })
+          .def("GetOnePhNorms", [](EOMChannel &self)
+               { std::vector<double> v; for (auto x : self.OnePhNorms) v.push_back(x); return v; })
           // Number of excited states stored in this channel
           .def("GetNStates", [](EOMChannel &self)
-               { return (size_t)self.Energies.n_elem; })
+                { return (size_t)self.Energies.n_elem; })
           // Number of 1p-1h basis states (rows of X)
           .def("GetNBasis", [](EOMChannel &self)
-               { return (size_t)self.X.n_rows; })
+                { return (size_t)self.X.n_rows; })
+          .def("GetOnePhCount", [](EOMChannel &self)
+               { return self.OnePhCount; })
+          .def("GetTwoPhCount", [](EOMChannel &self)
+               { return self.TwoPhCount; })
+          .def("GetLanczosIterations", [](EOMChannel &self)
+               { return self.LanczosIterations; })
           // Direct field access (read-only views as Python lists)
           .def_property_readonly("energies", [](EOMChannel &self)
-               { std::vector<double> v; for (auto e : self.Energies) v.push_back(e); return v; })
+                { std::vector<double> v; for (auto e : self.Energies) v.push_back(e); return v; })
           .def_property_readonly("X_matrix", [](EOMChannel &self)
                { std::vector<std::vector<double>> out;
                  for (size_t r = 0; r < self.X.n_rows; r++) {
@@ -963,19 +971,36 @@ PYBIND11_MODULE(pyIMSRG, m)
                  }
                  return out; })
           .def_property_readonly("Y_matrix", [](EOMChannel &self)
-               { std::vector<std::vector<double>> out;
-                 for (size_t r = 0; r < self.Y.n_rows; r++) {
-                   std::vector<double> row;
-                   for (size_t c = 0; c < self.Y.n_cols; c++) row.push_back(self.Y(r,c));
-                   out.push_back(row);
-                 }
-                 return out; })
+                { std::vector<std::vector<double>> out;
+                  for (size_t r = 0; r < self.Y.n_rows; r++) {
+                    std::vector<double> row;
+                    for (size_t c = 0; c < self.Y.n_cols; c++) row.push_back(self.Y(r,c));
+                  out.push_back(row);
+                  }
+                  return out; })
+          .def_property_readonly("one_ph_norms", [](EOMChannel &self)
+               { std::vector<double> v; for (auto x : self.OnePhNorms) v.push_back(x); return v; })
+          .def_readonly("one_ph_count", &EOMChannel::OnePhCount)
+          .def_readonly("two_ph_count", &EOMChannel::TwoPhCount)
+          .def_readonly("lanczos_iterations", &EOMChannel::LanczosIterations)
           // Print summary
           .def("Print", [](EOMChannel &self)
-               { std::cout << "EOMChannel: " << self.Energies.n_elem
-                           << " states, " << self.X.n_rows << " basis pairs" << std::endl;
-                 for (size_t i = 0; i < self.Energies.n_elem; i++)
-                   std::cout << "  E[" << i << "] = " << self.Energies(i) << " MeV" << std::endl; });
+                { std::cout << "EOMChannel: " << self.Energies.n_elem
+                            << " states, " << self.X.n_rows << " 1p1h basis pairs";
+                  if (self.TwoPhCount > 0)
+                    std::cout << ", " << self.TwoPhCount << " 2p2h basis pairs";
+                  std::cout << std::endl;
+                  for (size_t i = 0; i < self.Energies.n_elem; i++)
+                  {
+                    std::cout << "  E[" << i << "] = " << self.Energies(i)
+                              << " MeV";
+                    if (i < self.OnePhNorms.n_elem)
+                      std::cout << "  n(1p1h)=" << self.OnePhNorms(i);
+                    std::cout << std::endl;
+                  }
+                  if (self.LanczosIterations > 0)
+                    std::cout << "  Lanczos iterations = "
+                              << self.LanczosIterations << std::endl; });
 
       // EOMImsrg: main solver class.
       py::class_<EOMImsrg>(m, "EOMImsrg")
@@ -1005,11 +1030,17 @@ PYBIND11_MODULE(pyIMSRG, m)
                { arma::vec v = self.GetAmplitudesX(i);
                  std::vector<double> out; for (auto x : v) out.push_back(x); return out; })
           .def("GetAmplitudesY", [](EOMImsrg &self, size_t i)
-               { arma::vec v = self.GetAmplitudesY(i);
-                 std::vector<double> out; for (auto y : v) out.push_back(y); return out; })
+                { arma::vec v = self.GetAmplitudesY(i);
+                  std::vector<double> out; for (auto y : v) out.push_back(y); return out; })
+          .def("GetOnePhNorms", [](EOMImsrg &self)
+               { arma::vec v = self.GetOnePhNorms();
+                 std::vector<double> out; for (auto x : v) out.push_back(x); return out; })
           // Number of states in the most recently solved channel
           .def("GetNStates", [](EOMImsrg &self)
-               { return (size_t)self.Energies.n_elem; })
+                { return (size_t)self.Energies.n_elem; })
+          .def("GetOnePhCount", &EOMImsrg::GetOnePhCount)
+          .def("GetTwoPhCount", &EOMImsrg::GetTwoPhCount)
+          .def("GetLanczosIterations", &EOMImsrg::GetLanczosIterations)
           // ---- transition matrix elements ----
           .def("ComputeTransitionME", &EOMImsrg::ComputeTransitionME,
                py::arg("Op"), py::arg("state_index"))
@@ -1026,9 +1057,10 @@ PYBIND11_MODULE(pyIMSRG, m)
                  return keys; })
           // ---- print helpers ----
           .def("PrintA", [](EOMImsrg &self)
-               { std::cout << self.A << std::endl; })
+                { std::cout << self.A << std::endl; })
           .def("PrintB", [](EOMImsrg &self)
-               { std::cout << self.B << std::endl; })
+                { std::cout << self.B << std::endl; })
+          .def("PrintSummary", &EOMImsrg::PrintSummary)
           // ---- read/write fields ----
           .def_readwrite("A", &EOMImsrg::A)
           .def_readwrite("B", &EOMImsrg::B)
@@ -1047,13 +1079,23 @@ PYBIND11_MODULE(pyIMSRG, m)
                  }
                  return out; })
           .def_property_readonly("Y", [](EOMImsrg &self)
-               { std::vector<std::vector<double>> out;
-                 for (size_t r = 0; r < self.Y.n_rows; r++) {
-                   std::vector<double> row;
-                   for (size_t c = 0; c < self.Y.n_cols; c++) row.push_back(self.Y(r,c));
-                   out.push_back(row);
-                 }
+                { std::vector<std::vector<double>> out;
+                  for (size_t r = 0; r < self.Y.n_rows; r++) {
+                    std::vector<double> row;
+                    for (size_t c = 0; c < self.Y.n_cols; c++) row.push_back(self.Y(r,c));
+                    out.push_back(row);
+                  }
+                  return out; })
+          .def_property_readonly("one_ph_norms", [](EOMImsrg &self)
+               { std::vector<double> out;
+                 for (auto x : self.OnePhNorms) out.push_back(x);
                  return out; })
+          .def_property_readonly("one_ph_count", [](EOMImsrg &self)
+               { return self.GetOnePhCount(); })
+          .def_property_readonly("two_ph_count", [](EOMImsrg &self)
+               { return self.GetTwoPhCount(); })
+          .def_property_readonly("lanczos_iterations", [](EOMImsrg &self)
+               { return self.GetLanczosIterations(); })
           .def_readonly("current_channel", &EOMImsrg::current_channel)
           // access to the stored Hamiltonian
           .def_readwrite("H", &EOMImsrg::H);

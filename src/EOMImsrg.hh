@@ -83,6 +83,10 @@ struct EOMChannel
   arma::vec Energies; ///< Excitation energies (MeV), sorted ascending
   arma::mat X;        ///< Forward 1p1h amplitudes  (nph x nstates)
   arma::mat Y;        ///< Backward amplitudes (nph x nstates); zero for TDA/EOM2
+  arma::vec OnePhNorms; ///< n(1p1h) = sum_ai |X_ai|^2 for each state
+  size_t OnePhCount = 0; ///< Number of 1p1h amplitudes in the solved channel
+  size_t TwoPhCount = 0; ///< Number of 2p2h amplitudes in the solved channel
+  size_t LanczosIterations = 0; ///< Number of Lanczos iterations used (0 for dense solve)
 };
 
 /// Compact representation of one 2p-2h basis state.
@@ -122,6 +126,10 @@ class EOMImsrg
   arma::vec Energies;
   arma::mat X;
   arma::mat Y;
+  arma::vec OnePhNorms;
+  size_t one_ph_count;
+  size_t two_ph_count;
+  size_t lanczos_iterations;
 
   /// Index of the most recently solved TwoBodyChannel_CC
   size_t current_channel;
@@ -187,6 +195,16 @@ class EOMImsrg
   arma::vec GetAmplitudesX(size_t state_index) const;
   /// Backward amplitudes Y_{ai} for state \p state_index in the current channel.
   arma::vec GetAmplitudesY(size_t state_index) const;
+  /// 1p1h norm weights n(1p1h)=sum_ai |X_ai|^2 for the solved states.
+  arma::vec GetOnePhNorms() const;
+  /// Number of 1p1h amplitudes in the current channel.
+  size_t GetOnePhCount() const;
+  /// Number of 2p2h amplitudes in the current channel.
+  size_t GetTwoPhCount() const;
+  /// Number of Lanczos iterations used in the most recent EOM2 solve.
+  size_t GetLanczosIterations() const;
+  /// Print a compact spectrum summary matching the reference EOM-IMSRG output.
+  void PrintSummary() const;
 
   /// Return the stored EOMChannel for channel index \p ich_CC, if it exists.
   EOMChannel GetChannelResults(size_t ich_CC) const;
