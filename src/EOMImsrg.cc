@@ -92,9 +92,10 @@ void EOMImsrg::BuildAMatrix_byIndex(size_t ich_CC)
 
   int Jph = tbc_CC.J;
 
-  size_t I = 0;
-  for (auto iket_ai : ph_list)
+  #pragma omp parallel for schedule(dynamic,1)
+  for (long long I = 0; I < static_cast<long long>(nph); ++I)
   {
+    auto iket_ai = ph_list[static_cast<size_t>(I)];
     Ket& ket_ai = tbc_CC.GetKet(iket_ai);
     index_t a = ket_ai.p;
     index_t i = ket_ai.q;
@@ -108,9 +109,9 @@ void EOMImsrg::BuildAMatrix_byIndex(size_t ich_CC)
       std::swap(ja, ji);
     }
 
-    size_t II = 0;
-    for (auto iket_bj : ph_list)
+    for (size_t II = 0; II < nph; ++II)
     {
+      auto iket_bj = ph_list[II];
       Ket& ket_bj = tbc_CC.GetKet(iket_bj);
       index_t b = ket_bj.p;
       index_t j = ket_bj.q;
@@ -143,9 +144,7 @@ void EOMImsrg::BuildAMatrix_byIndex(size_t ich_CC)
       }
 
       A(I, II) = H1b + V_ph;
-      II++;
     }
-    I++;
   }
 }
 
@@ -182,9 +181,10 @@ void EOMImsrg::BuildBMatrix_byIndex(size_t ich_CC)
 
   int Jph = tbc_CC.J;
 
-  size_t I = 0;
-  for (auto iket_ai : ph_list)
+  #pragma omp parallel for schedule(dynamic,1)
+  for (long long I = 0; I < static_cast<long long>(nph); ++I)
   {
+    auto iket_ai = ph_list[static_cast<size_t>(I)];
     Ket& ket_ai = tbc_CC.GetKet(iket_ai);
     index_t a = ket_ai.p;
     index_t i = ket_ai.q;
@@ -197,9 +197,9 @@ void EOMImsrg::BuildBMatrix_byIndex(size_t ich_CC)
       std::swap(ja, ji);
     }
 
-    size_t II = 0;
-    for (auto iket_bj : ph_list)
+    for (size_t II = 0; II < nph; ++II)
     {
+      auto iket_bj = ph_list[II];
       Ket& ket_bj = tbc_CC.GetKet(iket_bj);
       index_t b = ket_bj.p;
       index_t j = ket_bj.q;
@@ -229,9 +229,7 @@ void EOMImsrg::BuildBMatrix_byIndex(size_t ich_CC)
       }
 
       B(I, II) = V_pp * phase_ib;
-      II++;
     }
-    I++;
   }
 }
 
@@ -336,8 +334,10 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
   size_t n2 = tpth_basis.size();
   H22.zeros(n2, n2);
 
-  for (size_t alpha = 0; alpha < n2; ++alpha)
+  #pragma omp parallel for schedule(dynamic,1)
+  for (long long alpha_ll = 0; alpha_ll < static_cast<long long>(n2); ++alpha_ll)
   {
+    size_t alpha = static_cast<size_t>(alpha_ll);
     const TwoPTwoHState& sa = tpth_basis[alpha];
     size_t a = sa.a, b = sa.b, ii = sa.i, jj = sa.j;
     int Jab = sa.Jab, Jij = sa.Jij;
@@ -571,8 +571,10 @@ void EOMImsrg::BuildH21_byIndex(size_t ich_CC)
     ++col;
   }
 
-  for (size_t alpha = 0; alpha < n2; ++alpha)
+  #pragma omp parallel for schedule(dynamic,1)
+  for (long long alpha_ll = 0; alpha_ll < static_cast<long long>(n2); ++alpha_ll)
   {
+    size_t alpha = static_cast<size_t>(alpha_ll);
     const TwoPTwoHState& sa = tpth_basis[alpha];
     size_t a = sa.a, b = sa.b, c = sa.i, d = sa.j;
     int Jab = sa.Jab, Jcd = sa.Jij;
