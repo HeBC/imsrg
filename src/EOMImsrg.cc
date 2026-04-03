@@ -469,16 +469,16 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
             //   {j_a  j_b  J_ab }
             //   {j_i  j_j  J_ij }
             //   {J_ph J_sp J    }
-            double n9j_a = AngMom::NineJ(ja,  jb,   (double)Jab,
-                                         ji,  jj_v, (double)Jij,
-                                         (double)Jph, (double)Jsp, (double)J);
+            double n9j_a = modelspace->GetNineJ(ja,  jb,   (double)Jab,
+                                                ji,  jj_v, (double)Jij,
+                                                (double)Jph, (double)Jsp, (double)J);
             // NineJ for beta (first-listed orbits first):
             //   {j_a' j_b'  J_ab' }
             //   {j_i' j_j'  J_ij' }
             //   {J_ph J_sp  J     }
-            double n9j_b = AngMom::NineJ(jap, jbp,  (double)Jabp,
-                                         jip, jjp,  (double)Jijp,
-                                         (double)Jph, (double)Jsp, (double)J);
+            double n9j_b = modelspace->GetNineJ(jap, jbp,  (double)Jabp,
+                                                jip, jjp,  (double)Jijp,
+                                                (double)Jph, (double)Jsp, (double)J);
             ring_Jsp += (2*Jsp+1) * n9j_a * n9j_b;
           }
           ring_total += Vcc * (2*Jph+1) * ring_Jsp;
