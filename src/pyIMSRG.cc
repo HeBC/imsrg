@@ -985,10 +985,10 @@ PYBIND11_MODULE(pyIMSRG, m)
           .def_readonly("lanczos_iterations", &EOMChannel::LanczosIterations)
           // Print summary
           .def("Print", [](EOMChannel &self)
-                { std::cout << "EOMChannel: " << self.Energies.n_elem
-                            << " states, " << self.X.n_rows << " 1p1h basis pairs";
+                 { std::cout << "EOMChannel: " << self.Energies.n_elem
+                            << " states, " << self.X.n_rows << " 1p1h amplitudes";
                   if (self.TwoPhCount > 0)
-                    std::cout << ", " << self.TwoPhCount << " 2p2h basis pairs";
+                    std::cout << ", " << self.TwoPhCount << " 2p2h amplitudes";
                   std::cout << std::endl;
                   for (size_t i = 0; i < self.Energies.n_elem; i++)
                   {
