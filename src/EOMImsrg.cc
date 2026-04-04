@@ -102,11 +102,16 @@ void EOMImsrg::BuildAMatrix_byIndex(size_t ich_CC)
     double ja = 0.5 * modelspace->GetOrbit(a).j2;
     double ji = 0.5 * modelspace->GetOrbit(i).j2;
 
-    // Ensure a is particle (less occupied) and i is hole (more occupied)
+    // phase_ai tracks the sign convention for the CC-channel ket ordering.
+    // When the ket is stored as (hole, particle) we swap to (particle=a, hole=i)
+    // and apply the corresponding phase -(-1)^{ja+ji-Jph}, matching RPA.cc.
+    int phase_ai = 1;
+    int phase_ia = -AngMom::phase(ja + ji - Jph);
     if (ket_ai.op->occ > ket_ai.oq->occ)
     {
       std::swap(a, i);
       std::swap(ja, ji);
+      std::swap(phase_ai, phase_ia);
     }
 
     for (size_t II = 0; II < nph; ++II)
@@ -118,10 +123,13 @@ void EOMImsrg::BuildAMatrix_byIndex(size_t ich_CC)
       double jb = 0.5 * modelspace->GetOrbit(b).j2;
       double jj = 0.5 * modelspace->GetOrbit(j).j2;
 
+      int phase_bj = 1;
+      int phase_jb = -AngMom::phase(jb + jj - Jph);
       if (ket_bj.op->occ > ket_bj.oq->occ)
       {
         std::swap(b, j);
         std::swap(jb, jj);
+        std::swap(phase_bj, phase_jb);
       }
 
       // Diagonal SPE term: (eps_a - eps_i) * delta_{ai,bj}
@@ -143,7 +151,7 @@ void EOMImsrg::BuildAMatrix_byIndex(size_t ich_CC)
         }
       }
 
-      A(I, II) = H1b + V_ph;
+      A(I, II) = (H1b + V_ph) * phase_ai * phase_bj;
     }
   }
 }
@@ -191,10 +199,13 @@ void EOMImsrg::BuildBMatrix_byIndex(size_t ich_CC)
     double ja = 0.5 * modelspace->GetOrbit(a).j2;
     double ji = 0.5 * modelspace->GetOrbit(i).j2;
 
+    int phase_ai = 1;
+    int phase_ia = -AngMom::phase(ja + ji - Jph);
     if (ket_ai.op->occ > ket_ai.oq->occ)
     {
       std::swap(a, i);
       std::swap(ja, ji);
+      std::swap(phase_ai, phase_ia);
     }
 
     for (size_t II = 0; II < nph; ++II)
@@ -206,10 +217,13 @@ void EOMImsrg::BuildBMatrix_byIndex(size_t ich_CC)
       double jb = 0.5 * modelspace->GetOrbit(b).j2;
       double jj = 0.5 * modelspace->GetOrbit(j).j2;
 
+      int phase_bj = 1;
+      int phase_jb = -AngMom::phase(jb + jj - Jph);
       if (ket_bj.op->occ > ket_bj.oq->occ)
       {
         std::swap(b, j);
         std::swap(jb, jj);
+        std::swap(phase_bj, phase_jb);
       }
 
       int J1min = std::max(std::abs(ja - jb), std::abs(ji - jj));
@@ -228,7 +242,7 @@ void EOMImsrg::BuildBMatrix_byIndex(size_t ich_CC)
         }
       }
 
-      B(I, II) = V_pp * phase_ib;
+      B(I, II) = V_pp * phase_ib * phase_ai * phase_bj;
     }
   }
 }
@@ -1553,38 +1567,32 @@ double EOMImsrg::ComputeTransitionME_byIndex(size_t ich_CC,
   // Channel angular momentum J_ν (= operator rank λ for the matrix element to be nonzero).
   int J = tbc_CC.J;
 
-  // Distinguish modes by the row count of ch.Y:
-  //   EOM2: ch.Y has n2p2h rows (2p2h amplitudes, NOT backward 1p1h amplitudes).
-  //   TDA/EOM: ch.Y has nph rows (zero for TDA, backward amplitudes for full EOM).
-  bool is_eom2 = (ch.Y.n_rows != nph);
-
-  // Phase factor for the backward-amplitude Y term (full EOM only):
-  //   (-1)^{λ+1} acting on O_{ia} = ⟨i||O^λ||a⟩.
-  int lambda = Op.GetJRank();
-  double phase_lambda = AngMom::phase(lambda + 1);
-
   // -------------------------------------------------------------------
-  // 1p1h contribution:
-  //   Σ_{ai} X_{ai}(ν) ⟨a||O^λ||i⟩
-  //   + (full EOM only) (-1)^{λ+1} Y_{ai}(ν) ⟨i||O^λ||a⟩
+  // 1p1h contribution (paper eq. 16 first sum):
+  //   Σ_{ai} X_{ai}(ν) O_{ai}(λ,Π)
+  //
+  // Only the forward (X) amplitudes enter. The backward (Y) amplitudes
+  // do NOT contribute: in the EOM-IMSRG framework the reference state
+  // |Φ_0⟩ is already IMSRG-decoupled, so the de-excitation part of the
+  // EOM ladder operator gives X̄_ν|Φ_0⟩ = 0 (paper eq. 16, Parzuchowski
+  // et al. PRC 96, 034324 (2017)).
+  //
+  // The A and B matrices include phase_ai * phase_bj factors following
+  // the same CC-channel convention as RPA.cc.  Each X(I) therefore
+  // carries phase_ai(I), and the matching operator matrix element is
+  // O_{m_stored, i_stored} (using the unswapped, as-stored indices).
   // -------------------------------------------------------------------
   double T = 0.0;
   size_t I = 0;
   for (auto iket_ai : ph_list)
   {
     Ket& ket = tbc_CC.GetKet(iket_ai);
-    index_t a = ket.p;
+    index_t m = ket.p;
     index_t i = ket.q;
 
-    if (ket.op->occ > ket.oq->occ)
-      std::swap(a, i);
-
-    T += ch.X(I, state_index) * Op.OneBody(a, i);
-
-    // Backward-amplitude Y term: present only in full EOM (RPA) mode.
-    // For EOM2 ch.Y stores 2p2h amplitudes (not backward 1p1h), so skip here.
-    if (!is_eom2)
-      T += phase_lambda * ch.Y(I, state_index) * Op.OneBody(i, a);
+    // Use the stored (m, i) ordering, consistent with the phase convention
+    // embedded in ch.X from the phase-corrected A-matrix.
+    T += ch.X(I, state_index) * Op.OneBody(m, i);
 
     I++;
   }
