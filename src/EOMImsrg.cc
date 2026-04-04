@@ -524,13 +524,17 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
 ///   K = sqrt((2Jab+1)(2Jcd+1)) / sqrt((1+δ_ab)(1+δ_cd)) × (-1)^J
 ///
 ///   sm1 (e==a):  H21 -= phase((j2_a+j2_b)/2-Jcd)
-///                       × W6j(Jab,Jcd,J; jf,ja,jb) × V_norm(Jcd,f,b,c,d) × K
+///                       × W6j(Jab,Jcd,J; jf,ja,jb) × V(Jcd,f,b,c,d) × K
 ///   sm2 (e==b):  H21 += phase(Jab+Jcd)
-///                       × W6j(Jab,Jcd,J; jf,jb,ja) × V_norm(Jcd,f,a,c,d) × K
+///                       × W6j(Jab,Jcd,J; jf,jb,ja) × V(Jcd,f,a,c,d) × K
 ///   sm3 (f==d):  H21 += phase((j2_c+j2_d)/2-Jab)
-///                       × W6j(Jab,Jcd,J; jd,je,jc) × V_norm(Jab,a,b,c,e) × K
+///                       × W6j(Jab,Jcd,J; jd,je,jc) × V(Jab,a,b,c,e) × K
 ///   sm4 (f==c):  H21 -= phase(Jcd+Jab)
-///                       × W6j(Jab,Jcd,J; jc,je,jd) × V_norm(Jab,a,b,d,e) × K
+///                       × W6j(Jab,Jcd,J; jc,je,jd) × V(Jab,a,b,d,e) × K
+///
+/// where V = GetTBME_J (the antisymmetric unnormalized TBME, including the
+/// sqrt(1+δ_ab) factor for identical-orbit pairs).  This is consistent with
+/// the A-matrix Pandya and B-matrix conventions in IMSRG.
 ///
 void EOMImsrg::BuildH21_byIndex(size_t ich_CC)
 {
@@ -608,7 +612,7 @@ void EOMImsrg::BuildH21_byIndex(size_t ich_CC)
         double w6j = modelspace->GetSixJ((double)Jab, (double)Jcd, (double)J,
                                          jf, ja, jb);
         if (w6j == 0.0) continue;
-        double v = H.TwoBody.GetTBME_J_norm(Jcd, f_orb, b, c, d);
+        double v = H.TwoBody.GetTBME_J(Jcd, f_orb, b, c, d);
         H21(alpha, c_idx) -= phase1 * w6j * v * K;
       }
     }
@@ -627,7 +631,7 @@ void EOMImsrg::BuildH21_byIndex(size_t ich_CC)
         double w6j = modelspace->GetSixJ((double)Jab, (double)Jcd, (double)J,
                                          jf, jb, ja);
         if (w6j == 0.0) continue;
-        double v = H.TwoBody.GetTBME_J_norm(Jcd, f_orb, a, c, d);
+        double v = H.TwoBody.GetTBME_J(Jcd, f_orb, a, c, d);
         H21(alpha, c_idx) += phase2 * w6j * v * K;
       }
     }
@@ -646,7 +650,7 @@ void EOMImsrg::BuildH21_byIndex(size_t ich_CC)
         double w6j = modelspace->GetSixJ((double)Jab, (double)Jcd, (double)J,
                                          jd, je, jc);
         if (w6j == 0.0) continue;
-        double v = H.TwoBody.GetTBME_J_norm(Jab, a, b, c, e_orb);
+        double v = H.TwoBody.GetTBME_J(Jab, a, b, c, e_orb);
         H21(alpha, c_idx) += phase3 * w6j * v * K;
       }
     }
@@ -665,7 +669,7 @@ void EOMImsrg::BuildH21_byIndex(size_t ich_CC)
         double w6j = modelspace->GetSixJ((double)Jab, (double)Jcd, (double)J,
                                          jc, je, jd);
         if (w6j == 0.0) continue;
-        double v = H.TwoBody.GetTBME_J_norm(Jab, a, b, d, e_orb);
+        double v = H.TwoBody.GetTBME_J(Jab, a, b, d, e_orb);
         H21(alpha, c_idx) -= phase4 * w6j * v * K;
       }
     }
@@ -929,7 +933,7 @@ void EOMImsrg::ApplyH21_matvec(const arma::vec& v_ph, arma::vec& Hv_2p2h) const
         double w6j = modelspace->GetSixJ((double)Jab, (double)Jcd, (double)J,
                                          jf, ja, jb);
         if (w6j == 0.0) continue;
-        double v_me = H.TwoBody.GetTBME_J_norm(Jcd, f_orb, b, c, d);
+        double v_me = H.TwoBody.GetTBME_J(Jcd, f_orb, b, c, d);
         hv -= phase1 * w6j * v_me * K * v_ph[c_idx];
       }
     }
@@ -946,7 +950,7 @@ void EOMImsrg::ApplyH21_matvec(const arma::vec& v_ph, arma::vec& Hv_2p2h) const
         double w6j = modelspace->GetSixJ((double)Jab, (double)Jcd, (double)J,
                                          jf, jb, ja);
         if (w6j == 0.0) continue;
-        double v_me = H.TwoBody.GetTBME_J_norm(Jcd, f_orb, a, c, d);
+        double v_me = H.TwoBody.GetTBME_J(Jcd, f_orb, a, c, d);
         hv += phase2 * w6j * v_me * K * v_ph[c_idx];
       }
     }
@@ -963,7 +967,7 @@ void EOMImsrg::ApplyH21_matvec(const arma::vec& v_ph, arma::vec& Hv_2p2h) const
         double w6j = modelspace->GetSixJ((double)Jab, (double)Jcd, (double)J,
                                          jd, je, jc);
         if (w6j == 0.0) continue;
-        double v_me = H.TwoBody.GetTBME_J_norm(Jab, a, b, c, e_orb);
+        double v_me = H.TwoBody.GetTBME_J(Jab, a, b, c, e_orb);
         hv += phase3 * w6j * v_me * K * v_ph[c_idx];
       }
     }
@@ -980,7 +984,7 @@ void EOMImsrg::ApplyH21_matvec(const arma::vec& v_ph, arma::vec& Hv_2p2h) const
         double w6j = modelspace->GetSixJ((double)Jab, (double)Jcd, (double)J,
                                          jc, je, jd);
         if (w6j == 0.0) continue;
-        double v_me = H.TwoBody.GetTBME_J_norm(Jab, a, b, d, e_orb);
+        double v_me = H.TwoBody.GetTBME_J(Jab, a, b, d, e_orb);
         hv -= phase4 * w6j * v_me * K * v_ph[c_idx];
       }
     }
@@ -1031,7 +1035,7 @@ void EOMImsrg::ApplyH21T_matvec(const arma::vec& v_2p2h, arma::vec& Hv_ph) const
         double w6j = modelspace->GetSixJ((double)Jab, (double)Jcd, (double)J,
                                          jf, ja, jb);
         if (w6j == 0.0) continue;
-        double v_me = H.TwoBody.GetTBME_J_norm(Jcd, f_orb, b, c, d);
+        double v_me = H.TwoBody.GetTBME_J(Jcd, f_orb, b, c, d);
         Hv_ph[c_idx] -= phase1 * w6j * v_me * K * v_alpha;
       }
     }
@@ -1048,7 +1052,7 @@ void EOMImsrg::ApplyH21T_matvec(const arma::vec& v_2p2h, arma::vec& Hv_ph) const
         double w6j = modelspace->GetSixJ((double)Jab, (double)Jcd, (double)J,
                                          jf, jb, ja);
         if (w6j == 0.0) continue;
-        double v_me = H.TwoBody.GetTBME_J_norm(Jcd, f_orb, a, c, d);
+        double v_me = H.TwoBody.GetTBME_J(Jcd, f_orb, a, c, d);
         Hv_ph[c_idx] += phase2 * w6j * v_me * K * v_alpha;
       }
     }
@@ -1065,7 +1069,7 @@ void EOMImsrg::ApplyH21T_matvec(const arma::vec& v_2p2h, arma::vec& Hv_ph) const
         double w6j = modelspace->GetSixJ((double)Jab, (double)Jcd, (double)J,
                                          jd, je, jc);
         if (w6j == 0.0) continue;
-        double v_me = H.TwoBody.GetTBME_J_norm(Jab, a, b, c, e_orb);
+        double v_me = H.TwoBody.GetTBME_J(Jab, a, b, c, e_orb);
         Hv_ph[c_idx] += phase3 * w6j * v_me * K * v_alpha;
       }
     }
@@ -1082,7 +1086,7 @@ void EOMImsrg::ApplyH21T_matvec(const arma::vec& v_2p2h, arma::vec& Hv_ph) const
         double w6j = modelspace->GetSixJ((double)Jab, (double)Jcd, (double)J,
                                          jc, je, jd);
         if (w6j == 0.0) continue;
-        double v_me = H.TwoBody.GetTBME_J_norm(Jab, a, b, d, e_orb);
+        double v_me = H.TwoBody.GetTBME_J(Jab, a, b, d, e_orb);
         Hv_ph[c_idx] -= phase4 * w6j * v_me * K * v_alpha;
       }
     }
