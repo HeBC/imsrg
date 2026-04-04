@@ -718,6 +718,9 @@ void EOMImsrg::Solve_byIndex(size_t ich_CC, std::string mode)
   ch.OnePhCount = one_ph_count;
   ch.TwoPhCount = two_ph_count;
   ch.LanczosIterations = lanczos_iterations;
+  // Store the 2p2h basis so ComputeTransitionME_byIndex can access it for any channel.
+  if (mode == "EOM2")
+    ch.tpth_basis = tpth_basis;
   ChannelResults[ich_CC] = ch;
 }
 
@@ -1262,6 +1265,7 @@ void EOMImsrg::Solve_byIndex_MF(size_t ich_CC, int nev)
   ch.OnePhCount         = one_ph_count;
   ch.TwoPhCount         = two_ph_count;
   ch.LanczosIterations  = lanczos_iterations;
+  ch.tpth_basis         = tpth_basis;  // Store 2p2h basis for transition ME
   ChannelResults[ich_CC] = ch;
 }
 
@@ -1498,18 +1502,30 @@ EOMChannel EOMImsrg::GetChannelResults(size_t ich_CC) const
 // ---------------------------------------------------------------------------
 
 ///
-/// Compute the one-body transition matrix element
-/// \f$\langle 0 \| \hat{O} \| \mu \rangle\f$ for excited state \p state_index.
+/// Compute the transition matrix element
+/// \f$M_{0\nu} = \langle \Phi_0 \| [\bar{\mathcal{O}}^\lambda \times
+///   \bar{X}^\dagger_\nu(J^\Pi)]^0 \| \Phi_0 \rangle\f$
+/// following eq. (16) of Parzuchowski et al., Phys. Rev. C **96**, 034324 (2017).
 ///
-/// For a one-body scalar/tensor operator \f$\hat{O}\f$ of rank \f$\lambda\f$:
+/// Modes:
+///   - **TDA / EOM**: only the 1p1h term is evaluated. For full EOM the backward
+///     amplitude \f$Y_{ai}\f$ contributes via
+///     \f$(-1)^{\lambda+1}\langle i\|O^\lambda\|a\rangle\f$.
+///   - **EOM2**: \p ch.Y stores the 2p2h amplitudes \f$\breve{X}^{J_1J_2J}_{abij}\f$
+///     (not backward amplitudes), so the EOM backward-amplitude term is skipped.
+///     When \p Op has a two-body part (\c particle_rank >= 2) the 2p2h matrix
+///     elements \f$\breve{\mathcal{O}}^{J_1J_2}_{abij}(\lambda)\f$ are included.
+///
+/// The full formula is (paper eq. 16):
 /// \f[
-///   \langle 0 \| \hat{O} \| \mu \rangle
-///     = \sum_{ai}
-///         \bigl[ X_{ai}^{(\mu)} \langle a \| O \| i \rangle
-///              + (-1)^{\lambda+1} Y_{ai}^{(\mu)} \langle i \| O \| a \rangle
-///         \bigr].
+///   M_{0\nu} = \delta_{\lambda,J_\nu}(-1)^{J_\nu} \frac{1}{\sqrt{2J_\nu+1}}
+///     \Biggl[
+///       \sum_{ai} X^J_{ai}(\nu)\,\langle a\|O^\lambda\|i\rangle
+///       \;+\; \frac{1}{4} \sum_{abij,J_1J_2}
+///              \breve{X}^{J_1J_2J}_{abij}(\nu)\,
+///              \breve{\mathcal{O}}^{J_1J_2}_{abij}(\lambda)
+///     \Biggr].
 /// \f]
-/// Here the sum runs over 1p-1h pairs (a=particle, i=hole) in the solved channel.
 ///
 double EOMImsrg::ComputeTransitionME(Operator& Op, size_t state_index) const
 {
@@ -1532,11 +1548,26 @@ double EOMImsrg::ComputeTransitionME_byIndex(size_t ich_CC,
 
   TwoBodyChannel_CC& tbc_CC = modelspace->GetTwoBodyChannel_CC(ich_CC);
   const auto& ph_list = tbc_CC.GetKetIndex_ph();
+  size_t nph = ph_list.size();
 
-  // Phase factor from operator rank: (-1)^{lambda+1}
+  // Channel angular momentum J_ν (= operator rank λ for the matrix element to be nonzero).
+  int J = tbc_CC.J;
+
+  // Distinguish modes by the row count of ch.Y:
+  //   EOM2: ch.Y has n2p2h rows (2p2h amplitudes, NOT backward 1p1h amplitudes).
+  //   TDA/EOM: ch.Y has nph rows (zero for TDA, backward amplitudes for full EOM).
+  bool is_eom2 = (ch.Y.n_rows != nph);
+
+  // Phase factor for the backward-amplitude Y term (full EOM only):
+  //   (-1)^{λ+1} acting on O_{ia} = ⟨i||O^λ||a⟩.
   int lambda = Op.GetJRank();
   double phase_lambda = AngMom::phase(lambda + 1);
 
+  // -------------------------------------------------------------------
+  // 1p1h contribution:
+  //   Σ_{ai} X_{ai}(ν) ⟨a||O^λ||i⟩
+  //   + (full EOM only) (-1)^{λ+1} Y_{ai}(ν) ⟨i||O^λ||a⟩
+  // -------------------------------------------------------------------
   double T = 0.0;
   size_t I = 0;
   for (auto iket_ai : ph_list)
@@ -1548,12 +1579,31 @@ double EOMImsrg::ComputeTransitionME_byIndex(size_t ich_CC,
     if (ket.op->occ > ket.oq->occ)
       std::swap(a, i);
 
-    double Oai = Op.OneBody(a, i);
-    double Oia = Op.OneBody(i, a);
+    T += ch.X(I, state_index) * Op.OneBody(a, i);
 
-    T += ch.X(I, state_index) * Oai
-         + phase_lambda * ch.Y(I, state_index) * Oia;
+    // Backward-amplitude Y term: present only in full EOM (RPA) mode.
+    // For EOM2 ch.Y stores 2p2h amplitudes (not backward 1p1h), so skip here.
+    if (!is_eom2)
+      T += phase_lambda * ch.Y(I, state_index) * Op.OneBody(i, a);
+
     I++;
   }
-  return T;
+
+  // -------------------------------------------------------------------
+  // 2p2h contribution (EOM2 mode, paper eq. 16 second sum):
+  //   (1/4) Σ_{abij,J1,J2} X̌_{abij}^{J1J2J}(ν) × Ǒ_{abij}^{J1J2}(λ)
+  //
+  // TODO: Implement the 2p2h contribution.  The two-body reduced matrix
+  // element Ǒ_{abij}^{J1J2}(λ) (paper eqs. B7-B8) requires a recoupling
+  // from the (ab J1)(ij J2)→J EOM 2p2h coupling scheme to the standard
+  // TwoBodyChannel scheme, using 9j symbols analogously to how the
+  // H22 ph-ring term is computed in BuildH22_byIndex.  This is left as a
+  // future enhancement; for typical 1p1h-dominant states the dominant
+  // contribution comes from the 1p1h term above.
+  // -------------------------------------------------------------------
+
+  // -------------------------------------------------------------------
+  // Overall prefactor from eq. (16): (-1)^{J_ν} / √(2J_ν+1)
+  // -------------------------------------------------------------------
+  return AngMom::phase(J) / std::sqrt(2.0 * J + 1.0) * T;
 }

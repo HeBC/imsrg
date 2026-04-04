@@ -77,18 +77,6 @@
 #include "ModelSpace.hh"
 #include "Operator.hh"
 
-/// Results stored for one (J, parity, Tz) channel after a Solve() call.
-struct EOMChannel
-{
-  arma::vec Energies; ///< Excitation energies (MeV), sorted ascending
-  arma::mat X;        ///< Forward 1p1h amplitudes  (nph x nstates)
-  arma::mat Y;        ///< Backward amplitudes (nph x nstates); zero for TDA/EOM2
-  arma::vec OnePhNorms; ///< n(1p1h) = sum_ai |X_ai|^2 for each state
-  size_t OnePhCount = 0; ///< Number of 1p1h amplitudes in the solved channel
-  size_t TwoPhCount = 0; ///< Number of 2p2h amplitudes in the solved channel
-  size_t LanczosIterations = 0; ///< Number of Lanczos iterations used (0 for dense solve)
-};
-
 /// Compact representation of one 2p-2h basis state.
 struct TwoPTwoHState
 {
@@ -98,6 +86,26 @@ struct TwoPTwoHState
   size_t j; ///< Second hole orbit index
   int Jab;  ///< Angular momentum coupling of the pp pair (actual value, e.g. 0,1,2,…)
   int Jij;  ///< Angular momentum coupling of the hh pair
+};
+
+/// Results stored for one (J, parity, Tz) channel after a Solve() call.
+struct EOMChannel
+{
+  arma::vec Energies; ///< Excitation energies (MeV), sorted ascending
+  arma::mat X;        ///< Forward 1p1h amplitudes  (nph x nstates)
+  /// Mode-dependent:
+  ///   - TDA:  zero matrix (nph x nstates)
+  ///   - EOM:  backward (de-excitation) 1p1h amplitudes (nph x nstates)
+  ///   - EOM2: 2p2h amplitudes X̌_{abij}^{Jab,Jij,J}(ν) (n2p2h x nstates)
+  ///           (NOT backward amplitudes — EOM2 has no separate backward sector)
+  arma::mat Y;
+  arma::vec OnePhNorms; ///< n(1p1h) = sum_ai |X_ai|^2 for each state
+  size_t OnePhCount = 0; ///< Number of 1p1h amplitudes in the solved channel
+  size_t TwoPhCount = 0; ///< Number of 2p2h amplitudes in the solved channel
+  size_t LanczosIterations = 0; ///< Number of Lanczos iterations used (0 for dense solve)
+  /// 2p2h basis states for EOM2 mode (empty for TDA/EOM).
+  /// Stored here so ComputeTransitionME_byIndex can use them for all channels.
+  std::vector<TwoPTwoHState> tpth_basis;
 };
 
 ///
