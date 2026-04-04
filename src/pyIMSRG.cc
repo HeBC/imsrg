@@ -1022,6 +1022,15 @@ PYBIND11_MODULE(pyIMSRG, m)
                py::arg("ich_CC"), py::arg("mode") = "TDA")
           .def("SolveAllChannels", &EOMImsrg::SolveAllChannels,
                py::arg("mode") = "TDA")
+          // ---- matrix-free Lanczos solvers (EOM2 without building H22/H21) ----
+          .def("Solve_byIndex_MF", &EOMImsrg::Solve_byIndex_MF,
+               py::arg("ich_CC"), py::arg("nev"),
+               "Matrix-free Lanczos EOM2 for one channel. "
+               "Builds A and 2p2h basis but never materialises H22 (N2×N2) "
+               "or H21 (N2×Nph). nev = number of lowest eigenvalues to converge.")
+          .def("SolveAllChannels_MF", &EOMImsrg::SolveAllChannels_MF,
+               py::arg("nev"),
+               "Run Solve_byIndex_MF for all ph channels.")
           // ---- accessors for current channel ----
           .def("GetExcitationEnergies", [](EOMImsrg &self)
                { arma::vec v = self.GetExcitationEnergies();

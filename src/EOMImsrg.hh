@@ -186,6 +186,20 @@ class EOMImsrg
   /// Solve all (J, parity, Tz) channels that have at least one 1p-1h pair.
   void SolveAllChannels(std::string mode = "TDA");
 
+  /// Matrix-free Lanczos EOM2 solver for channel ich_CC.
+  ///
+  /// Reuses BuildAMatrix_byIndex() and Build2p2hBasis_byIndex() but never
+  /// materialises the H22 (N2×N2) or H21 (N2×Nph) matrices.  The action of
+  /// the full H_EOM2 = [A, H21^T; H21, H22] on a Lanczos vector is computed
+  /// on the fly each iteration, reducing peak memory from O(N2²) to O(N2·ncv).
+  ///
+  /// @param nev  Number of algebraically-lowest eigenvalues to converge.
+  ///             Must satisfy 1 ≤ nev < N = nph + n2p2h.
+  void Solve_byIndex_MF(size_t ich_CC, int nev);
+
+  /// Run Solve_byIndex_MF for all ph channels.
+  void SolveAllChannels_MF(int nev);
+
   // -----------------------------------------------------------------------
   // Accessors
   // -----------------------------------------------------------------------
@@ -222,9 +236,33 @@ class EOMImsrg
   /// Compute the transition matrix element using stored channel results.
   double ComputeTransitionME_byIndex(size_t ich_CC, Operator& Op, size_t state_index) const;
 
+  /// Full H_EOM2 = [A, H21^T; H21, H22] matvec, used by EOMMatFreeOp.
+  /// May also be called directly (e.g. for testing or custom iterative solvers).
+  void ApplyH_EOM2_matvec(const arma::vec& v, arma::vec& Hv) const;
+
  private:
   /// Implementation shared by Solve() overloads; operates on current A, B, channel.
   void SolveCurrentChannel(std::string mode);
+
+  // -----------------------------------------------------------------------
+  // Matrix-free matvec helpers (used by Solve_byIndex_MF / EOMMatFreeOp).
+  // Set mf_orbit_to_ph / mf_ph_e / mf_ph_f before calling Apply*_matvec.
+  // -----------------------------------------------------------------------
+
+  /// Precomputed ph-orbit lookup for matrix-free path.
+  /// mf_orbit_to_ph[o] = list of (col, is_particle) for the current channel.
+  std::vector<std::vector<std::pair<size_t,bool>>> mf_orbit_to_ph;
+  std::vector<index_t> mf_ph_e; ///< particle orbit of each ph column
+  std::vector<index_t> mf_ph_f; ///< hole orbit of each ph column
+
+  /// Compute Hv_2p2h += H22 * v_2p2h without building H22.
+  void ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const;
+
+  /// Compute Hv_2p2h += H21 * v_ph without building H21.
+  void ApplyH21_matvec(const arma::vec& v_ph, arma::vec& Hv_2p2h) const;
+
+  /// Compute Hv_ph += H21^T * v_2p2h without building H21.
+  void ApplyH21T_matvec(const arma::vec& v_2p2h, arma::vec& Hv_ph) const;
 };
 
 #endif

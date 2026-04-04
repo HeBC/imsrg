@@ -729,7 +729,551 @@ void EOMImsrg::SolveAllChannels(std::string mode)
   }
 }
 
-/// Core solver: operates on the already-filled A (and B or H22/H21) matrices.
+// ---------------------------------------------------------------------------
+// Matrix-free matvec helpers
+// ---------------------------------------------------------------------------
+
+/// Compute Hv_2p2h += H22 * v without building H22.
+///
+/// Mirrors BuildH22_byIndex row by row: for each 2p2h state alpha the
+/// contributions from all beta states are accumulated into a private
+/// double and then written to Hv[alpha].  This makes the loop trivially
+/// thread-safe under OpenMP.
+void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
+{
+  int J = modelspace->GetTwoBodyChannel_CC(current_channel).J;
+  size_t n2 = tpth_basis.size();
+
+  #pragma omp parallel for schedule(dynamic,1)
+  for (long long alpha_ll = 0; alpha_ll < static_cast<long long>(n2); ++alpha_ll)
+  {
+    size_t alpha = static_cast<size_t>(alpha_ll);
+    const TwoPTwoHState& sa = tpth_basis[alpha];
+    size_t a = sa.a, b = sa.b, ii = sa.i, jj = sa.j;
+    int Jab = sa.Jab, Jij = sa.Jij;
+    int j2a  = modelspace->GetOrbit(a).j2;
+    int j2b  = modelspace->GetOrbit(b).j2;
+    int j2ii = modelspace->GetOrbit(ii).j2;
+    int j2jj = modelspace->GetOrbit(jj).j2;
+    double ja   = 0.5*j2a;
+    double jb   = 0.5*j2b;
+    double ji   = 0.5*j2ii;
+    double jj_v = 0.5*j2jj;
+    double Nab = std::sqrt(1.0 + (a == b  ? 1.0 : 0.0));
+    double Nij = std::sqrt(1.0 + (ii == jj ? 1.0 : 0.0));
+
+    // Diagonal SPE contribution
+    double hv_alpha = (H.OneBody(a, a) + H.OneBody(b, b)
+                     - H.OneBody(ii, ii) - H.OneBody(jj, jj)) * v[alpha];
+
+    int phase_pp_a = AngMom::phase((j2a  + j2b)  / 2 + Jab);
+    int phase_hh_a = AngMom::phase((j2ii + j2jj) / 2 + Jij);
+
+    struct ACase
+    {
+      size_t act_p, spec_p;
+      size_t act_h, spec_h;
+      int    phase_alpha;
+    };
+    std::array<ACase, 4> alpha_cases = {{
+      {a,  b,  ii, jj, 1},
+      {a,  b,  jj, ii, phase_hh_a},
+      {b,  a,  ii, jj, phase_pp_a},
+      {b,  a,  jj, ii, phase_pp_a * phase_hh_a}
+    }};
+
+    for (size_t beta = 0; beta < n2; ++beta)
+    {
+      if (beta == alpha) continue;  // diagonal already handled
+      if (std::abs(v[beta]) < 1e-15) continue;
+
+      const TwoPTwoHState& sb = tpth_basis[beta];
+      size_t ap = sb.a, bp = sb.b, ip = sb.i, jp = sb.j;
+      int Jabp = sb.Jab, Jijp = sb.Jij;
+      int j2ap = modelspace->GetOrbit(ap).j2;
+      int j2bp = modelspace->GetOrbit(bp).j2;
+      int j2ip = modelspace->GetOrbit(ip).j2;
+      int j2jp = modelspace->GetOrbit(jp).j2;
+      double jap   = 0.5*j2ap;
+      double jbp   = 0.5*j2bp;
+      double jip   = 0.5*j2ip;
+      double jjp   = 0.5*j2jp;
+      double Nabp = std::sqrt(1.0 + (ap == bp ? 1.0 : 0.0));
+      double Nijp = std::sqrt(1.0 + (ip == jp ? 1.0 : 0.0));
+
+      double val = 0.0;
+
+      // PP-PP ladder
+      if (ii == ip && jj == jp && Jij == Jijp && Jab == Jabp)
+        val += H.TwoBody.GetTBME_J_norm(Jab, a, b, ap, bp);
+
+      // HH-HH ladder
+      if (a == ap && b == bp && Jab == Jabp && Jij == Jijp)
+        val -= H.TwoBody.GetTBME_J_norm(Jij, ii, jj, ip, jp);
+
+      // Ph ring
+      int phase_pp_b = AngMom::phase((j2ap + j2bp) / 2 + Jabp);
+      int phase_hh_b = AngMom::phase((j2ip + j2jp) / 2 + Jijp);
+      double prefactor = std::sqrt((2.0*Jab+1)*(2.0*Jij+1)
+                                  *(2.0*Jabp+1)*(2.0*Jijp+1))
+                       / (Nab * Nij * Nabp * Nijp);
+
+      for (const ACase& ac : alpha_cases)
+      {
+        if (ac.spec_p != ap && ac.spec_p != bp) continue;
+        if (ac.spec_h != ip && ac.spec_h != jp) continue;
+
+        size_t act_pb = (ac.spec_p == ap) ? bp : ap;
+        size_t act_hb = (ac.spec_h == ip) ? jp : ip;
+        double j_act_pa = 0.5*modelspace->GetOrbit(ac.act_p).j2;
+        double j_act_ha = 0.5*modelspace->GetOrbit(ac.act_h).j2;
+        double j_act_pb = 0.5*modelspace->GetOrbit(act_pb).j2;
+        double j_act_hb = 0.5*modelspace->GetOrbit(act_hb).j2;
+        double j_spec_p = 0.5*modelspace->GetOrbit(ac.spec_p).j2;
+        double j_spec_h = 0.5*modelspace->GetOrbit(ac.spec_h).j2;
+
+        int phase_beta = 1;
+        if (act_pb != ap) phase_beta *= phase_pp_b;
+        if (act_hb != ip) phase_beta *= phase_hh_b;
+
+        int Jph_min = std::max(std::abs((int)(2*j_act_pa) - (int)(2*j_act_ha)),
+                               std::abs((int)(2*j_act_pb) - (int)(2*j_act_hb))) / 2;
+        int Jph_max = std::min((int)(2*j_act_pa) + (int)(2*j_act_ha),
+                               (int)(2*j_act_pb) + (int)(2*j_act_hb)) / 2;
+
+        int Jsp_min_base = std::abs((int)(2*j_spec_p) - (int)(2*j_spec_h)) / 2;
+        int Jsp_max_base = ((int)(2*j_spec_p) + (int)(2*j_spec_h)) / 2;
+
+        double ring_total = 0.0;
+        for (int Jph = Jph_min; Jph <= Jph_max; ++Jph)
+        {
+          int Jp_min2 = std::abs((int)(2*j_act_pa) - (int)(2*j_act_hb)) / 2;
+          int Jp_max2 = ((int)(2*j_act_pa) + (int)(2*j_act_hb)) / 2;
+          double Vcc = 0.0;
+          for (int Jp = Jp_min2; Jp <= Jp_max2; ++Jp)
+          {
+            if (!AngMom::Triangle(j_act_pb, j_act_ha, (double)Jp)) continue;
+            double sixj = modelspace->GetSixJ(j_act_pa, j_act_ha, (double)Jph,
+                                              j_act_hb, j_act_pb, (double)Jp);
+            if (std::abs(sixj) < 1e-8) continue;
+            Vcc -= (2*Jp+1) * sixj
+                 * H.TwoBody.GetTBME_J(Jp, ac.act_p, act_hb, act_pb, ac.act_h);
+          }
+          if (std::abs(Vcc) < 1e-10) continue;
+
+          int Jsp_min = std::max(Jsp_min_base, std::abs(J - Jph));
+          int Jsp_max = std::min(Jsp_max_base, J + Jph);
+          double ring_Jsp = 0.0;
+          for (int Jsp = Jsp_min; Jsp <= Jsp_max; ++Jsp)
+          {
+            double n9j_a = modelspace->GetNineJ(ja,  jb,   (double)Jab,
+                                                ji,  jj_v, (double)Jij,
+                                                (double)Jph, (double)Jsp, (double)J);
+            double n9j_b = modelspace->GetNineJ(jap, jbp,  (double)Jabp,
+                                                jip, jjp,  (double)Jijp,
+                                                (double)Jph, (double)Jsp, (double)J);
+            ring_Jsp += (2*Jsp+1) * n9j_a * n9j_b;
+          }
+          ring_total += Vcc * (2*Jph+1) * ring_Jsp;
+        }
+        val += (double)(ac.phase_alpha * phase_beta) * prefactor * ring_total;
+      }
+
+      hv_alpha += val * v[beta];
+    }
+
+    Hv[alpha] += hv_alpha;
+  }
+}
+
+/// Compute Hv_2p2h += H21 * v_ph without building H21.
+/// Parallelised over 2p2h states; uses the precomputed mf_orbit_to_ph,
+/// mf_ph_e, mf_ph_f lookup tables (set by Solve_byIndex_MF).
+void EOMImsrg::ApplyH21_matvec(const arma::vec& v_ph, arma::vec& Hv_2p2h) const
+{
+  TwoBodyChannel_CC& tbc_CC = modelspace->GetTwoBodyChannel_CC(current_channel);
+  int J = tbc_CC.J;
+  size_t n2 = tpth_basis.size();
+
+  #pragma omp parallel for schedule(dynamic,1)
+  for (long long alpha_ll = 0; alpha_ll < static_cast<long long>(n2); ++alpha_ll)
+  {
+    size_t alpha = static_cast<size_t>(alpha_ll);
+    const TwoPTwoHState& sa = tpth_basis[alpha];
+    size_t a = sa.a, b = sa.b, c = sa.i, d = sa.j;
+    int Jab = sa.Jab, Jcd = sa.Jij;
+
+    const Orbit& oa = modelspace->GetOrbit(a);
+    const Orbit& ob = modelspace->GetOrbit(b);
+    const Orbit& oc = modelspace->GetOrbit(c);
+    const Orbit& od = modelspace->GetOrbit(d);
+
+    double ja = 0.5*oa.j2, jb = 0.5*ob.j2;
+    double jc = 0.5*oc.j2, jd = 0.5*od.j2;
+
+    double Nab = std::sqrt(1.0 + (a == b ? 1.0 : 0.0));
+    double Ncd = std::sqrt(1.0 + (c == d ? 1.0 : 0.0));
+    double K = std::sqrt((2.0*Jab+1)*(2.0*Jcd+1)) / (Nab * Ncd) * AngMom::phase(J);
+
+    double hv = 0.0;
+
+    // sm1: e == a
+    {
+      int phase1 = AngMom::phase((oa.j2 + ob.j2)/2 - Jcd);
+      for (auto& [c_idx, is_part] : mf_orbit_to_ph[a])
+      {
+        if (!is_part) continue;
+        size_t f_orb = mf_ph_f[c_idx];
+        const Orbit& of = modelspace->GetOrbit(f_orb);
+        double jf = 0.5*of.j2;
+        double w6j = modelspace->GetSixJ((double)Jab, (double)Jcd, (double)J,
+                                         jf, ja, jb);
+        if (w6j == 0.0) continue;
+        double v_me = H.TwoBody.GetTBME_J_norm(Jcd, f_orb, b, c, d);
+        hv -= phase1 * w6j * v_me * K * v_ph[c_idx];
+      }
+    }
+
+    // sm2: e == b
+    {
+      int phase2 = AngMom::phase(Jab + Jcd);
+      for (auto& [c_idx, is_part] : mf_orbit_to_ph[b])
+      {
+        if (!is_part) continue;
+        size_t f_orb = mf_ph_f[c_idx];
+        const Orbit& of = modelspace->GetOrbit(f_orb);
+        double jf = 0.5*of.j2;
+        double w6j = modelspace->GetSixJ((double)Jab, (double)Jcd, (double)J,
+                                         jf, jb, ja);
+        if (w6j == 0.0) continue;
+        double v_me = H.TwoBody.GetTBME_J_norm(Jcd, f_orb, a, c, d);
+        hv += phase2 * w6j * v_me * K * v_ph[c_idx];
+      }
+    }
+
+    // sm3: f == d
+    {
+      int phase3 = AngMom::phase((oc.j2 + od.j2)/2 - Jab);
+      for (auto& [c_idx, is_part] : mf_orbit_to_ph[d])
+      {
+        if (is_part) continue;
+        size_t e_orb = mf_ph_e[c_idx];
+        const Orbit& oe = modelspace->GetOrbit(e_orb);
+        double je = 0.5*oe.j2;
+        double w6j = modelspace->GetSixJ((double)Jab, (double)Jcd, (double)J,
+                                         jd, je, jc);
+        if (w6j == 0.0) continue;
+        double v_me = H.TwoBody.GetTBME_J_norm(Jab, a, b, c, e_orb);
+        hv += phase3 * w6j * v_me * K * v_ph[c_idx];
+      }
+    }
+
+    // sm4: f == c
+    {
+      int phase4 = AngMom::phase(Jcd + Jab);
+      for (auto& [c_idx, is_part] : mf_orbit_to_ph[c])
+      {
+        if (is_part) continue;
+        size_t e_orb = mf_ph_e[c_idx];
+        const Orbit& oe = modelspace->GetOrbit(e_orb);
+        double je = 0.5*oe.j2;
+        double w6j = modelspace->GetSixJ((double)Jab, (double)Jcd, (double)J,
+                                         jc, je, jd);
+        if (w6j == 0.0) continue;
+        double v_me = H.TwoBody.GetTBME_J_norm(Jab, a, b, d, e_orb);
+        hv -= phase4 * w6j * v_me * K * v_ph[c_idx];
+      }
+    }
+
+    Hv_2p2h[alpha] += hv;
+  }
+}
+
+/// Compute Hv_ph += H21^T * v_2p2h without building H21.
+/// Serial: multiple 2p2h states contribute to the same ph column so we
+/// cannot parallelise the outer (alpha) loop without synchronisation.
+void EOMImsrg::ApplyH21T_matvec(const arma::vec& v_2p2h, arma::vec& Hv_ph) const
+{
+  TwoBodyChannel_CC& tbc_CC = modelspace->GetTwoBodyChannel_CC(current_channel);
+  int J = tbc_CC.J;
+  size_t n2 = tpth_basis.size();
+
+  for (size_t alpha = 0; alpha < n2; ++alpha)
+  {
+    double v_alpha = v_2p2h[alpha];
+    if (std::abs(v_alpha) < 1e-15) continue;
+
+    const TwoPTwoHState& sa = tpth_basis[alpha];
+    size_t a = sa.a, b = sa.b, c = sa.i, d = sa.j;
+    int Jab = sa.Jab, Jcd = sa.Jij;
+
+    const Orbit& oa = modelspace->GetOrbit(a);
+    const Orbit& ob = modelspace->GetOrbit(b);
+    const Orbit& oc = modelspace->GetOrbit(c);
+    const Orbit& od = modelspace->GetOrbit(d);
+
+    double ja = 0.5*oa.j2, jb = 0.5*ob.j2;
+    double jc = 0.5*oc.j2, jd = 0.5*od.j2;
+
+    double Nab = std::sqrt(1.0 + (a == b ? 1.0 : 0.0));
+    double Ncd = std::sqrt(1.0 + (c == d ? 1.0 : 0.0));
+    double K = std::sqrt((2.0*Jab+1)*(2.0*Jcd+1)) / (Nab * Ncd) * AngMom::phase(J);
+
+    // sm1: e == a  →  Hv_ph[c_idx] -= phase1 * w6j * v_me * K * v_alpha
+    {
+      int phase1 = AngMom::phase((oa.j2 + ob.j2)/2 - Jcd);
+      for (auto& [c_idx, is_part] : mf_orbit_to_ph[a])
+      {
+        if (!is_part) continue;
+        size_t f_orb = mf_ph_f[c_idx];
+        const Orbit& of = modelspace->GetOrbit(f_orb);
+        double jf = 0.5*of.j2;
+        double w6j = modelspace->GetSixJ((double)Jab, (double)Jcd, (double)J,
+                                         jf, ja, jb);
+        if (w6j == 0.0) continue;
+        double v_me = H.TwoBody.GetTBME_J_norm(Jcd, f_orb, b, c, d);
+        Hv_ph[c_idx] -= phase1 * w6j * v_me * K * v_alpha;
+      }
+    }
+
+    // sm2: e == b
+    {
+      int phase2 = AngMom::phase(Jab + Jcd);
+      for (auto& [c_idx, is_part] : mf_orbit_to_ph[b])
+      {
+        if (!is_part) continue;
+        size_t f_orb = mf_ph_f[c_idx];
+        const Orbit& of = modelspace->GetOrbit(f_orb);
+        double jf = 0.5*of.j2;
+        double w6j = modelspace->GetSixJ((double)Jab, (double)Jcd, (double)J,
+                                         jf, jb, ja);
+        if (w6j == 0.0) continue;
+        double v_me = H.TwoBody.GetTBME_J_norm(Jcd, f_orb, a, c, d);
+        Hv_ph[c_idx] += phase2 * w6j * v_me * K * v_alpha;
+      }
+    }
+
+    // sm3: f == d
+    {
+      int phase3 = AngMom::phase((oc.j2 + od.j2)/2 - Jab);
+      for (auto& [c_idx, is_part] : mf_orbit_to_ph[d])
+      {
+        if (is_part) continue;
+        size_t e_orb = mf_ph_e[c_idx];
+        const Orbit& oe = modelspace->GetOrbit(e_orb);
+        double je = 0.5*oe.j2;
+        double w6j = modelspace->GetSixJ((double)Jab, (double)Jcd, (double)J,
+                                         jd, je, jc);
+        if (w6j == 0.0) continue;
+        double v_me = H.TwoBody.GetTBME_J_norm(Jab, a, b, c, e_orb);
+        Hv_ph[c_idx] += phase3 * w6j * v_me * K * v_alpha;
+      }
+    }
+
+    // sm4: f == c
+    {
+      int phase4 = AngMom::phase(Jcd + Jab);
+      for (auto& [c_idx, is_part] : mf_orbit_to_ph[c])
+      {
+        if (is_part) continue;
+        size_t e_orb = mf_ph_e[c_idx];
+        const Orbit& oe = modelspace->GetOrbit(e_orb);
+        double je = 0.5*oe.j2;
+        double w6j = modelspace->GetSixJ((double)Jab, (double)Jcd, (double)J,
+                                         jc, je, jd);
+        if (w6j == 0.0) continue;
+        double v_me = H.TwoBody.GetTBME_J_norm(Jab, a, b, d, e_orb);
+        Hv_ph[c_idx] -= phase4 * w6j * v_me * K * v_alpha;
+      }
+    }
+  }
+}
+
+/// Full H_EOM2 matvec: Hv = [A, H21^T; H21, H22] * v.
+/// v[0..nph-1] = 1p1h part; v[nph..] = 2p2h part.
+void EOMImsrg::ApplyH_EOM2_matvec(const arma::vec& v, arma::vec& Hv) const
+{
+  size_t nph = A.n_rows;
+  size_t n2  = tpth_basis.size();
+
+  arma::vec v_ph   = v.head(nph);
+  arma::vec v_2p2h = v.tail(n2);
+
+  arma::vec Hv_ph(nph,  arma::fill::zeros);
+  arma::vec Hv_2p2h(n2, arma::fill::zeros);
+
+  // 1p1h block: A * v_ph
+  Hv_ph = A * v_ph;
+
+  // Off-diagonal coupling H21^T * v_2p2h → 1p1h
+  ApplyH21T_matvec(v_2p2h, Hv_ph);
+
+  // Off-diagonal coupling H21 * v_ph → 2p2h
+  ApplyH21_matvec(v_ph, Hv_2p2h);
+
+  // 2p2h block: H22 * v_2p2h
+  ApplyH22_matvec(v_2p2h, Hv_2p2h);
+
+  Hv.head(nph) = Hv_ph;
+  Hv.tail(n2)  = Hv_2p2h;
+}
+
+namespace
+{
+/// Armadillo newarp MatProd-compatible operator that wraps
+/// EOMImsrg::ApplyH_EOM2_matvec.  Passed to SymEigsSolver in place of
+/// DenseGenMatProd so that no H22 / H21 matrix is ever materialised.
+struct EOMMatFreeOp
+{
+  typedef double elem_type;
+  const EOMImsrg* eom;
+  arma::uword n_rows;  ///< required by armadillo newarp SymEigsSolver
+
+  EOMMatFreeOp(const EOMImsrg* e, arma::uword n) : eom(e), n_rows(n) {}
+
+  void perform_op(const double* x_in, double* y_out) const
+  {
+    arma::vec v(x_in, n_rows);  // copies x_in
+    arma::vec Hv(n_rows);
+    eom->ApplyH_EOM2_matvec(v, Hv);
+    std::copy(Hv.memptr(), Hv.memptr() + n_rows, y_out);
+  }
+};
+} // anonymous namespace
+
+// ---------------------------------------------------------------------------
+// Matrix-free Lanczos solver
+// ---------------------------------------------------------------------------
+
+/// Solve channel ich_CC using a matrix-free Lanczos method (EOM2 mode).
+///
+/// This is the memory-efficient alternative to Solve_byIndex(..., "EOM2"):
+///   - Reuses BuildAMatrix_byIndex() and Build2p2hBasis_byIndex() (unchanged).
+///   - Does NOT build H22 (N2×N2) or H21 (N2×Nph).
+///   - Runs armadillo's newarp SymEigsSolver with a custom matrix-product
+///     operator that computes H_EOM2 * v on the fly each Lanczos step.
+///
+/// Peak additional memory is O(N2 × ncv) for the Lanczos vectors instead of
+/// O(N2²) for the explicit matrices.
+///
+/// Computation time: each matrix-vector product costs the same as one row of
+/// BuildH22_byIndex, so K Lanczos iterations costs K × build_cost(H22).
+/// For K ≪ N2 (typical when requesting a handful of eigenvalues) this is
+/// cheaper than building the full matrix; for K ≫ N2 the dense path is faster.
+///
+/// @param nev  Number of algebraically-lowest eigenvalues to converge (≥ 1).
+///             If nev ≥ N = nph + n2p2h, falls back to the dense EOM2 solve.
+void EOMImsrg::Solve_byIndex_MF(size_t ich_CC, int nev)
+{
+  current_channel = ich_CC;
+
+  // --- Reuse existing builders for A and the 2p2h basis ---
+  BuildAMatrix_byIndex(ich_CC);
+  one_ph_count = A.n_rows;
+
+  Build2p2hBasis_byIndex(ich_CC);
+  two_ph_count  = tpth_basis.size();
+  lanczos_iterations = 0;
+  OnePhNorms.reset();
+  B.zeros(A.n_rows, A.n_cols);  // not used by EOM2, but reset for consistency
+
+  size_t nph = A.n_rows;
+  size_t n2  = tpth_basis.size();
+  size_t N   = nph + n2;
+
+  // Precompute the orbit → ph-column lookup used by ApplyH21 / ApplyH21T.
+  // Built once here and shared across all Lanczos matrix-vector products.
+  TwoBodyChannel_CC& tbc_CC = modelspace->GetTwoBodyChannel_CC(ich_CC);
+  const auto& ph_list = tbc_CC.GetKetIndex_ph();
+  mf_orbit_to_ph.assign(modelspace->GetNumberOrbits(),
+                        std::vector<std::pair<size_t,bool>>());
+  mf_ph_e.resize(nph);
+  mf_ph_f.resize(nph);
+  {
+    size_t col = 0;
+    for (auto iket : ph_list)
+    {
+      Ket& kt = tbc_CC.GetKet(iket);
+      index_t e = kt.p, f = kt.q;
+      if (kt.op->occ > kt.oq->occ) std::swap(e, f);
+      mf_orbit_to_ph[e].push_back({col, true});
+      mf_orbit_to_ph[f].push_back({col, false});
+      mf_ph_e[col] = e;
+      mf_ph_f[col] = f;
+      ++col;
+    }
+  }
+
+  if (nev <= 0 || (size_t)nev >= N)
+  {
+    // Degenerate cases: build the explicit matrices and use the dense path.
+    std::cout << "WARNING EOMImsrg::Solve_byIndex_MF: nev=" << nev
+              << " out of range for N=" << N
+              << "; falling back to dense EOM2 solve in channel " << ich_CC
+              << std::endl;
+    BuildH22_byIndex(ich_CC);
+    BuildH21_byIndex(ich_CC);
+    SolveCurrentChannel("EOM2");
+  }
+  else
+  {
+    size_t nev_u = static_cast<size_t>(nev);
+    size_t ncv   = std::min(N, std::max(static_cast<size_t>(5 * nev), nev_u + 2));
+
+    EOMMatFreeOp op(this, static_cast<arma::uword>(N));
+    arma::newarp::SymEigsSolver<double,
+        arma::newarp::EigsSelect::SMALLEST_ALGE,
+        EOMMatFreeOp> solver(op, nev_u, ncv);
+    solver.init();
+    arma::uword nconv = solver.compute(/*maxit=*/1000, /*tol=*/1e-10);
+    lanczos_iterations = solver.num_iterations();
+
+    if (nconv < (arma::uword)nev)
+    {
+      std::cout << "WARNING EOMImsrg::Solve_byIndex_MF: only " << nconv
+                << " of " << nev << " eigenvalues converged in channel "
+                << ich_CC << "  " << __FILE__ << ":" << __LINE__ << std::endl;
+    }
+
+    arma::vec all_evals = solver.eigenvalues();
+    arma::mat all_evecs = solver.eigenvectors();
+
+    // Keep only positive eigenvalues (physical excitation energies).
+    arma::uvec pos_idx = arma::find(all_evals > 0);
+    Energies = all_evals(pos_idx);
+    arma::mat Vpos = all_evecs.cols(pos_idx);
+
+    // X = 1p1h part of eigenvectors; Y = 2p2h part
+    X = Vpos.head_rows(nph);
+    Y = Vpos.tail_rows(Vpos.n_rows - nph);
+    OnePhNorms = ComputeOnePhNorms(X);
+  }
+
+  // Store results in the per-channel map (same layout as Solve_byIndex).
+  EOMChannel ch;
+  ch.Energies           = Energies;
+  ch.X                  = X;
+  ch.Y                  = Y;
+  ch.OnePhNorms         = OnePhNorms;
+  ch.OnePhCount         = one_ph_count;
+  ch.TwoPhCount         = two_ph_count;
+  ch.LanczosIterations  = lanczos_iterations;
+  ChannelResults[ich_CC] = ch;
+}
+
+/// Run Solve_byIndex_MF for all ph channels.
+void EOMImsrg::SolveAllChannels_MF(int nev)
+{
+  size_t nch = modelspace->GetNumberTwoBodyChannels_CC();
+  for (size_t ich = 0; ich < nch; ich++)
+  {
+    TwoBodyChannel_CC& tbc = modelspace->GetTwoBodyChannel_CC(ich);
+    if (tbc.GetKetIndex_ph().empty()) continue;
+    Solve_byIndex_MF(ich, nev);
+  }
+}
+
+
 void EOMImsrg::SolveCurrentChannel(std::string mode)
 {
   if (mode == "TDA")

@@ -484,6 +484,56 @@ def main():
                   "(acceptable for random H; real nuclear H gives positive excitations)")
 
     # ----------------------------------------------------------------
+    # Test 15: Matrix-free Lanczos (Solve_byIndex_MF / SolveAllChannels_MF)
+    # ----------------------------------------------------------------
+    print("Test group: Matrix-free Lanczos EOM2 solver")
+
+    # Dense EOM2 reference for comparison
+    eom2_ref_mf = pyIMSRG.EOMImsrg(H)
+    try:
+        eom2_ref_mf.Solve(J, par, Tz, "EOM2")
+        mf_ref_energies = sorted(eom2_ref_mf.GetExcitationEnergies())
+    except Exception as ex:
+        mf_ref_energies = []
+        check(False, f"Dense EOM2 reference for MF test raised: {ex}")
+
+    ich_CC = ms.GetTwoBodyChannelIndex(J, par, Tz)
+    n_mf = min(3, max(1, len(mf_ref_energies) + 2))
+
+    eom_mf = pyIMSRG.EOMImsrg(H)
+    try:
+        eom_mf.Solve_byIndex_MF(ich_CC, n_mf)
+        check(True, "Solve_byIndex_MF runs without exception")
+    except Exception as ex:
+        check(False, f"Solve_byIndex_MF raised: {ex}")
+
+    mf_energies = sorted(eom_mf.GetExcitationEnergies())
+    check(eom_mf.GetTwoPhCount() > 0,
+          "Solve_byIndex_MF: 2p2h count is positive")
+    check(eom_mf.GetLanczosIterations() > 0,
+          "Solve_byIndex_MF: Lanczos iteration count is positive")
+
+    n_compare_mf = min(len(mf_energies), len(mf_ref_energies))
+    if n_compare_mf > 0:
+        max_diff_mf = max(abs(mf_energies[i] - mf_ref_energies[i])
+                          for i in range(n_compare_mf))
+        check(max_diff_mf < 1e-6,
+              f"Solve_byIndex_MF agrees with dense EOM2 (max diff = {max_diff_mf:.2e})")
+    else:
+        check(True,
+              "Solve_byIndex_MF: no positive eigenvalues to compare "
+              "(acceptable for random H)")
+
+    eom_mf_all = pyIMSRG.EOMImsrg(H)
+    try:
+        eom_mf_all.SolveAllChannels_MF(3)
+        check(True, "SolveAllChannels_MF runs without exception")
+    except Exception as ex:
+        check(False, f"SolveAllChannels_MF raised: {ex}")
+    check(len(eom_mf_all.GetSolvedChannels()) > 0,
+          "SolveAllChannels_MF: at least one channel solved")
+
+    # ----------------------------------------------------------------
     # Summary
     # ----------------------------------------------------------------
     print(f"\npassed? {PASS}")
