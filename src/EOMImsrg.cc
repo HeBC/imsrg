@@ -688,6 +688,26 @@ void EOMImsrg::BuildH21_byIndex(size_t ich_CC)
       }
     }
   }
+
+  // Apply the same CC-channel ket-ordering phase corrections used in
+  // BuildAMatrix_byIndex.  When a ph ket at column col is stored as
+  // (hole, particle), BuildAMatrix multiplies row and column col by
+  // phase_ia = -(-1)^{ja+ji-J}.  For the EOM2 full matrix
+  //   [A    H21.t()]
+  //   [H21  H22   ]
+  // to be consistent, H21(alpha, col) must carry the same phase_col factor
+  // so that the 1ph columns of H21 match the 1ph columns of A.
+  for (size_t col = 0; col < nph; ++col)
+  {
+    auto iket = ph_list[col];
+    Ket& kt = tbc_CC.GetKet(iket);
+    if (kt.op->occ > kt.oq->occ)   // stored as (hole=p, particle=q)
+    {
+      // After A-matrix swap: a = kt.q (particle), i = kt.p (hole)
+      int ph_col = -AngMom::phase((kt.oq->j2 + kt.op->j2) / 2 - J);
+      if (ph_col != 1) H21.col(col) *= ph_col;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -951,7 +971,7 @@ void EOMImsrg::ApplyH21_matvec(const arma::vec& v_ph, arma::vec& Hv_2p2h) const
                                          jf, ja, jb);
         if (w6j == 0.0) continue;
         double v_me = H.TwoBody.GetTBME_J(Jcd, f_orb, b, c, d);
-        hv -= phase1 * w6j * v_me * K * v_ph[c_idx];
+        hv -= phase1 * w6j * v_me * K * mf_ph_phase[c_idx] * v_ph[c_idx];
       }
     }
 
@@ -968,7 +988,7 @@ void EOMImsrg::ApplyH21_matvec(const arma::vec& v_ph, arma::vec& Hv_2p2h) const
                                          jf, jb, ja);
         if (w6j == 0.0) continue;
         double v_me = H.TwoBody.GetTBME_J(Jcd, f_orb, a, c, d);
-        hv += phase2 * w6j * v_me * K * v_ph[c_idx];
+        hv += phase2 * w6j * v_me * K * mf_ph_phase[c_idx] * v_ph[c_idx];
       }
     }
 
@@ -985,7 +1005,7 @@ void EOMImsrg::ApplyH21_matvec(const arma::vec& v_ph, arma::vec& Hv_2p2h) const
                                          jd, je, jc);
         if (w6j == 0.0) continue;
         double v_me = H.TwoBody.GetTBME_J(Jab, a, b, c, e_orb);
-        hv += phase3 * w6j * v_me * K * v_ph[c_idx];
+        hv += phase3 * w6j * v_me * K * mf_ph_phase[c_idx] * v_ph[c_idx];
       }
     }
 
@@ -1002,7 +1022,7 @@ void EOMImsrg::ApplyH21_matvec(const arma::vec& v_ph, arma::vec& Hv_2p2h) const
                                          jc, je, jd);
         if (w6j == 0.0) continue;
         double v_me = H.TwoBody.GetTBME_J(Jab, a, b, d, e_orb);
-        hv -= phase4 * w6j * v_me * K * v_ph[c_idx];
+        hv -= phase4 * w6j * v_me * K * mf_ph_phase[c_idx] * v_ph[c_idx];
       }
     }
 
@@ -1040,7 +1060,7 @@ void EOMImsrg::ApplyH21T_matvec(const arma::vec& v_2p2h, arma::vec& Hv_ph) const
     double Ncd = std::sqrt(1.0 + (c == d ? 1.0 : 0.0));
     double K = std::sqrt((2.0*Jab+1)*(2.0*Jcd+1)) / (Nab * Ncd) * AngMom::phase(J);
 
-    // sm1: e == a  →  Hv_ph[c_idx] -= phase1 * w6j * v_me * K * v_alpha
+    // sm1: e == a  →  Hv_ph[c_idx] -= phase1 * w6j * v_me * K * v_alpha * phase_col
     {
       int phase1 = AngMom::phase((oa.j2 + ob.j2)/2 - Jcd);
       for (auto& [c_idx, is_part] : mf_orbit_to_ph[a])
@@ -1053,7 +1073,7 @@ void EOMImsrg::ApplyH21T_matvec(const arma::vec& v_2p2h, arma::vec& Hv_ph) const
                                          jf, ja, jb);
         if (w6j == 0.0) continue;
         double v_me = H.TwoBody.GetTBME_J(Jcd, f_orb, b, c, d);
-        Hv_ph[c_idx] -= phase1 * w6j * v_me * K * v_alpha;
+        Hv_ph[c_idx] -= phase1 * w6j * v_me * K * mf_ph_phase[c_idx] * v_alpha;
       }
     }
 
@@ -1070,7 +1090,7 @@ void EOMImsrg::ApplyH21T_matvec(const arma::vec& v_2p2h, arma::vec& Hv_ph) const
                                          jf, jb, ja);
         if (w6j == 0.0) continue;
         double v_me = H.TwoBody.GetTBME_J(Jcd, f_orb, a, c, d);
-        Hv_ph[c_idx] += phase2 * w6j * v_me * K * v_alpha;
+        Hv_ph[c_idx] += phase2 * w6j * v_me * K * mf_ph_phase[c_idx] * v_alpha;
       }
     }
 
@@ -1087,7 +1107,7 @@ void EOMImsrg::ApplyH21T_matvec(const arma::vec& v_2p2h, arma::vec& Hv_ph) const
                                          jd, je, jc);
         if (w6j == 0.0) continue;
         double v_me = H.TwoBody.GetTBME_J(Jab, a, b, c, e_orb);
-        Hv_ph[c_idx] += phase3 * w6j * v_me * K * v_alpha;
+        Hv_ph[c_idx] += phase3 * w6j * v_me * K * mf_ph_phase[c_idx] * v_alpha;
       }
     }
 
@@ -1104,7 +1124,7 @@ void EOMImsrg::ApplyH21T_matvec(const arma::vec& v_2p2h, arma::vec& Hv_ph) const
                                          jc, je, jd);
         if (w6j == 0.0) continue;
         double v_me = H.TwoBody.GetTBME_J(Jab, a, b, d, e_orb);
-        Hv_ph[c_idx] -= phase4 * w6j * v_me * K * v_alpha;
+        Hv_ph[c_idx] -= phase4 * w6j * v_me * K * mf_ph_phase[c_idx] * v_alpha;
       }
     }
   }
@@ -1206,17 +1226,28 @@ void EOMImsrg::Solve_byIndex_MF(size_t ich_CC, int nev)
   // Built once here and shared across all Lanczos matrix-vector products.
   TwoBodyChannel_CC& tbc_CC = modelspace->GetTwoBodyChannel_CC(ich_CC);
   const auto& ph_list = tbc_CC.GetKetIndex_ph();
+  int J_ch = tbc_CC.J;
   mf_orbit_to_ph.assign(modelspace->GetNumberOrbits(),
                         std::vector<std::pair<size_t,bool>>());
   mf_ph_e.resize(nph);
   mf_ph_f.resize(nph);
+  mf_ph_phase.resize(nph);
   {
     size_t col = 0;
     for (auto iket : ph_list)
     {
       Ket& kt = tbc_CC.GetKet(iket);
       index_t e = kt.p, f = kt.q;
-      if (kt.op->occ > kt.oq->occ) std::swap(e, f);
+      if (kt.op->occ > kt.oq->occ)
+      {
+        std::swap(e, f);
+        // After swap: e=particle(=kt.q), f=hole(=kt.p)
+        mf_ph_phase[col] = -AngMom::phase((kt.oq->j2 + kt.op->j2) / 2 - J_ch);
+      }
+      else
+      {
+        mf_ph_phase[col] = 1;
+      }
       mf_orbit_to_ph[e].push_back({col, true});
       mf_orbit_to_ph[f].push_back({col, false});
       mf_ph_e[col] = e;

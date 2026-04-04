@@ -262,6 +262,9 @@ class EOMImsrg
   std::vector<std::vector<std::pair<size_t,bool>>> mf_orbit_to_ph;
   std::vector<index_t> mf_ph_e; ///< particle orbit of each ph column
   std::vector<index_t> mf_ph_f; ///< hole orbit of each ph column
+  /// CC-channel ket-ordering phase for each ph column, matching BuildAMatrix_byIndex.
+  /// phase = 1 if ket stored as (particle,hole); -(-1)^{ja+ji-J} if stored as (hole,particle).
+  std::vector<int>     mf_ph_phase;
 
   /// Compute Hv_2p2h += H22 * v_2p2h without building H22.
   void ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const;
