@@ -1077,6 +1077,46 @@ PYBIND11_MODULE(pyIMSRG, m)
                 { std::cout << self.H22 << std::endl; },
                 "Print the 2p2h x 2p2h block matrix H22 (A22) to stdout. "
                 "Must call Solve_byIndex with mode='EOM2' first.")
+          .def("PrintBasis1p1h", [](EOMImsrg &self)
+                {
+                  ModelSpace* ms = self.modelspace;
+                  size_t ich_CC = self.current_channel;
+                  TwoBodyChannel_CC& tbc_CC = ms->GetTwoBodyChannel_CC(ich_CC);
+                  const auto& ph_list = tbc_CC.GetKetIndex_ph();
+                  int Jph = tbc_CC.J;
+                  std::cout << "1p1h basis for channel J=" << Jph
+                            << " parity=" << tbc_CC.parity
+                            << " Tz=" << tbc_CC.Tz
+                            << "  (" << ph_list.size() << " states):" << std::endl;
+                  for (size_t col = 0; col < ph_list.size(); ++col)
+                  {
+                    auto iket = ph_list[col];
+                    Ket& kt = tbc_CC.GetKet(iket);
+                    index_t a_ph = kt.p, i_ph = kt.q;
+                    bool swapped = (kt.op->occ > kt.oq->occ);
+                    if (swapped) std::swap(a_ph, i_ph);
+                    const Orbit& oa = ms->GetOrbit(a_ph);
+                    const Orbit& oi = ms->GetOrbit(i_ph);
+                    int phase = 1;
+                    if (swapped)
+                      phase = -AngMom::phase((oa.j2 + oi.j2) / 2 - Jph);
+                    std::cout << "  [" << col << "]  |"
+                              << "a=" << a_ph
+                              << "(n" << oa.n << "l" << oa.l << "j" << oa.j2 << "/2"
+                              << " tz2=" << oa.tz2 << ")"
+                              << "  i=" << i_ph
+                              << "(n" << oi.n << "l" << oi.l << "j" << oi.j2 << "/2"
+                              << " tz2=" << oi.tz2 << ")>"
+                              << "  stored_as=("
+                              << (swapped ? "hole,particle" : "particle,hole")
+                              << ")  phase=" << phase
+                              << std::endl;
+                  }
+                },
+                "Print the 1p1h basis ordering for the A (A11) matrix. "
+                "Shows particle orbit a, hole orbit i, CC-channel storage order, "
+                "and the phase factor applied in BuildAMatrix_byIndex. "
+                "Must call BuildAMatrix_byIndex or Solve_byIndex first.")
           .def("PrintBasis2p2h", [](EOMImsrg &self)
                 {
                   ModelSpace* ms = self.modelspace;
@@ -1132,6 +1172,16 @@ PYBIND11_MODULE(pyIMSRG, m)
                     out.push_back(row);
                   }
                   return out; })
+          .def_property_readonly("A11_matrix", [](EOMImsrg &self)
+               { std::vector<std::vector<double>> out;
+                 for (size_t r = 0; r < self.A.n_rows; r++) {
+                   std::vector<double> row;
+                   for (size_t c = 0; c < self.A.n_cols; c++) row.push_back(self.A(r,c));
+                   out.push_back(row);
+                 }
+                 return out; },
+               "A (A11) 1p1h block as a list-of-rows. "
+               "Must call BuildAMatrix_byIndex or Solve_byIndex first.")
           .def_property_readonly("H21_matrix", [](EOMImsrg &self)
                { std::vector<std::vector<double>> out;
                  for (size_t r = 0; r < self.H21.n_rows; r++) {
