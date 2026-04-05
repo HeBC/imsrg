@@ -545,26 +545,48 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
 // ---------------------------------------------------------------------------
 
 ///
-/// Build the 2p2h × 1p1h coupling block H21.
+/// Build the 2p-2h × 1p-1h coupling block H21 = <α|H|β>.
 ///
-/// From [Γ, Q_{ph}^†] → 2p2h (commutator_212 in Parzuchowski notation).
-/// Four contributions for each 2p2h state α=(ab Jab; cd Jcd; J) and
-/// 1p1h state β=(e,f;J):
+/// Notation used throughout:
+///   H   = IMSRG-evolved Hamiltonian = f (one-body) + Λ (two-body) + …
+///   R2† = a†_a a†_b a_j a_i  (two-body excitation operator)
+///   R1† = a†_c a_k            (one-body excitation operator)
 ///
-///   K = sqrt((2Jab+1)(2Jcd+1)) / sqrt((1+δ_ab)(1+δ_cd)) × (-1)^J
+///   2p-2h state α = |ab J_ab; ij J_ij; J⟩   with a,b particles (occ<0.5),
+///                                                  i,j holes    (occ>0.5)
+///   1p-1h state β = |ck; J⟩                  with c particle, k hole
 ///
-///   sm1 (e==a):  H21 -= phase((j2_a+j2_b)/2-Jcd)
-///                       × W6j(Jab,Jcd,J; jf,ja,jb) × V(Jcd,f,b,c,d) × K
-///   sm2 (e==b):  H21 += phase(Jab+Jcd)
-///                       × W6j(Jab,Jcd,J; jf,jb,ja) × V(Jcd,f,a,c,d) × K
-///   sm3 (f==d):  H21 += phase((j2_c+j2_d)/2-Jab)
-///                       × W6j(Jab,Jcd,J; jd,je,jc) × V(Jab,a,b,c,e) × K
-///   sm4 (f==c):  H21 -= phase(Jcd+Jab)
-///                       × W6j(Jab,Jcd,J; jc,je,jd) × V(Jab,a,b,d,e) × K
+/// Common prefactor:
+///   K = sqrt((2J_ab+1)(2J_ij+1)) / (N_ab * N_ij) * (-1)^J
+///   where N_ab = sqrt(1+δ_ab), N_ij = sqrt(1+δ_ij)
 ///
-/// where V = GetTBME_J (the antisymmetric unnormalized TBME, including the
-/// sqrt(1+δ_ab) factor for identical-orbit pairs).  This is consistent with
-/// the A-matrix Pandya and B-matrix conventions in IMSRG.
+/// Four non-zero contributions from <α|Λ|β>:
+///
+///   sm1 (c == a):  H21 -= phase((j_a+j_b) - J_ij)
+///                         × W6j(J_ab, J_ij, J; j_k, j_a, j_b)
+///                         × Λ(J_ij; k,b|i,j) × K
+///
+///   sm2 (c == b):  H21 += phase(J_ab + J_ij)
+///                         × W6j(J_ab, J_ij, J; j_k, j_b, j_a)
+///                         × Λ(J_ij; k,a|i,j) × K
+///
+///   sm3 (k == j):  H21 += phase((j_i+j_j) - J_ab)
+///                         × W6j(J_ab, J_ij, J; j_j, j_c, j_i)
+///                         × Λ(J_ab; a,b|i,c) × K
+///
+///   sm4 (k == i):  H21 -= phase(J_ij + J_ab)
+///                         × W6j(J_ab, J_ij, J; j_i, j_c, j_j)
+///                         × Λ(J_ab; a,b|j,c) × K
+///
+/// where Λ(J; p,q|r,s) = GetTBME_J(J, p, q, r, s), the antisymmetric
+/// unnormalized two-body matrix element of H (includes sqrt(1+δ) factors).
+/// Using GetTBME_J (not _norm) is consistent with the N_ab/N_ij prefactor in K.
+///
+/// After filling the matrix, the same CC-channel ket-ordering phase used in
+/// BuildAMatrix_byIndex is applied column-wise so that the 1p1h columns of
+/// H21 are aligned with those of A in the full EOM2 secular matrix:
+///   [ A       H21^T ]
+///   [ H21     H22   ]
 ///
 void EOMImsrg::BuildH21_byIndex(size_t ich_CC)
 {
@@ -576,23 +598,24 @@ void EOMImsrg::BuildH21_byIndex(size_t ich_CC)
   H21.zeros(n2, nph);
 
   // Build orbit → ph-column lookup and per-column orbit caches in one pass.
-  // orbit_to_ph[orb] = list of (col, is_particle) pairs for ph states
-  // that contain orbit orb as either particle (is_particle=true) or hole (false).
+  // ph_particle[col] = particle orbit (a,b,c,…) for ph column col.
+  // ph_hole[col]     = hole    orbit  (i,j,k,…) for ph column col.
+  // orbit_to_ph[orb] = list of (col, is_particle) pairs.
   std::vector<std::vector<std::pair<size_t,bool>>> orbit_to_ph(
       modelspace->GetNumberOrbits());
-  std::vector<index_t> ph_e(nph), ph_f(nph);
+  std::vector<index_t> ph_particle(nph), ph_hole(nph);
 
   {
     size_t col = 0;
     for (auto iket : ph_list)
     {
       Ket& kt = tbc_CC.GetKet(iket);
-      index_t e = kt.p, f = kt.q;
-      if (kt.op->occ > kt.oq->occ) std::swap(e, f);
-      orbit_to_ph[e].push_back(std::make_pair(col, true));
-      orbit_to_ph[f].push_back(std::make_pair(col, false));
-      ph_e[col] = e;
-      ph_f[col] = f;
+      index_t a_ph = kt.p, k_ph = kt.q;    // a_ph=particle, k_ph=hole
+      if (kt.op->occ > kt.oq->occ) std::swap(a_ph, k_ph);
+      orbit_to_ph[a_ph].push_back(std::make_pair(col, true));
+      orbit_to_ph[k_ph].push_back(std::make_pair(col, false));
+      ph_particle[col] = a_ph;
+      ph_hole[col]     = k_ph;
       ++col;
     }
   }
@@ -602,105 +625,114 @@ void EOMImsrg::BuildH21_byIndex(size_t ich_CC)
   {
     size_t alpha = static_cast<size_t>(alpha_ll);
     const TwoPTwoHState& sa = tpth_basis[alpha];
-    size_t a = sa.a, b = sa.b, c = sa.i, d = sa.j;
-    int Jab = sa.Jab, Jcd = sa.Jij;
+    // 2p-2h state: particles a,b coupled to J_ab; holes ii,jj coupled to J_ij
+    size_t a = sa.a, b = sa.b, ii = sa.i, jj = sa.j;
+    int Jab = sa.Jab, Jij = sa.Jij;
 
-    const Orbit& oa = modelspace->GetOrbit(a);
-    const Orbit& ob = modelspace->GetOrbit(b);
-    const Orbit& oc = modelspace->GetOrbit(c);
-    const Orbit& od = modelspace->GetOrbit(d);
+    const Orbit& oa   = modelspace->GetOrbit(a);
+    const Orbit& ob   = modelspace->GetOrbit(b);
+    const Orbit& o_ii = modelspace->GetOrbit(ii);
+    const Orbit& o_jj = modelspace->GetOrbit(jj);
 
-    double ja = 0.5*oa.j2, jb = 0.5*ob.j2;
-    double jc = 0.5*oc.j2, jd = 0.5*od.j2;
+    double ja   = 0.5*oa.j2,   jb   = 0.5*ob.j2;
+    double ji   = 0.5*o_ii.j2, jj_v = 0.5*o_jj.j2;
 
-    double Nab = std::sqrt(1.0 + (a == b ? 1.0 : 0.0));
-    double Ncd = std::sqrt(1.0 + (c == d ? 1.0 : 0.0));
-    // Common factor K = sqrt((2Jab+1)(2Jcd+1)) / (Nab*Ncd) * (-1)^J
-    double K = std::sqrt((2.0*Jab+1)*(2.0*Jcd+1)) / (Nab * Ncd)
+    double Nab = std::sqrt(1.0 + (a  == b  ? 1.0 : 0.0));
+    double Nij = std::sqrt(1.0 + (ii == jj ? 1.0 : 0.0));
+    // K = sqrt((2J_ab+1)(2J_ij+1)) / (N_ab * N_ij) * (-1)^J
+    double K = std::sqrt((2.0*Jab+1)*(2.0*Jij+1)) / (Nab * Nij)
                * AngMom::phase(J);
 
-    // --- sm1: e == a ---
-    // H21[alpha,col] -= phase((j2_a+j2_b)/2 - Jcd)
-    //                   * W6j(Jab,Jcd,J; jf,ja,jb) * V_norm(Jcd,f,b,c,d) * K
+    // --- sm1: c == a  (1p1h particle matches first particle of 2p2h state) ---
+    // H21[α,col] -= phase((j_a+j_b) - J_ij)
+    //               × W6j(J_ab, J_ij, J; j_k, j_a, j_b)
+    //               × Λ(J_ij; k,b|i,j) × K
     {
-      int phase1 = AngMom::phase((oa.j2 + ob.j2)/2 - Jcd);
-      // Loop over ph states where e == a
+      int phase1 = AngMom::phase((oa.j2 + ob.j2)/2 - Jij);
+      // Loop over ph columns where the particle orbit equals a
       for (size_t _s1 = 0; _s1 < orbit_to_ph[a].size(); ++_s1)
       {
-        size_t c_idx  = orbit_to_ph[a][_s1].first;
-        bool is_part = orbit_to_ph[a][_s1].second;
-        if (!is_part) continue;  // need e == a (particle)
-        size_t f_orb = ph_f[c_idx];
-        const Orbit& of = modelspace->GetOrbit(f_orb);
-        double jf = 0.5*of.j2;
-        double w6j = modelspace->GetSixJ((double)Jab, (double)Jcd, (double)J,
-                                         jf, ja, jb);
+        size_t col_idx = orbit_to_ph[a][_s1].first;
+        bool is_part   = orbit_to_ph[a][_s1].second;
+        if (!is_part) continue;  // require particle == a
+        size_t k_orb = ph_hole[col_idx];          // hole k of the 1p1h state
+        const Orbit& o_k = modelspace->GetOrbit(k_orb);
+        double jk = 0.5*o_k.j2;
+        double w6j = modelspace->GetSixJ((double)Jab, (double)Jij, (double)J,
+                                         jk, ja, jb);
         if (w6j == 0.0) continue;
-        double v = H.TwoBody.GetTBME_J(Jcd, f_orb, b, c, d);
-        H21(alpha, c_idx) -= phase1 * w6j * v * K;
+        // Λ(J_ij; k,b | i,j) = GetTBME_J(J_ij, k, b, ii, jj)
+        double lam = H.TwoBody.GetTBME_J(Jij, k_orb, b, ii, jj);
+        H21(alpha, col_idx) -= phase1 * w6j * lam * K;
       }
     }
 
-    // --- sm2: e == b ---
-    // H21[alpha,col] += phase(Jab+Jcd)
-    //                   * W6j(Jab,Jcd,J; jf,jb,ja) * V_norm(Jcd,f,a,c,d) * K
+    // --- sm2: c == b  (1p1h particle matches second particle of 2p2h state) ---
+    // H21[α,col] += phase(J_ab + J_ij)
+    //               × W6j(J_ab, J_ij, J; j_k, j_b, j_a)
+    //               × Λ(J_ij; k,a|i,j) × K
     {
-      int phase2 = AngMom::phase(Jab + Jcd);
+      int phase2 = AngMom::phase(Jab + Jij);
       for (size_t _si = 0; _si < orbit_to_ph[b].size(); ++_si)
       {
-        size_t c_idx  = orbit_to_ph[b][_si].first;
-        bool is_part = orbit_to_ph[b][_si].second;
+        size_t col_idx = orbit_to_ph[b][_si].first;
+        bool is_part   = orbit_to_ph[b][_si].second;
         if (!is_part) continue;
-        size_t f_orb = ph_f[c_idx];
-        const Orbit& of = modelspace->GetOrbit(f_orb);
-        double jf = 0.5*of.j2;
-        double w6j = modelspace->GetSixJ((double)Jab, (double)Jcd, (double)J,
-                                         jf, jb, ja);
+        size_t k_orb = ph_hole[col_idx];
+        const Orbit& o_k = modelspace->GetOrbit(k_orb);
+        double jk = 0.5*o_k.j2;
+        double w6j = modelspace->GetSixJ((double)Jab, (double)Jij, (double)J,
+                                         jk, jb, ja);
         if (w6j == 0.0) continue;
-        double v = H.TwoBody.GetTBME_J(Jcd, f_orb, a, c, d);
-        H21(alpha, c_idx) += phase2 * w6j * v * K;
+        // Λ(J_ij; k,a | i,j) = GetTBME_J(J_ij, k, a, ii, jj)
+        double lam = H.TwoBody.GetTBME_J(Jij, k_orb, a, ii, jj);
+        H21(alpha, col_idx) += phase2 * w6j * lam * K;
       }
     }
 
-    // --- sm3: f == d ---
-    // H21[alpha,col] += phase((j2_c+j2_d)/2 - Jab)
-    //                   * W6j(Jab,Jcd,J; jd,je,jc) * V_norm(Jab,a,b,c,e) * K
+    // --- sm3: k == j  (1p1h hole matches second hole of 2p2h state) ---
+    // H21[α,col] += phase((j_i+j_j) - J_ab)
+    //               × W6j(J_ab, J_ij, J; j_j, j_c, j_i)
+    //               × Λ(J_ab; a,b|i,c) × K
     {
-      int phase3 = AngMom::phase((oc.j2 + od.j2)/2 - Jab);
-      for (size_t _si = 0; _si < orbit_to_ph[d].size(); ++_si)
+      int phase3 = AngMom::phase((o_ii.j2 + o_jj.j2)/2 - Jab);
+      for (size_t _si = 0; _si < orbit_to_ph[jj].size(); ++_si)
       {
-        size_t c_idx  = orbit_to_ph[d][_si].first;
-        bool is_part = orbit_to_ph[d][_si].second;
-        if (is_part) continue;  // need f == d (hole)
-        size_t e_orb = ph_e[c_idx];
-        const Orbit& oe = modelspace->GetOrbit(e_orb);
-        double je = 0.5*oe.j2;
-        double w6j = modelspace->GetSixJ((double)Jab, (double)Jcd, (double)J,
-                                         jd, je, jc);
+        size_t col_idx = orbit_to_ph[jj][_si].first;
+        bool is_part   = orbit_to_ph[jj][_si].second;
+        if (is_part) continue;  // require hole == jj
+        size_t c_orb = ph_particle[col_idx];      // particle c of the 1p1h state
+        const Orbit& o_c = modelspace->GetOrbit(c_orb);
+        double jc = 0.5*o_c.j2;
+        double w6j = modelspace->GetSixJ((double)Jab, (double)Jij, (double)J,
+                                         jj_v, jc, ji);
         if (w6j == 0.0) continue;
-        double v = H.TwoBody.GetTBME_J(Jab, a, b, c, e_orb);
-        H21(alpha, c_idx) += phase3 * w6j * v * K;
+        // Λ(J_ab; a,b | i,c) = GetTBME_J(J_ab, a, b, ii, c)
+        double lam = H.TwoBody.GetTBME_J(Jab, a, b, ii, c_orb);
+        H21(alpha, col_idx) += phase3 * w6j * lam * K;
       }
     }
 
-    // --- sm4: f == c ---
-    // H21[alpha,col] -= phase(Jcd+Jab)
-    //                   * W6j(Jab,Jcd,J; jc,je,jd) * V_norm(Jab,a,b,d,e) * K
+    // --- sm4: k == i  (1p1h hole matches first hole of 2p2h state) ---
+    // H21[α,col] -= phase(J_ij + J_ab)
+    //               × W6j(J_ab, J_ij, J; j_i, j_c, j_j)
+    //               × Λ(J_ab; a,b|j,c) × K
     {
-      int phase4 = AngMom::phase(Jcd + Jab);
-      for (size_t _si = 0; _si < orbit_to_ph[c].size(); ++_si)
+      int phase4 = AngMom::phase(Jij + Jab);
+      for (size_t _si = 0; _si < orbit_to_ph[ii].size(); ++_si)
       {
-        size_t c_idx  = orbit_to_ph[c][_si].first;
-        bool is_part = orbit_to_ph[c][_si].second;
+        size_t col_idx = orbit_to_ph[ii][_si].first;
+        bool is_part   = orbit_to_ph[ii][_si].second;
         if (is_part) continue;
-        size_t e_orb = ph_e[c_idx];
-        const Orbit& oe = modelspace->GetOrbit(e_orb);
-        double je = 0.5*oe.j2;
-        double w6j = modelspace->GetSixJ((double)Jab, (double)Jcd, (double)J,
-                                         jc, je, jd);
+        size_t c_orb = ph_particle[col_idx];
+        const Orbit& o_c = modelspace->GetOrbit(c_orb);
+        double jc = 0.5*o_c.j2;
+        double w6j = modelspace->GetSixJ((double)Jab, (double)Jij, (double)J,
+                                         ji, jc, jj_v);
         if (w6j == 0.0) continue;
-        double v = H.TwoBody.GetTBME_J(Jab, a, b, d, e_orb);
-        H21(alpha, c_idx) -= phase4 * w6j * v * K;
+        // Λ(J_ab; a,b | j,c) = GetTBME_J(J_ab, a, b, jj, c)
+        double lam = H.TwoBody.GetTBME_J(Jab, a, b, jj, c_orb);
+        H21(alpha, col_idx) -= phase4 * w6j * lam * K;
       }
     }
   }
@@ -708,16 +740,17 @@ void EOMImsrg::BuildH21_byIndex(size_t ich_CC)
   // Apply the same CC-channel ket-ordering phase corrections used in
   // BuildAMatrix_byIndex.  When a ph ket at column col is stored as
   // (hole, particle), BuildAMatrix multiplies row and column col by
-  // phase_ia = -(-1)^{ja+ji-J}.  For the EOM2 full matrix
-  //   [A    H21.t()]
-  //   [H21  H22   ]
-  // to be consistent, H21(alpha, col) must carry the same phase_col factor
-  // so that the 1ph columns of H21 match the 1ph columns of A.
+  // phase_ki = -(-1)^{j_c+j_k-J}  (using notation c=particle, k=hole).
+  // For the EOM2 full secular matrix
+  //   [ A       H21^T ]
+  //   [ H21     H22   ]
+  // to be consistent, H21(α, col) must carry the same phase_col factor
+  // so that the 1p1h columns of H21 align with those of A.
   for (size_t col = 0; col < nph; ++col)
   {
     auto iket = ph_list[col];
     Ket& kt = tbc_CC.GetKet(iket);
-    if (kt.op->occ > kt.oq->occ)   // stored as (hole=p, particle=q)
+    if (kt.op->occ > kt.oq->occ)   // ket stored as (hole=p, particle=q)
     {
       // After A-matrix swap: a = kt.q (particle), i = kt.p (hole)
       int ph_col = -AngMom::phase((kt.oq->j2 + kt.op->j2) / 2 - J);
@@ -792,10 +825,18 @@ void EOMImsrg::SolveAllChannels(std::string mode)
 
 /// Compute Hv_2p2h += H22 * v without building H22.
 ///
-/// Mirrors BuildH22_byIndex row by row: for each 2p2h state alpha the
-/// contributions from all beta states are accumulated into a private
-/// double and then written to Hv[alpha].  This makes the loop trivially
-/// thread-safe under OpenMP.
+/// Implements the same formula as BuildH22_byIndex row by row.
+/// For each 2p-2h state α = |ab J_ab; ij J_ij; J⟩ the contributions from
+/// all β states are accumulated and written to Hv[α].
+///
+/// Terms (notation: a,b particles; i,j holes; H = f + Λ):
+///   - Diagonal SPE:   (f_aa + f_bb - f_ii - f_jj) × v[α]
+///   - PP-PP ladder:   +Λ_norm(J_ab; a,b|a',b') × v[β]   when ij=i'j', J_ij=J_ij'
+///   - HH-HH ladder:   -Λ_norm(J_ij; i,j|i',j') × v[β]   when ab=a'b', J_ab=J_ab'
+///   - Ph ring term:   see BuildH22_byIndex for the full 9j-symbol formula
+///
+/// The loop is trivially thread-safe under OpenMP because each α accumulates
+/// into a private double hv_alpha before writing to Hv[α].
 void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
 {
   int J = modelspace->GetTwoBodyChannel_CC(current_channel).J;
@@ -952,8 +993,16 @@ void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
 }
 
 /// Compute Hv_2p2h += H21 * v_ph without building H21.
-/// Parallelised over 2p2h states; uses the precomputed mf_orbit_to_ph,
-/// mf_ph_e, mf_ph_f lookup tables (set by Solve_byIndex_MF).
+///
+/// Applies the same formula as BuildH21_byIndex but without materialising H21.
+/// Parallelised over 2p-2h states α; uses the precomputed lookup tables:
+///   mf_orbit_to_ph[orb]  → (col, is_particle) pairs for each orbit
+///   mf_ph_particle[col]  → particle orbit (a,b,c,…) of ph column col
+///   mf_ph_hole[col]      → hole    orbit  (i,j,k,…) of ph column col
+/// These are populated once by Solve_byIndex_MF before Lanczos iterations.
+///
+/// The four terms sm1-sm4 are identical to BuildH21_byIndex; see that
+/// function's comment for the full formula with consistent notation.
 void EOMImsrg::ApplyH21_matvec(const arma::vec& v_ph, arma::vec& Hv_2p2h) const
 {
   TwoBodyChannel_CC& tbc_CC = modelspace->GetTwoBodyChannel_CC(current_channel);
@@ -965,96 +1014,106 @@ void EOMImsrg::ApplyH21_matvec(const arma::vec& v_ph, arma::vec& Hv_2p2h) const
   {
     size_t alpha = static_cast<size_t>(alpha_ll);
     const TwoPTwoHState& sa = tpth_basis[alpha];
-    size_t a = sa.a, b = sa.b, c = sa.i, d = sa.j;
-    int Jab = sa.Jab, Jcd = sa.Jij;
+    // 2p-2h state: particles a,b coupled to J_ab; holes ii,jj coupled to J_ij
+    size_t a = sa.a, b = sa.b, ii = sa.i, jj = sa.j;
+    int Jab = sa.Jab, Jij = sa.Jij;
 
-    const Orbit& oa = modelspace->GetOrbit(a);
-    const Orbit& ob = modelspace->GetOrbit(b);
-    const Orbit& oc = modelspace->GetOrbit(c);
-    const Orbit& od = modelspace->GetOrbit(d);
+    const Orbit& oa   = modelspace->GetOrbit(a);
+    const Orbit& ob   = modelspace->GetOrbit(b);
+    const Orbit& o_ii = modelspace->GetOrbit(ii);
+    const Orbit& o_jj = modelspace->GetOrbit(jj);
 
-    double ja = 0.5*oa.j2, jb = 0.5*ob.j2;
-    double jc = 0.5*oc.j2, jd = 0.5*od.j2;
+    double ja   = 0.5*oa.j2,   jb   = 0.5*ob.j2;
+    double ji   = 0.5*o_ii.j2, jj_v = 0.5*o_jj.j2;
 
-    double Nab = std::sqrt(1.0 + (a == b ? 1.0 : 0.0));
-    double Ncd = std::sqrt(1.0 + (c == d ? 1.0 : 0.0));
-    double K = std::sqrt((2.0*Jab+1)*(2.0*Jcd+1)) / (Nab * Ncd) * AngMom::phase(J);
+    double Nab = std::sqrt(1.0 + (a  == b  ? 1.0 : 0.0));
+    double Nij = std::sqrt(1.0 + (ii == jj ? 1.0 : 0.0));
+    // K = sqrt((2J_ab+1)(2J_ij+1)) / (N_ab * N_ij) * (-1)^J
+    double K = std::sqrt((2.0*Jab+1)*(2.0*Jij+1)) / (Nab * Nij) * AngMom::phase(J);
 
     double hv = 0.0;
 
-    // sm1: e == a
+    // sm1: c == a  (1p1h particle c matches first particle a of 2p2h state)
+    // hv -= phase((j_a+j_b) - J_ij) × W6j(J_ab,J_ij,J; j_k,j_a,j_b)
+    //       × Λ(J_ij; k,b|i,j) × K × phase_col × v_ph[col]
     {
-      int phase1 = AngMom::phase((oa.j2 + ob.j2)/2 - Jcd);
+      int phase1 = AngMom::phase((oa.j2 + ob.j2)/2 - Jij);
       for (size_t _si = 0; _si < mf_orbit_to_ph[a].size(); ++_si)
       {
-        size_t c_idx  = mf_orbit_to_ph[a][_si].first;
-        bool is_part = mf_orbit_to_ph[a][_si].second;
+        size_t col_idx = mf_orbit_to_ph[a][_si].first;
+        bool is_part   = mf_orbit_to_ph[a][_si].second;
         if (!is_part) continue;
-        size_t f_orb = mf_ph_f[c_idx];
-        const Orbit& of = modelspace->GetOrbit(f_orb);
-        double jf = 0.5*of.j2;
-        double w6j = modelspace->GetSixJ((double)Jab, (double)Jcd, (double)J,
-                                         jf, ja, jb);
+        size_t k_orb = mf_ph_hole[col_idx];       // hole k of the 1p1h state
+        const Orbit& o_k = modelspace->GetOrbit(k_orb);
+        double jk = 0.5*o_k.j2;
+        double w6j = modelspace->GetSixJ((double)Jab, (double)Jij, (double)J,
+                                         jk, ja, jb);
         if (w6j == 0.0) continue;
-        double v_me = H.TwoBody.GetTBME_J(Jcd, f_orb, b, c, d);
-        hv -= phase1 * w6j * v_me * K * mf_ph_phase[c_idx] * v_ph[c_idx];
+        double lam = H.TwoBody.GetTBME_J(Jij, k_orb, b, ii, jj);
+        hv -= phase1 * w6j * lam * K * mf_ph_phase[col_idx] * v_ph[col_idx];
       }
     }
 
-    // sm2: e == b
+    // sm2: c == b  (1p1h particle c matches second particle b of 2p2h state)
+    // hv += phase(J_ab+J_ij) × W6j(J_ab,J_ij,J; j_k,j_b,j_a)
+    //       × Λ(J_ij; k,a|i,j) × K × phase_col × v_ph[col]
     {
-      int phase2 = AngMom::phase(Jab + Jcd);
+      int phase2 = AngMom::phase(Jab + Jij);
       for (size_t _si = 0; _si < mf_orbit_to_ph[b].size(); ++_si)
       {
-        size_t c_idx  = mf_orbit_to_ph[b][_si].first;
-        bool is_part = mf_orbit_to_ph[b][_si].second;
+        size_t col_idx = mf_orbit_to_ph[b][_si].first;
+        bool is_part   = mf_orbit_to_ph[b][_si].second;
         if (!is_part) continue;
-        size_t f_orb = mf_ph_f[c_idx];
-        const Orbit& of = modelspace->GetOrbit(f_orb);
-        double jf = 0.5*of.j2;
-        double w6j = modelspace->GetSixJ((double)Jab, (double)Jcd, (double)J,
-                                         jf, jb, ja);
+        size_t k_orb = mf_ph_hole[col_idx];
+        const Orbit& o_k = modelspace->GetOrbit(k_orb);
+        double jk = 0.5*o_k.j2;
+        double w6j = modelspace->GetSixJ((double)Jab, (double)Jij, (double)J,
+                                         jk, jb, ja);
         if (w6j == 0.0) continue;
-        double v_me = H.TwoBody.GetTBME_J(Jcd, f_orb, a, c, d);
-        hv += phase2 * w6j * v_me * K * mf_ph_phase[c_idx] * v_ph[c_idx];
+        double lam = H.TwoBody.GetTBME_J(Jij, k_orb, a, ii, jj);
+        hv += phase2 * w6j * lam * K * mf_ph_phase[col_idx] * v_ph[col_idx];
       }
     }
 
-    // sm3: f == d
+    // sm3: k == j  (1p1h hole k matches second hole j of 2p2h state)
+    // hv += phase((j_i+j_j) - J_ab) × W6j(J_ab,J_ij,J; j_j,j_c,j_i)
+    //       × Λ(J_ab; a,b|i,c) × K × phase_col × v_ph[col]
     {
-      int phase3 = AngMom::phase((oc.j2 + od.j2)/2 - Jab);
-      for (size_t _si = 0; _si < mf_orbit_to_ph[d].size(); ++_si)
+      int phase3 = AngMom::phase((o_ii.j2 + o_jj.j2)/2 - Jab);
+      for (size_t _si = 0; _si < mf_orbit_to_ph[jj].size(); ++_si)
       {
-        size_t c_idx  = mf_orbit_to_ph[d][_si].first;
-        bool is_part = mf_orbit_to_ph[d][_si].second;
+        size_t col_idx = mf_orbit_to_ph[jj][_si].first;
+        bool is_part   = mf_orbit_to_ph[jj][_si].second;
         if (is_part) continue;
-        size_t e_orb = mf_ph_e[c_idx];
-        const Orbit& oe = modelspace->GetOrbit(e_orb);
-        double je = 0.5*oe.j2;
-        double w6j = modelspace->GetSixJ((double)Jab, (double)Jcd, (double)J,
-                                         jd, je, jc);
+        size_t c_orb = mf_ph_particle[col_idx];   // particle c of the 1p1h state
+        const Orbit& o_c = modelspace->GetOrbit(c_orb);
+        double jc = 0.5*o_c.j2;
+        double w6j = modelspace->GetSixJ((double)Jab, (double)Jij, (double)J,
+                                         jj_v, jc, ji);
         if (w6j == 0.0) continue;
-        double v_me = H.TwoBody.GetTBME_J(Jab, a, b, c, e_orb);
-        hv += phase3 * w6j * v_me * K * mf_ph_phase[c_idx] * v_ph[c_idx];
+        double lam = H.TwoBody.GetTBME_J(Jab, a, b, ii, c_orb);
+        hv += phase3 * w6j * lam * K * mf_ph_phase[col_idx] * v_ph[col_idx];
       }
     }
 
-    // sm4: f == c
+    // sm4: k == i  (1p1h hole k matches first hole i of 2p2h state)
+    // hv -= phase(J_ij+J_ab) × W6j(J_ab,J_ij,J; j_i,j_c,j_j)
+    //       × Λ(J_ab; a,b|j,c) × K × phase_col × v_ph[col]
     {
-      int phase4 = AngMom::phase(Jcd + Jab);
-      for (size_t _si = 0; _si < mf_orbit_to_ph[c].size(); ++_si)
+      int phase4 = AngMom::phase(Jij + Jab);
+      for (size_t _si = 0; _si < mf_orbit_to_ph[ii].size(); ++_si)
       {
-        size_t c_idx  = mf_orbit_to_ph[c][_si].first;
-        bool is_part = mf_orbit_to_ph[c][_si].second;
+        size_t col_idx = mf_orbit_to_ph[ii][_si].first;
+        bool is_part   = mf_orbit_to_ph[ii][_si].second;
         if (is_part) continue;
-        size_t e_orb = mf_ph_e[c_idx];
-        const Orbit& oe = modelspace->GetOrbit(e_orb);
-        double je = 0.5*oe.j2;
-        double w6j = modelspace->GetSixJ((double)Jab, (double)Jcd, (double)J,
-                                         jc, je, jd);
+        size_t c_orb = mf_ph_particle[col_idx];
+        const Orbit& o_c = modelspace->GetOrbit(c_orb);
+        double jc = 0.5*o_c.j2;
+        double w6j = modelspace->GetSixJ((double)Jab, (double)Jij, (double)J,
+                                         ji, jc, jj_v);
         if (w6j == 0.0) continue;
-        double v_me = H.TwoBody.GetTBME_J(Jab, a, b, d, e_orb);
-        hv -= phase4 * w6j * v_me * K * mf_ph_phase[c_idx] * v_ph[c_idx];
+        double lam = H.TwoBody.GetTBME_J(Jab, a, b, jj, c_orb);
+        hv -= phase4 * w6j * lam * K * mf_ph_phase[col_idx] * v_ph[col_idx];
       }
     }
 
@@ -1063,8 +1122,14 @@ void EOMImsrg::ApplyH21_matvec(const arma::vec& v_ph, arma::vec& Hv_2p2h) const
 }
 
 /// Compute Hv_ph += H21^T * v_2p2h without building H21.
-/// Serial: multiple 2p2h states contribute to the same ph column so we
-/// cannot parallelise the outer (alpha) loop without synchronisation.
+///
+/// The transpose of ApplyH21_matvec: accumulates contributions from each
+/// 2p-2h amplitude v_2p2h[α] into the 1p-1h residual Hv_ph.
+/// Because multiple α states can write to the same ph column this loop
+/// cannot be parallelised without synchronisation and runs serially.
+///
+/// The four terms sm1-sm4 are the transpose of those in BuildH21_byIndex;
+/// see that function for the full formula with consistent notation.
 void EOMImsrg::ApplyH21T_matvec(const arma::vec& v_2p2h, arma::vec& Hv_ph) const
 {
   TwoBodyChannel_CC& tbc_CC = modelspace->GetTwoBodyChannel_CC(current_channel);
@@ -1077,94 +1142,96 @@ void EOMImsrg::ApplyH21T_matvec(const arma::vec& v_2p2h, arma::vec& Hv_ph) const
     if (std::abs(v_alpha) < 1e-15) continue;
 
     const TwoPTwoHState& sa = tpth_basis[alpha];
-    size_t a = sa.a, b = sa.b, c = sa.i, d = sa.j;
-    int Jab = sa.Jab, Jcd = sa.Jij;
+    // 2p-2h state: particles a,b coupled to J_ab; holes ii,jj coupled to J_ij
+    size_t a = sa.a, b = sa.b, ii = sa.i, jj = sa.j;
+    int Jab = sa.Jab, Jij = sa.Jij;
 
-    const Orbit& oa = modelspace->GetOrbit(a);
-    const Orbit& ob = modelspace->GetOrbit(b);
-    const Orbit& oc = modelspace->GetOrbit(c);
-    const Orbit& od = modelspace->GetOrbit(d);
+    const Orbit& oa   = modelspace->GetOrbit(a);
+    const Orbit& ob   = modelspace->GetOrbit(b);
+    const Orbit& o_ii = modelspace->GetOrbit(ii);
+    const Orbit& o_jj = modelspace->GetOrbit(jj);
 
-    double ja = 0.5*oa.j2, jb = 0.5*ob.j2;
-    double jc = 0.5*oc.j2, jd = 0.5*od.j2;
+    double ja   = 0.5*oa.j2,   jb   = 0.5*ob.j2;
+    double ji   = 0.5*o_ii.j2, jj_v = 0.5*o_jj.j2;
 
-    double Nab = std::sqrt(1.0 + (a == b ? 1.0 : 0.0));
-    double Ncd = std::sqrt(1.0 + (c == d ? 1.0 : 0.0));
-    double K = std::sqrt((2.0*Jab+1)*(2.0*Jcd+1)) / (Nab * Ncd) * AngMom::phase(J);
+    double Nab = std::sqrt(1.0 + (a  == b  ? 1.0 : 0.0));
+    double Nij = std::sqrt(1.0 + (ii == jj ? 1.0 : 0.0));
+    // K = sqrt((2J_ab+1)(2J_ij+1)) / (N_ab * N_ij) * (-1)^J
+    double K = std::sqrt((2.0*Jab+1)*(2.0*Jij+1)) / (Nab * Nij) * AngMom::phase(J);
 
-    // sm1: e == a  →  Hv_ph[c_idx] -= phase1 * w6j * v_me * K * v_alpha * phase_col
+    // sm1: c == a  → Hv_ph[col] -= phase1 * w6j * Λ * K * phase_col * v_alpha
     {
-      int phase1 = AngMom::phase((oa.j2 + ob.j2)/2 - Jcd);
+      int phase1 = AngMom::phase((oa.j2 + ob.j2)/2 - Jij);
       for (size_t _si = 0; _si < mf_orbit_to_ph[a].size(); ++_si)
       {
-        size_t c_idx  = mf_orbit_to_ph[a][_si].first;
-        bool is_part = mf_orbit_to_ph[a][_si].second;
+        size_t col_idx = mf_orbit_to_ph[a][_si].first;
+        bool is_part   = mf_orbit_to_ph[a][_si].second;
         if (!is_part) continue;
-        size_t f_orb = mf_ph_f[c_idx];
-        const Orbit& of = modelspace->GetOrbit(f_orb);
-        double jf = 0.5*of.j2;
-        double w6j = modelspace->GetSixJ((double)Jab, (double)Jcd, (double)J,
-                                         jf, ja, jb);
+        size_t k_orb = mf_ph_hole[col_idx];
+        const Orbit& o_k = modelspace->GetOrbit(k_orb);
+        double jk = 0.5*o_k.j2;
+        double w6j = modelspace->GetSixJ((double)Jab, (double)Jij, (double)J,
+                                         jk, ja, jb);
         if (w6j == 0.0) continue;
-        double v_me = H.TwoBody.GetTBME_J(Jcd, f_orb, b, c, d);
-        Hv_ph[c_idx] -= phase1 * w6j * v_me * K * mf_ph_phase[c_idx] * v_alpha;
+        double lam = H.TwoBody.GetTBME_J(Jij, k_orb, b, ii, jj);
+        Hv_ph[col_idx] -= phase1 * w6j * lam * K * mf_ph_phase[col_idx] * v_alpha;
       }
     }
 
-    // sm2: e == b
+    // sm2: c == b  → Hv_ph[col] += phase2 * w6j * Λ * K * phase_col * v_alpha
     {
-      int phase2 = AngMom::phase(Jab + Jcd);
+      int phase2 = AngMom::phase(Jab + Jij);
       for (size_t _si = 0; _si < mf_orbit_to_ph[b].size(); ++_si)
       {
-        size_t c_idx  = mf_orbit_to_ph[b][_si].first;
-        bool is_part = mf_orbit_to_ph[b][_si].second;
+        size_t col_idx = mf_orbit_to_ph[b][_si].first;
+        bool is_part   = mf_orbit_to_ph[b][_si].second;
         if (!is_part) continue;
-        size_t f_orb = mf_ph_f[c_idx];
-        const Orbit& of = modelspace->GetOrbit(f_orb);
-        double jf = 0.5*of.j2;
-        double w6j = modelspace->GetSixJ((double)Jab, (double)Jcd, (double)J,
-                                         jf, jb, ja);
+        size_t k_orb = mf_ph_hole[col_idx];
+        const Orbit& o_k = modelspace->GetOrbit(k_orb);
+        double jk = 0.5*o_k.j2;
+        double w6j = modelspace->GetSixJ((double)Jab, (double)Jij, (double)J,
+                                         jk, jb, ja);
         if (w6j == 0.0) continue;
-        double v_me = H.TwoBody.GetTBME_J(Jcd, f_orb, a, c, d);
-        Hv_ph[c_idx] += phase2 * w6j * v_me * K * mf_ph_phase[c_idx] * v_alpha;
+        double lam = H.TwoBody.GetTBME_J(Jij, k_orb, a, ii, jj);
+        Hv_ph[col_idx] += phase2 * w6j * lam * K * mf_ph_phase[col_idx] * v_alpha;
       }
     }
 
-    // sm3: f == d
+    // sm3: k == j  → Hv_ph[col] += phase3 * w6j * Λ * K * phase_col * v_alpha
     {
-      int phase3 = AngMom::phase((oc.j2 + od.j2)/2 - Jab);
-      for (size_t _si = 0; _si < mf_orbit_to_ph[d].size(); ++_si)
+      int phase3 = AngMom::phase((o_ii.j2 + o_jj.j2)/2 - Jab);
+      for (size_t _si = 0; _si < mf_orbit_to_ph[jj].size(); ++_si)
       {
-        size_t c_idx  = mf_orbit_to_ph[d][_si].first;
-        bool is_part = mf_orbit_to_ph[d][_si].second;
+        size_t col_idx = mf_orbit_to_ph[jj][_si].first;
+        bool is_part   = mf_orbit_to_ph[jj][_si].second;
         if (is_part) continue;
-        size_t e_orb = mf_ph_e[c_idx];
-        const Orbit& oe = modelspace->GetOrbit(e_orb);
-        double je = 0.5*oe.j2;
-        double w6j = modelspace->GetSixJ((double)Jab, (double)Jcd, (double)J,
-                                         jd, je, jc);
+        size_t c_orb = mf_ph_particle[col_idx];
+        const Orbit& o_c = modelspace->GetOrbit(c_orb);
+        double jc = 0.5*o_c.j2;
+        double w6j = modelspace->GetSixJ((double)Jab, (double)Jij, (double)J,
+                                         jj_v, jc, ji);
         if (w6j == 0.0) continue;
-        double v_me = H.TwoBody.GetTBME_J(Jab, a, b, c, e_orb);
-        Hv_ph[c_idx] += phase3 * w6j * v_me * K * mf_ph_phase[c_idx] * v_alpha;
+        double lam = H.TwoBody.GetTBME_J(Jab, a, b, ii, c_orb);
+        Hv_ph[col_idx] += phase3 * w6j * lam * K * mf_ph_phase[col_idx] * v_alpha;
       }
     }
 
-    // sm4: f == c
+    // sm4: k == i  → Hv_ph[col] -= phase4 * w6j * Λ * K * phase_col * v_alpha
     {
-      int phase4 = AngMom::phase(Jcd + Jab);
-      for (size_t _si = 0; _si < mf_orbit_to_ph[c].size(); ++_si)
+      int phase4 = AngMom::phase(Jij + Jab);
+      for (size_t _si = 0; _si < mf_orbit_to_ph[ii].size(); ++_si)
       {
-        size_t c_idx  = mf_orbit_to_ph[c][_si].first;
-        bool is_part = mf_orbit_to_ph[c][_si].second;
+        size_t col_idx = mf_orbit_to_ph[ii][_si].first;
+        bool is_part   = mf_orbit_to_ph[ii][_si].second;
         if (is_part) continue;
-        size_t e_orb = mf_ph_e[c_idx];
-        const Orbit& oe = modelspace->GetOrbit(e_orb);
-        double je = 0.5*oe.j2;
-        double w6j = modelspace->GetSixJ((double)Jab, (double)Jcd, (double)J,
-                                         jc, je, jd);
+        size_t c_orb = mf_ph_particle[col_idx];
+        const Orbit& o_c = modelspace->GetOrbit(c_orb);
+        double jc = 0.5*o_c.j2;
+        double w6j = modelspace->GetSixJ((double)Jab, (double)Jij, (double)J,
+                                         ji, jc, jj_v);
         if (w6j == 0.0) continue;
-        double v_me = H.TwoBody.GetTBME_J(Jab, a, b, d, e_orb);
-        Hv_ph[c_idx] -= phase4 * w6j * v_me * K * mf_ph_phase[c_idx] * v_alpha;
+        double lam = H.TwoBody.GetTBME_J(Jab, a, b, jj, c_orb);
+        Hv_ph[col_idx] -= phase4 * w6j * lam * K * mf_ph_phase[col_idx] * v_alpha;
       }
     }
   }
@@ -1269,29 +1336,29 @@ void EOMImsrg::Solve_byIndex_MF(size_t ich_CC, int nev)
   int J_ch = tbc_CC.J;
   mf_orbit_to_ph.assign(modelspace->GetNumberOrbits(),
                         std::vector<std::pair<size_t,bool>>());
-  mf_ph_e.resize(nph);
-  mf_ph_f.resize(nph);
+  mf_ph_particle.resize(nph);
+  mf_ph_hole.resize(nph);
   mf_ph_phase.resize(nph);
   {
     size_t col = 0;
     for (auto iket : ph_list)
     {
       Ket& kt = tbc_CC.GetKet(iket);
-      index_t e = kt.p, f = kt.q;
+      index_t a_ph = kt.p, k_ph = kt.q;  // a_ph = particle, k_ph = hole
       if (kt.op->occ > kt.oq->occ)
       {
-        std::swap(e, f);
-        // After swap: e=particle(=kt.q), f=hole(=kt.p)
+        std::swap(a_ph, k_ph);
+        // After swap: a_ph = kt.q (particle), k_ph = kt.p (hole)
         mf_ph_phase[col] = -AngMom::phase((kt.oq->j2 + kt.op->j2) / 2 - J_ch);
       }
       else
       {
         mf_ph_phase[col] = 1;
       }
-      mf_orbit_to_ph[e].push_back(std::make_pair(col, true));
-      mf_orbit_to_ph[f].push_back(std::make_pair(col, false));
-      mf_ph_e[col] = e;
-      mf_ph_f[col] = f;
+      mf_orbit_to_ph[a_ph].push_back(std::make_pair(col, true));
+      mf_orbit_to_ph[k_ph].push_back(std::make_pair(col, false));
+      mf_ph_particle[col] = a_ph;
+      mf_ph_hole[col]     = k_ph;
       ++col;
     }
   }

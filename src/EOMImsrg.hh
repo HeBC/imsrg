@@ -254,14 +254,16 @@ class EOMImsrg
 
   // -----------------------------------------------------------------------
   // Matrix-free matvec helpers (used by Solve_byIndex_MF / EOMMatFreeOp).
-  // Set mf_orbit_to_ph / mf_ph_e / mf_ph_f before calling Apply*_matvec.
+  // Populate mf_orbit_to_ph / mf_ph_particle / mf_ph_hole before calling
+  // Apply*_matvec.
+  // Notation: a,b,c,… for particle orbits; i,j,k,… for hole orbits.
   // -----------------------------------------------------------------------
 
   /// Precomputed ph-orbit lookup for matrix-free path.
-  /// mf_orbit_to_ph[o] = list of (col, is_particle) for the current channel.
+  /// mf_orbit_to_ph[orb] = list of (col, is_particle) pairs for the current channel.
   std::vector<std::vector<std::pair<size_t,bool>>> mf_orbit_to_ph;
-  std::vector<index_t> mf_ph_e; ///< particle orbit of each ph column
-  std::vector<index_t> mf_ph_f; ///< hole orbit of each ph column
+  std::vector<index_t> mf_ph_particle; ///< particle orbit (a,b,c,…) of each ph column
+  std::vector<index_t> mf_ph_hole;     ///< hole    orbit  (i,j,k,…) of each ph column
   /// CC-channel ket-ordering phase for each ph column, matching BuildAMatrix_byIndex.
   /// phase = 1 if ket stored as (particle,hole); -(-1)^{ja+ji-J} if stored as (hole,particle).
   std::vector<int>     mf_ph_phase;
