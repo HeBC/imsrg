@@ -1393,8 +1393,13 @@ void EOMImsrg::SolveCurrentChannel(std::string mode)
     Energies = Etmp(ord);
     arma::mat Vsorted = Vtmp.cols(ord);
 
-    X = Vsorted.head_rows(len);
-    Y = Vsorted.tail_rows(len);
+    // The secular matrix has size 2*nph × 2*nph; each eigenvector has 2*nph
+    // components.  The first nph components are the forward (X) amplitudes and
+    // the last nph are the backward (Y) amplitudes.  Use nph (not len) so that
+    // the split is always correct even when len differs from nph.
+    size_t nph_eom = A.n_rows;
+    X = Vsorted.head_rows(nph_eom);
+    Y = Vsorted.tail_rows(nph_eom);
 
     // Normalise: X^T X - Y^T Y = 1
     for (size_t mu = 0; mu < len; mu++)
@@ -1546,7 +1551,10 @@ void EOMImsrg::PrintSummary() const
   std::cout << " ==============================================" << std::endl;
   std::cout << "       dE           E_0 + dE         n(1p1h)" << std::endl;
   std::cout << " ==============================================" << std::endl;
-  for (size_t i = 0; i < Energies.n_elem; i++)
+  size_t n_print = Energies.n_elem;
+  if (lanczos_nev > 0 && static_cast<size_t>(lanczos_nev) < n_print)
+    n_print = static_cast<size_t>(lanczos_nev);
+  for (size_t i = 0; i < n_print; i++)
   {
     double one_ph_norm = (i < OnePhNorms.n_elem) ? OnePhNorms(i) : 0.0;
     std::cout << std::setw(16) << Energies(i)
