@@ -1069,10 +1069,47 @@ PYBIND11_MODULE(pyIMSRG, m)
                 { std::cout << self.A << std::endl; })
           .def("PrintB", [](EOMImsrg &self)
                 { std::cout << self.B << std::endl; })
+          .def("PrintH21", [](EOMImsrg &self)
+                { std::cout << self.H21 << std::endl; },
+                "Print the 2p2h x 1p1h coupling matrix H21 (A21) to stdout. "
+                "Must call Solve_byIndex with mode='EOM2' first.")
+          .def("PrintH22", [](EOMImsrg &self)
+                { std::cout << self.H22 << std::endl; },
+                "Print the 2p2h x 2p2h block matrix H22 (A22) to stdout. "
+                "Must call Solve_byIndex with mode='EOM2' first.")
+          .def("PrintBasis2p2h", [](EOMImsrg &self)
+                {
+                  ModelSpace* ms = self.modelspace;
+                  std::cout << "2p2h basis (" << self.tpth_basis.size() << " states):" << std::endl;
+                  for (size_t idx = 0; idx < self.tpth_basis.size(); ++idx)
+                  {
+                    const TwoPTwoHState& st = self.tpth_basis[idx];
+                    const Orbit& oa = ms->GetOrbit(st.a);
+                    const Orbit& ob = ms->GetOrbit(st.b);
+                    const Orbit& oi = ms->GetOrbit(st.i);
+                    const Orbit& o_j = ms->GetOrbit(st.j);
+                    std::cout << "  [" << idx << "]  |"
+                              << "a=" << st.a << "(n" << oa.n << "l" << oa.l
+                              << "j" << oa.j2 << "/2)"
+                              << " b=" << st.b << "(n" << ob.n << "l" << ob.l
+                              << "j" << ob.j2 << "/2)"
+                              << " Jab=" << st.Jab
+                              << " ; i=" << st.i << "(n" << oi.n << "l" << oi.l
+                              << "j" << oi.j2 << "/2)"
+                              << " j_hole=" << st.j << "(n" << o_j.n << "l" << o_j.l
+                              << "j" << o_j.j2 << "/2)"
+                              << " Jij=" << st.Jij
+                              << ">" << std::endl;
+                  }
+                },
+                "Print the 2p2h basis state labels. "
+                "Must call Solve_byIndex with mode='EOM2' first.")
           .def("PrintSummary", &EOMImsrg::PrintSummary)
           // ---- read/write fields ----
           .def_readwrite("A", &EOMImsrg::A)
           .def_readwrite("B", &EOMImsrg::B)
+          .def_readwrite("H21", &EOMImsrg::H21)
+          .def_readwrite("H22", &EOMImsrg::H22)
           // Lanczos control: set to n>0 to use IRAM Lanczos for EOM2
           // (computes only n algebraically-lowest eigenvalues; 0 = dense full diag)
           .def_readwrite("lanczos_nev", &EOMImsrg::lanczos_nev)
@@ -1095,6 +1132,26 @@ PYBIND11_MODULE(pyIMSRG, m)
                     out.push_back(row);
                   }
                   return out; })
+          .def_property_readonly("H21_matrix", [](EOMImsrg &self)
+               { std::vector<std::vector<double>> out;
+                 for (size_t r = 0; r < self.H21.n_rows; r++) {
+                   std::vector<double> row;
+                   for (size_t c = 0; c < self.H21.n_cols; c++) row.push_back(self.H21(r,c));
+                   out.push_back(row);
+                 }
+                 return out; },
+               "H21 (A21) matrix as a list-of-rows (2p2h x 1p1h). "
+               "Must call Solve_byIndex with mode='EOM2' first.")
+          .def_property_readonly("H22_matrix", [](EOMImsrg &self)
+               { std::vector<std::vector<double>> out;
+                 for (size_t r = 0; r < self.H22.n_rows; r++) {
+                   std::vector<double> row;
+                   for (size_t c = 0; c < self.H22.n_cols; c++) row.push_back(self.H22(r,c));
+                   out.push_back(row);
+                 }
+                 return out; },
+               "H22 (A22) matrix as a list-of-rows (2p2h x 2p2h). "
+               "Must call Solve_byIndex with mode='EOM2' first.")
           .def_property_readonly("one_ph_norms", [](EOMImsrg &self)
                { std::vector<double> out;
                  for (auto x : self.OnePhNorms) out.push_back(x);
