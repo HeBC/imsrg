@@ -370,26 +370,39 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
     H22(alpha, alpha) = H.OneBody(a, a) + H.OneBody(b, b)
                       - H.OneBody(ii, ii) - H.OneBody(jj, jj);
 
-    // Phase factors for the NineJ when active orbit is NOT the first-listed orbit:
-    //   phase_pp_a = (-1)^{j_a+j_b+J_ab}  (applied when spec_p = a → active_p = b)
-    //   phase_hh_a = (-1)^{j_i+j_j+J_ij}  (applied when spec_h = i → active_h = j)
-    int phase_pp_a = AngMom::phase((j2a  + j2b)  / 2 + Jab);
-    int phase_hh_a = AngMom::phase((j2ii + j2jj) / 2 + Jij);
+    // Phase factors for the NineJ when active orbit is the SECOND-listed orbit.
+    //
+    // For the antisymmetric 2p2h state, singling out the second-listed orbit
+    // as "active" introduces the phase from swapping the pair ordering:
+    //   |{b,a}^AS_{Jab}> = (-1)^{j_a+j_b-J_ab+1} × |{a,b}^AS_{Jab}>
+    //   |{j,i}^AS_{Jij}> = (-1)^{j_i+j_j-J_ij+1} × |{i,j}^AS_{Jij}>
+    //
+    // The correct 9j also has the active orbit listed FIRST in its row.
+    // These two corrections combined give the phase below:
+    int phase_pp_a = AngMom::phase((j2a  + j2b)  / 2 - Jab + 1);  // (-1)^{j_a+j_b-J_ab+1}
+    int phase_hh_a = AngMom::phase((j2ii + j2jj) / 2 - Jij + 1);  // (-1)^{j_i+j_j-J_ij+1}
 
-    // Struct for one of the 4 active-ph-pair choices for alpha
+    // Struct for one of the 4 active-ph-pair choices for alpha.
+    // j1,j2 = row-1 j-values of the 9j (active_p first, spec_p second).
+    // j3,j4 = row-2 j-values of the 9j (active_h first, spec_h second).
     struct ACase
     {
       size_t act_p, spec_p;   // particle orbits
       size_t act_h, spec_h;   // hole orbits
-      int    phase_alpha;     // 9j sign correction
+      int    phase_alpha;     // antisymmetry phase correction
+      double j1, j2;          // 9j row 1: j(act_p), j(spec_p)
+      double j3, j4;          // 9j row 2: j(act_h), j(spec_h)
     };
 
-    // 4 cases: (active particle, spectator particle, active hole, spectator hole)
+    // 4 cases: (active particle, spectator particle, active hole, spectator hole).
+    // NineJ row 1 always has active_p first; row 2 has active_h first.
+    // phase_pp_a × phase_hh_a = (-1)^{ja+jb-Jab+1} × (-1)^{ji+jj-Jij+1}
+    //   = (-1)^{ja+jb+Jab} × (-1)^{ji+jj+Jij} (the two +1 cancel each other).
     std::array<ACase, 4> alpha_cases = {{
-      {a,  b,  ii, jj, 1},                              // case 1
-      {a,  b,  jj, ii, phase_hh_a},                     // case 2
-      {b,  a,  ii, jj, phase_pp_a},                     // case 3
-      {b,  a,  jj, ii, phase_pp_a * phase_hh_a}         // case 4
+      {a,  b,  ii, jj, 1,                        ja,  jb,   ji,    jj_v },  // case 1
+      {a,  b,  jj, ii, phase_hh_a,               ja,  jb,   jj_v,  ji   },  // case 2: swap hh
+      {b,  a,  ii, jj, phase_pp_a,               jb,  ja,   ji,    jj_v },  // case 3: swap pp
+      {b,  a,  jj, ii, phase_pp_a * phase_hh_a,  jb,  ja,   jj_v,  ji   }   // case 4: both
     }};
 
     for (size_t beta = 0; beta < n2; ++beta)
@@ -424,11 +437,11 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
       // Ph ring term: correct formula using 9j symbols.
       //
       // Phase correction for beta's NineJ when active orbit is second-listed:
-      //   phase_pp_b = (-1)^{j_a'+j_b'+J_ab'} (applied if act_pb = bp)
-      //   phase_hh_b = (-1)^{j_i'+j_j'+J_ij'} (applied if act_hb = jp)
+      //   phase_pp_b = (-1)^{j_a'+j_b'-J_ab'+1} (applied if act_pb = bp)
+      //   phase_hh_b = (-1)^{j_i'+j_j'-J_ij'+1} (applied if act_hb = jp)
       // ---------------------------------------------------------------
-      int phase_pp_b = AngMom::phase((j2ap + j2bp) / 2 + Jabp);
-      int phase_hh_b = AngMom::phase((j2ip + j2jp) / 2 + Jijp);
+      int phase_pp_b = AngMom::phase((j2ap + j2bp) / 2 - Jabp + 1);
+      int phase_hh_b = AngMom::phase((j2ip + j2jp) / 2 - Jijp + 1);
 
       double prefactor = std::sqrt((2.0*Jab+1)*(2.0*Jij+1)
                                   *(2.0*Jabp+1)*(2.0*Jijp+1))
@@ -450,10 +463,16 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
         double j_spec_p = 0.5*modelspace->GetOrbit(ac.spec_p).j2;
         double j_spec_h = 0.5*modelspace->GetOrbit(ac.spec_h).j2;
 
-        // Phase for beta's NineJ
+        // Phase for beta's NineJ: same antisymmetry correction as alpha
         int phase_beta = 1;
-        if (act_pb != ap) phase_beta *= phase_pp_b;  // act_pb is second p of beta
-        if (act_hb != ip) phase_beta *= phase_hh_b;  // act_hb is second h of beta
+        if (act_pb != ap) phase_beta *= phase_pp_b;
+        if (act_hb != ip) phase_beta *= phase_hh_b;
+
+        // 9j j-values for beta: active orbit first in each row
+        double j1b = (act_pb == ap) ? jap : jbp;
+        double j2b_val = (act_pb == ap) ? jbp : jap;
+        double j3b = (act_hb == ip) ? jip : jjp;
+        double j4b = (act_hb == ip) ? jjp : jip;
 
         // J_ph range: triangle(j_act_pa, j_act_ha, J_ph) and triangle(j_act_pb, j_act_hb, J_ph)
         // Integer arithmetic is exact here: j2 values are always odd for half-integer j,
@@ -495,19 +514,16 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
           double ring_Jsp = 0.0;
           for (int Jsp = Jsp_min; Jsp <= Jsp_max; ++Jsp)
           {
-            // NineJ for alpha (first-listed orbits first):
-            //   {j_a  j_b  J_ab }
-            //   {j_i  j_j  J_ij }
-            //   {J_ph J_sp J    }
-            double n9j_a = modelspace->GetNineJ(ja,  jb,   (double)Jab,
-                                                ji,  jj_v, (double)Jij,
+            // NineJ for alpha: active orbit first in each row
+            //   {j(act_p)  j(spec_p)  J_ab }
+            //   {j(act_h)  j(spec_h)  J_ij }
+            //   {J_ph      J_sp       J    }
+            double n9j_a = modelspace->GetNineJ(ac.j1, ac.j2, (double)Jab,
+                                                ac.j3, ac.j4, (double)Jij,
                                                 (double)Jph, (double)Jsp, (double)J);
-            // NineJ for beta (first-listed orbits first):
-            //   {j_a' j_b'  J_ab' }
-            //   {j_i' j_j'  J_ij' }
-            //   {J_ph J_sp  J     }
-            double n9j_b = modelspace->GetNineJ(jap, jbp,  (double)Jabp,
-                                                jip, jjp,  (double)Jijp,
+            // NineJ for beta: active orbit first in each row
+            double n9j_b = modelspace->GetNineJ(j1b, j2b_val, (double)Jabp,
+                                                j3b, j4b,     (double)Jijp,
                                                 (double)Jph, (double)Jsp, (double)J);
             ring_Jsp += (2*Jsp+1) * n9j_a * n9j_b;
           }
@@ -807,20 +823,22 @@ void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
     double hv_alpha = (H.OneBody(a, a) + H.OneBody(b, b)
                      - H.OneBody(ii, ii) - H.OneBody(jj, jj)) * v[alpha];
 
-    int phase_pp_a = AngMom::phase((j2a  + j2b)  / 2 + Jab);
-    int phase_hh_a = AngMom::phase((j2ii + j2jj) / 2 + Jij);
+    int phase_pp_a = AngMom::phase((j2a  + j2b)  / 2 - Jab + 1);
+    int phase_hh_a = AngMom::phase((j2ii + j2jj) / 2 - Jij + 1);
 
     struct ACase
     {
       size_t act_p, spec_p;
       size_t act_h, spec_h;
       int    phase_alpha;
+      double j1, j2;
+      double j3, j4;
     };
     std::array<ACase, 4> alpha_cases = {{
-      {a,  b,  ii, jj, 1},
-      {a,  b,  jj, ii, phase_hh_a},
-      {b,  a,  ii, jj, phase_pp_a},
-      {b,  a,  jj, ii, phase_pp_a * phase_hh_a}
+      {a,  b,  ii, jj, 1,                        ja,  jb,   ji,    jj_v },
+      {a,  b,  jj, ii, phase_hh_a,               ja,  jb,   jj_v,  ji   },
+      {b,  a,  ii, jj, phase_pp_a,               jb,  ja,   ji,    jj_v },
+      {b,  a,  jj, ii, phase_pp_a * phase_hh_a,  jb,  ja,   jj_v,  ji   }
     }};
 
     for (size_t beta = 0; beta < n2; ++beta)
@@ -854,8 +872,8 @@ void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
         val -= H.TwoBody.GetTBME_J_norm(Jij, ii, jj, ip, jp);
 
       // Ph ring
-      int phase_pp_b = AngMom::phase((j2ap + j2bp) / 2 + Jabp);
-      int phase_hh_b = AngMom::phase((j2ip + j2jp) / 2 + Jijp);
+      int phase_pp_b = AngMom::phase((j2ap + j2bp) / 2 - Jabp + 1);
+      int phase_hh_b = AngMom::phase((j2ip + j2jp) / 2 - Jijp + 1);
       double prefactor = std::sqrt((2.0*Jab+1)*(2.0*Jij+1)
                                   *(2.0*Jabp+1)*(2.0*Jijp+1))
                        / (Nab * Nij * Nabp * Nijp);
@@ -877,6 +895,11 @@ void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
         int phase_beta = 1;
         if (act_pb != ap) phase_beta *= phase_pp_b;
         if (act_hb != ip) phase_beta *= phase_hh_b;
+
+        double j1b = (act_pb == ap) ? jap : jbp;
+        double j2b_val = (act_pb == ap) ? jbp : jap;
+        double j3b = (act_hb == ip) ? jip : jjp;
+        double j4b = (act_hb == ip) ? jjp : jip;
 
         int Jph_min = std::max(std::abs((int)(2*j_act_pa) - (int)(2*j_act_ha)),
                                std::abs((int)(2*j_act_pb) - (int)(2*j_act_hb))) / 2;
@@ -908,11 +931,11 @@ void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
           double ring_Jsp = 0.0;
           for (int Jsp = Jsp_min; Jsp <= Jsp_max; ++Jsp)
           {
-            double n9j_a = modelspace->GetNineJ(ja,  jb,   (double)Jab,
-                                                ji,  jj_v, (double)Jij,
+            double n9j_a = modelspace->GetNineJ(ac.j1, ac.j2, (double)Jab,
+                                                ac.j3, ac.j4, (double)Jij,
                                                 (double)Jph, (double)Jsp, (double)J);
-            double n9j_b = modelspace->GetNineJ(jap, jbp,  (double)Jabp,
-                                                jip, jjp,  (double)Jijp,
+            double n9j_b = modelspace->GetNineJ(j1b,  j2b_val, (double)Jabp,
+                                                j3b,  j4b,     (double)Jijp,
                                                 (double)Jph, (double)Jsp, (double)J);
             ring_Jsp += (2*Jsp+1) * n9j_a * n9j_b;
           }
