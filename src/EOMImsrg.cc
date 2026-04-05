@@ -825,7 +825,8 @@ void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
 
     for (size_t beta = 0; beta < n2; ++beta)
     {
-      if (beta == alpha) continue;  // diagonal already handled
+      // Do NOT skip beta==alpha: PP-PP/HH-HH self-coupling and diagonal ring
+      // are also needed for the diagonal, beyond the SPE handled above.
       if (std::abs(v[beta]) < 1e-15) continue;
 
       const TwoPTwoHState& sb = tpth_basis[beta];
