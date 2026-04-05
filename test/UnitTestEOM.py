@@ -347,6 +347,10 @@ def main():
     Ymat = ch_result.Y_matrix
     check(isinstance(Ymat, list), "EOMChannel.Y_matrix returns a 2D list")
 
+    one_ph_norms_ch = ch_result.one_ph_norms
+    check(isinstance(one_ph_norms_ch, list),
+          "EOMChannel.one_ph_norms returns a list")
+
     try:
         ch_result.Print()
         check(True, "EOMChannel.Print() runs without exception")
@@ -398,6 +402,20 @@ def main():
         Y2 = eom2.Y
         check(isinstance(X2, list), "EOM2: X amplitudes accessible as list")
         check(isinstance(Y2, list), "EOM2: Y amplitudes accessible as list")
+        check(eom2.GetOnePhCount() == len(X2),
+              "EOM2: reported 1p1h count matches X row count")
+        check(eom2.GetTwoPhCount() > 0,
+              "EOM2: reported 2p2h count is positive")
+        one_ph_norms = eom2.GetOnePhNorms()
+        check(len(one_ph_norms) == len(eom2_energies),
+              "EOM2: one_ph_norms length matches number of states")
+        check(all(n >= 0.0 for n in one_ph_norms),
+              "EOM2: one_ph_norms are non-negative")
+        try:
+            eom2.PrintSummary()
+            check(True, "EOM2 PrintSummary() runs without exception")
+        except Exception as ex:
+            check(False, f"EOM2 PrintSummary() raised: {ex}")
 
         # H22 matrix should be symmetric: verify via SolveAllChannels
         eom2_all = pyIMSRG.EOMImsrg(H)
@@ -438,6 +456,8 @@ def main():
 
     if lanczos_ran and len(dense_energies) > 0:
         lanczos_energies = sorted(eom2_lanczos.GetExcitationEnergies())
+        check(eom2_lanczos.GetLanczosIterations() > 0,
+              "EOM2 Lanczos reports a positive iteration count")
 
         # All returned energies must be finite and positive (the pos-filter is applied)
         if len(lanczos_energies) > 0:
@@ -464,6 +484,56 @@ def main():
                   "(acceptable for random H; real nuclear H gives positive excitations)")
 
     # ----------------------------------------------------------------
+    # Test 15: Matrix-free Lanczos (Solve_byIndex_MF / SolveAllChannels_MF)
+    # ----------------------------------------------------------------
+    print("Test group: Matrix-free Lanczos EOM2 solver")
+
+    # Dense EOM2 reference for comparison
+    eom2_ref_mf = pyIMSRG.EOMImsrg(H)
+    try:
+        eom2_ref_mf.Solve(J, par, Tz, "EOM2")
+        mf_ref_energies = sorted(eom2_ref_mf.GetExcitationEnergies())
+    except Exception as ex:
+        mf_ref_energies = []
+        check(False, f"Dense EOM2 reference for MF test raised: {ex}")
+
+    ich_CC = ms.GetTwoBodyChannelIndex(J, par, Tz)
+    n_mf = min(3, max(1, len(mf_ref_energies) + 2))
+
+    eom_mf = pyIMSRG.EOMImsrg(H)
+    try:
+        eom_mf.Solve_byIndex_MF(ich_CC, n_mf)
+        check(True, "Solve_byIndex_MF runs without exception")
+    except Exception as ex:
+        check(False, f"Solve_byIndex_MF raised: {ex}")
+
+    mf_energies = sorted(eom_mf.GetExcitationEnergies())
+    check(eom_mf.GetTwoPhCount() > 0,
+          "Solve_byIndex_MF: 2p2h count is positive")
+    check(eom_mf.GetLanczosIterations() > 0,
+          "Solve_byIndex_MF: Lanczos iteration count is positive")
+
+    n_compare_mf = min(len(mf_energies), len(mf_ref_energies))
+    if n_compare_mf > 0:
+        max_diff_mf = max(abs(mf_energies[i] - mf_ref_energies[i])
+                          for i in range(n_compare_mf))
+        check(max_diff_mf < 1e-6,
+              f"Solve_byIndex_MF agrees with dense EOM2 (max diff = {max_diff_mf:.2e})")
+    else:
+        check(True,
+              "Solve_byIndex_MF: no positive eigenvalues to compare "
+              "(acceptable for random H)")
+
+    eom_mf_all = pyIMSRG.EOMImsrg(H)
+    try:
+        eom_mf_all.SolveAllChannels_MF(3)
+        check(True, "SolveAllChannels_MF runs without exception")
+    except Exception as ex:
+        check(False, f"SolveAllChannels_MF raised: {ex}")
+    check(len(eom_mf_all.GetSolvedChannels()) > 0,
+          "SolveAllChannels_MF: at least one channel solved")
+
+    # ----------------------------------------------------------------
     # Summary
     # ----------------------------------------------------------------
     print(f"\npassed? {PASS}")
@@ -472,4 +542,3 @@ def main():
 if __name__ == '__main__':
     ok = main()
     sys.exit(0 if ok else 1)
-

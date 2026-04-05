@@ -77,14 +77,6 @@
 #include "ModelSpace.hh"
 #include "Operator.hh"
 
-/// Results stored for one (J, parity, Tz) channel after a Solve() call.
-struct EOMChannel
-{
-  arma::vec Energies; ///< Excitation energies (MeV), sorted ascending
-  arma::mat X;        ///< Forward 1p1h amplitudes  (nph x nstates)
-  arma::mat Y;        ///< Backward amplitudes (nph x nstates); zero for TDA/EOM2
-};
-
 /// Compact representation of one 2p-2h basis state.
 struct TwoPTwoHState
 {
@@ -94,6 +86,26 @@ struct TwoPTwoHState
   size_t j; ///< Second hole orbit index
   int Jab;  ///< Angular momentum coupling of the pp pair (actual value, e.g. 0,1,2,…)
   int Jij;  ///< Angular momentum coupling of the hh pair
+};
+
+/// Results stored for one (J, parity, Tz) channel after a Solve() call.
+struct EOMChannel
+{
+  arma::vec Energies; ///< Excitation energies (MeV), sorted ascending
+  arma::mat X;        ///< Forward 1p1h amplitudes  (nph x nstates)
+  /// Mode-dependent:
+  ///   - TDA:  zero matrix (nph x nstates)
+  ///   - EOM:  backward (de-excitation) 1p1h amplitudes (nph x nstates)
+  ///   - EOM2: 2p2h amplitudes X̌_{abij}^{Jab,Jij,J}(ν) (n2p2h x nstates)
+  ///           (NOT backward amplitudes — EOM2 has no separate backward sector)
+  arma::mat Y;
+  arma::vec OnePhNorms; ///< n(1p1h) = sum_ai |X_ai|^2 for each state
+  size_t OnePhCount = 0; ///< Number of 1p1h amplitudes in the solved channel
+  size_t TwoPhCount = 0; ///< Number of 2p2h amplitudes in the solved channel
+  size_t LanczosIterations = 0; ///< Number of Lanczos iterations used (0 for dense solve)
+  /// 2p2h basis states for EOM2 mode (empty for TDA/EOM).
+  /// Stored here so ComputeTransitionME_byIndex can use them for all channels.
+  std::vector<TwoPTwoHState> tpth_basis;
 };
 
 ///
@@ -122,6 +134,10 @@ class EOMImsrg
   arma::vec Energies;
   arma::mat X;
   arma::mat Y;
+  arma::vec OnePhNorms;
+  size_t one_ph_count;
+  size_t two_ph_count;
+  size_t lanczos_iterations;
 
   /// Index of the most recently solved TwoBodyChannel_CC
   size_t current_channel;
@@ -178,6 +194,20 @@ class EOMImsrg
   /// Solve all (J, parity, Tz) channels that have at least one 1p-1h pair.
   void SolveAllChannels(std::string mode = "TDA");
 
+  /// Matrix-free Lanczos EOM2 solver for channel ich_CC.
+  ///
+  /// Reuses BuildAMatrix_byIndex() and Build2p2hBasis_byIndex() but never
+  /// materialises the H22 (N2×N2) or H21 (N2×Nph) matrices.  The action of
+  /// the full H_EOM2 = [A, H21^T; H21, H22] on a Lanczos vector is computed
+  /// on the fly each iteration, reducing peak memory from O(N2²) to O(N2·ncv).
+  ///
+  /// @param nev  Number of algebraically-lowest eigenvalues to converge.
+  ///             Must satisfy 1 ≤ nev < N = nph + n2p2h.
+  void Solve_byIndex_MF(size_t ich_CC, int nev);
+
+  /// Run Solve_byIndex_MF for all ph channels.
+  void SolveAllChannels_MF(int nev);
+
   // -----------------------------------------------------------------------
   // Accessors
   // -----------------------------------------------------------------------
@@ -187,6 +217,16 @@ class EOMImsrg
   arma::vec GetAmplitudesX(size_t state_index) const;
   /// Backward amplitudes Y_{ai} for state \p state_index in the current channel.
   arma::vec GetAmplitudesY(size_t state_index) const;
+  /// 1p1h norm weights n(1p1h)=sum_ai |X_ai|^2 for the solved states.
+  arma::vec GetOnePhNorms() const;
+  /// Number of 1p1h amplitudes in the current channel.
+  size_t GetOnePhCount() const;
+  /// Number of 2p2h amplitudes in the current channel.
+  size_t GetTwoPhCount() const;
+  /// Number of Lanczos iterations used in the most recent EOM2 solve.
+  size_t GetLanczosIterations() const;
+  /// Print a compact spectrum summary matching the reference EOM-IMSRG output.
+  void PrintSummary() const;
 
   /// Return the stored EOMChannel for channel index \p ich_CC, if it exists.
   EOMChannel GetChannelResults(size_t ich_CC) const;
@@ -204,9 +244,38 @@ class EOMImsrg
   /// Compute the transition matrix element using stored channel results.
   double ComputeTransitionME_byIndex(size_t ich_CC, Operator& Op, size_t state_index) const;
 
+  /// Full H_EOM2 = [A, H21^T; H21, H22] matvec, used by EOMMatFreeOp.
+  /// May also be called directly (e.g. for testing or custom iterative solvers).
+  void ApplyH_EOM2_matvec(const arma::vec& v, arma::vec& Hv) const;
+
  private:
   /// Implementation shared by Solve() overloads; operates on current A, B, channel.
   void SolveCurrentChannel(std::string mode);
+
+  // -----------------------------------------------------------------------
+  // Matrix-free matvec helpers (used by Solve_byIndex_MF / EOMMatFreeOp).
+  // Populate mf_orbit_to_ph / mf_ph_particle / mf_ph_hole before calling
+  // Apply*_matvec.
+  // Notation: a,b,c,… for particle orbits; i,j,k,… for hole orbits.
+  // -----------------------------------------------------------------------
+
+  /// Precomputed ph-orbit lookup for matrix-free path.
+  /// mf_orbit_to_ph[orb] = list of (col, is_particle) pairs for the current channel.
+  std::vector<std::vector<std::pair<size_t,bool>>> mf_orbit_to_ph;
+  std::vector<index_t> mf_ph_particle; ///< particle orbit (a,b,c,…) of each ph column
+  std::vector<index_t> mf_ph_hole;     ///< hole    orbit  (i,j,k,…) of each ph column
+  /// CC-channel ket-ordering phase for each ph column, matching BuildAMatrix_byIndex.
+  /// phase = 1 if ket stored as (particle,hole); -(-1)^{ja+ji-J} if stored as (hole,particle).
+  std::vector<int>     mf_ph_phase;
+
+  /// Compute Hv_2p2h += H22 * v_2p2h without building H22.
+  void ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const;
+
+  /// Compute Hv_2p2h += H21 * v_ph without building H21.
+  void ApplyH21_matvec(const arma::vec& v_ph, arma::vec& Hv_2p2h) const;
+
+  /// Compute Hv_ph += H21^T * v_2p2h without building H21.
+  void ApplyH21T_matvec(const arma::vec& v_2p2h, arma::vec& Hv_ph) const;
 };
 
 #endif
