@@ -575,34 +575,26 @@ void EOMImsrg::BuildH21_byIndex(size_t ich_CC)
   int    J    = tbc_CC.J;
   H21.zeros(n2, nph);
 
-  // Build a fast lookup: (orbit_index) → list of column indices in ph_list
-  // where that orbit is the particle (e) or hole (f).
-  // Key: orbit index; Value: vector of (col, is_particle) pairs
+  // Build orbit → ph-column lookup and per-column orbit caches in one pass.
+  // orbit_to_ph[orb] = list of (col, is_particle) pairs for ph states
+  // that contain orbit orb as either particle (is_particle=true) or hole (false).
   std::vector<std::vector<std::pair<size_t,bool>>> orbit_to_ph(
       modelspace->GetNumberOrbits());
-
-  size_t col = 0;
-  for (auto iket : ph_list)
-  {
-    Ket& kt = tbc_CC.GetKet(iket);
-    index_t e = kt.p, f = kt.q;
-    if (kt.op->occ > kt.oq->occ) std::swap(e, f);
-    orbit_to_ph[e].push_back({col, true});
-    orbit_to_ph[f].push_back({col, false});
-    ++col;
-  }
-
-  // Precompute orbit quantum numbers for each ph state
   std::vector<index_t> ph_e(nph), ph_f(nph);
-  col = 0;
-  for (auto iket : ph_list)
+
   {
-    Ket& kt = tbc_CC.GetKet(iket);
-    index_t e = kt.p, f = kt.q;
-    if (kt.op->occ > kt.oq->occ) std::swap(e, f);
-    ph_e[col] = e;
-    ph_f[col] = f;
-    ++col;
+    size_t col = 0;
+    for (auto iket : ph_list)
+    {
+      Ket& kt = tbc_CC.GetKet(iket);
+      index_t e = kt.p, f = kt.q;
+      if (kt.op->occ > kt.oq->occ) std::swap(e, f);
+      orbit_to_ph[e].push_back(std::make_pair(col, true));
+      orbit_to_ph[f].push_back(std::make_pair(col, false));
+      ph_e[col] = e;
+      ph_f[col] = f;
+      ++col;
+    }
   }
 
   #pragma omp parallel for schedule(dynamic,1)
@@ -633,8 +625,10 @@ void EOMImsrg::BuildH21_byIndex(size_t ich_CC)
     {
       int phase1 = AngMom::phase((oa.j2 + ob.j2)/2 - Jcd);
       // Loop over ph states where e == a
-      for (auto& [c_idx, is_part] : orbit_to_ph[a])
+      for (size_t _s1 = 0; _s1 < orbit_to_ph[a].size(); ++_s1)
       {
+        size_t c_idx  = orbit_to_ph[a][_s1].first;
+        bool is_part = orbit_to_ph[a][_s1].second;
         if (!is_part) continue;  // need e == a (particle)
         size_t f_orb = ph_f[c_idx];
         const Orbit& of = modelspace->GetOrbit(f_orb);
@@ -652,8 +646,10 @@ void EOMImsrg::BuildH21_byIndex(size_t ich_CC)
     //                   * W6j(Jab,Jcd,J; jf,jb,ja) * V_norm(Jcd,f,a,c,d) * K
     {
       int phase2 = AngMom::phase(Jab + Jcd);
-      for (auto& [c_idx, is_part] : orbit_to_ph[b])
+      for (size_t _si = 0; _si < orbit_to_ph[b].size(); ++_si)
       {
+        size_t c_idx  = orbit_to_ph[b][_si].first;
+        bool is_part = orbit_to_ph[b][_si].second;
         if (!is_part) continue;
         size_t f_orb = ph_f[c_idx];
         const Orbit& of = modelspace->GetOrbit(f_orb);
@@ -671,8 +667,10 @@ void EOMImsrg::BuildH21_byIndex(size_t ich_CC)
     //                   * W6j(Jab,Jcd,J; jd,je,jc) * V_norm(Jab,a,b,c,e) * K
     {
       int phase3 = AngMom::phase((oc.j2 + od.j2)/2 - Jab);
-      for (auto& [c_idx, is_part] : orbit_to_ph[d])
+      for (size_t _si = 0; _si < orbit_to_ph[d].size(); ++_si)
       {
+        size_t c_idx  = orbit_to_ph[d][_si].first;
+        bool is_part = orbit_to_ph[d][_si].second;
         if (is_part) continue;  // need f == d (hole)
         size_t e_orb = ph_e[c_idx];
         const Orbit& oe = modelspace->GetOrbit(e_orb);
@@ -690,8 +688,10 @@ void EOMImsrg::BuildH21_byIndex(size_t ich_CC)
     //                   * W6j(Jab,Jcd,J; jc,je,jd) * V_norm(Jab,a,b,d,e) * K
     {
       int phase4 = AngMom::phase(Jcd + Jab);
-      for (auto& [c_idx, is_part] : orbit_to_ph[c])
+      for (size_t _si = 0; _si < orbit_to_ph[c].size(); ++_si)
       {
+        size_t c_idx  = orbit_to_ph[c][_si].first;
+        bool is_part = orbit_to_ph[c][_si].second;
         if (is_part) continue;
         size_t e_orb = ph_e[c_idx];
         const Orbit& oe = modelspace->GetOrbit(e_orb);
@@ -985,8 +985,10 @@ void EOMImsrg::ApplyH21_matvec(const arma::vec& v_ph, arma::vec& Hv_2p2h) const
     // sm1: e == a
     {
       int phase1 = AngMom::phase((oa.j2 + ob.j2)/2 - Jcd);
-      for (auto& [c_idx, is_part] : mf_orbit_to_ph[a])
+      for (size_t _si = 0; _si < mf_orbit_to_ph[a].size(); ++_si)
       {
+        size_t c_idx  = mf_orbit_to_ph[a][_si].first;
+        bool is_part = mf_orbit_to_ph[a][_si].second;
         if (!is_part) continue;
         size_t f_orb = mf_ph_f[c_idx];
         const Orbit& of = modelspace->GetOrbit(f_orb);
@@ -1002,8 +1004,10 @@ void EOMImsrg::ApplyH21_matvec(const arma::vec& v_ph, arma::vec& Hv_2p2h) const
     // sm2: e == b
     {
       int phase2 = AngMom::phase(Jab + Jcd);
-      for (auto& [c_idx, is_part] : mf_orbit_to_ph[b])
+      for (size_t _si = 0; _si < mf_orbit_to_ph[b].size(); ++_si)
       {
+        size_t c_idx  = mf_orbit_to_ph[b][_si].first;
+        bool is_part = mf_orbit_to_ph[b][_si].second;
         if (!is_part) continue;
         size_t f_orb = mf_ph_f[c_idx];
         const Orbit& of = modelspace->GetOrbit(f_orb);
@@ -1019,8 +1023,10 @@ void EOMImsrg::ApplyH21_matvec(const arma::vec& v_ph, arma::vec& Hv_2p2h) const
     // sm3: f == d
     {
       int phase3 = AngMom::phase((oc.j2 + od.j2)/2 - Jab);
-      for (auto& [c_idx, is_part] : mf_orbit_to_ph[d])
+      for (size_t _si = 0; _si < mf_orbit_to_ph[d].size(); ++_si)
       {
+        size_t c_idx  = mf_orbit_to_ph[d][_si].first;
+        bool is_part = mf_orbit_to_ph[d][_si].second;
         if (is_part) continue;
         size_t e_orb = mf_ph_e[c_idx];
         const Orbit& oe = modelspace->GetOrbit(e_orb);
@@ -1036,8 +1042,10 @@ void EOMImsrg::ApplyH21_matvec(const arma::vec& v_ph, arma::vec& Hv_2p2h) const
     // sm4: f == c
     {
       int phase4 = AngMom::phase(Jcd + Jab);
-      for (auto& [c_idx, is_part] : mf_orbit_to_ph[c])
+      for (size_t _si = 0; _si < mf_orbit_to_ph[c].size(); ++_si)
       {
+        size_t c_idx  = mf_orbit_to_ph[c][_si].first;
+        bool is_part = mf_orbit_to_ph[c][_si].second;
         if (is_part) continue;
         size_t e_orb = mf_ph_e[c_idx];
         const Orbit& oe = modelspace->GetOrbit(e_orb);
@@ -1087,8 +1095,10 @@ void EOMImsrg::ApplyH21T_matvec(const arma::vec& v_2p2h, arma::vec& Hv_ph) const
     // sm1: e == a  →  Hv_ph[c_idx] -= phase1 * w6j * v_me * K * v_alpha * phase_col
     {
       int phase1 = AngMom::phase((oa.j2 + ob.j2)/2 - Jcd);
-      for (auto& [c_idx, is_part] : mf_orbit_to_ph[a])
+      for (size_t _si = 0; _si < mf_orbit_to_ph[a].size(); ++_si)
       {
+        size_t c_idx  = mf_orbit_to_ph[a][_si].first;
+        bool is_part = mf_orbit_to_ph[a][_si].second;
         if (!is_part) continue;
         size_t f_orb = mf_ph_f[c_idx];
         const Orbit& of = modelspace->GetOrbit(f_orb);
@@ -1104,8 +1114,10 @@ void EOMImsrg::ApplyH21T_matvec(const arma::vec& v_2p2h, arma::vec& Hv_ph) const
     // sm2: e == b
     {
       int phase2 = AngMom::phase(Jab + Jcd);
-      for (auto& [c_idx, is_part] : mf_orbit_to_ph[b])
+      for (size_t _si = 0; _si < mf_orbit_to_ph[b].size(); ++_si)
       {
+        size_t c_idx  = mf_orbit_to_ph[b][_si].first;
+        bool is_part = mf_orbit_to_ph[b][_si].second;
         if (!is_part) continue;
         size_t f_orb = mf_ph_f[c_idx];
         const Orbit& of = modelspace->GetOrbit(f_orb);
@@ -1121,8 +1133,10 @@ void EOMImsrg::ApplyH21T_matvec(const arma::vec& v_2p2h, arma::vec& Hv_ph) const
     // sm3: f == d
     {
       int phase3 = AngMom::phase((oc.j2 + od.j2)/2 - Jab);
-      for (auto& [c_idx, is_part] : mf_orbit_to_ph[d])
+      for (size_t _si = 0; _si < mf_orbit_to_ph[d].size(); ++_si)
       {
+        size_t c_idx  = mf_orbit_to_ph[d][_si].first;
+        bool is_part = mf_orbit_to_ph[d][_si].second;
         if (is_part) continue;
         size_t e_orb = mf_ph_e[c_idx];
         const Orbit& oe = modelspace->GetOrbit(e_orb);
@@ -1138,8 +1152,10 @@ void EOMImsrg::ApplyH21T_matvec(const arma::vec& v_2p2h, arma::vec& Hv_ph) const
     // sm4: f == c
     {
       int phase4 = AngMom::phase(Jcd + Jab);
-      for (auto& [c_idx, is_part] : mf_orbit_to_ph[c])
+      for (size_t _si = 0; _si < mf_orbit_to_ph[c].size(); ++_si)
       {
+        size_t c_idx  = mf_orbit_to_ph[c][_si].first;
+        bool is_part = mf_orbit_to_ph[c][_si].second;
         if (is_part) continue;
         size_t e_orb = mf_ph_e[c_idx];
         const Orbit& oe = modelspace->GetOrbit(e_orb);
@@ -1272,8 +1288,8 @@ void EOMImsrg::Solve_byIndex_MF(size_t ich_CC, int nev)
       {
         mf_ph_phase[col] = 1;
       }
-      mf_orbit_to_ph[e].push_back({col, true});
-      mf_orbit_to_ph[f].push_back({col, false});
+      mf_orbit_to_ph[e].push_back(std::make_pair(col, true));
+      mf_orbit_to_ph[f].push_back(std::make_pair(col, false));
       mf_ph_e[col] = e;
       mf_ph_f[col] = f;
       ++col;
