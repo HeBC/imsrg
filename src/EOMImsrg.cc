@@ -362,7 +362,7 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
     double ja   = 0.5*j2a;
     double jb   = 0.5*j2b;
     double ji   = 0.5*j2ii;
-    double jj_v = 0.5*j2jj;
+    double j_jj = 0.5*j2jj;
     double Nab = std::sqrt(1.0 + (a == b  ? 1.0 : 0.0));
     double Nij = std::sqrt(1.0 + (ii == jj ? 1.0 : 0.0));
 
@@ -399,10 +399,10 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
     // phase_pp_a × phase_hh_a = (-1)^{ja+jb-Jab+1} × (-1)^{ji+jj-Jij+1}
     //   = (-1)^{ja+jb+Jab} × (-1)^{ji+jj+Jij} (the two +1 cancel each other).
     std::array<ACase, 4> alpha_cases = {{
-      {a,  b,  ii, jj, 1,                        ja,  jb,   ji,    jj_v },  // case 1
-      {a,  b,  jj, ii, phase_hh_a,               ja,  jb,   jj_v,  ji   },  // case 2: swap hh
-      {b,  a,  ii, jj, phase_pp_a,               jb,  ja,   ji,    jj_v },  // case 3: swap pp
-      {b,  a,  jj, ii, phase_pp_a * phase_hh_a,  jb,  ja,   jj_v,  ji   }   // case 4: both
+      {a,  b,  ii, jj, 1,                        ja,  jb,   ji,    j_jj },  // case 1
+      {a,  b,  jj, ii, phase_hh_a,               ja,  jb,   j_jj,  ji   },  // case 2: swap hh
+      {b,  a,  ii, jj, phase_pp_a,               jb,  ja,   ji,    j_jj },  // case 3: swap pp
+      {b,  a,  jj, ii, phase_pp_a * phase_hh_a,  jb,  ja,   j_jj,  ji   }   // case 4: both
     }};
 
     for (size_t beta = 0; beta < n2; ++beta)
@@ -470,7 +470,7 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
 
         // 9j j-values for beta: active orbit first in each row
         double j1b = (act_pb == ap) ? jap : jbp;
-        double j2b_val = (act_pb == ap) ? jbp : jap;
+        double j2b = (act_pb == ap) ? jbp : jap;
         double j3b = (act_hb == ip) ? jip : jjp;
         double j4b = (act_hb == ip) ? jjp : jip;
 
@@ -522,7 +522,7 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
                                                 ac.j3, ac.j4, (double)Jij,
                                                 (double)Jph, (double)Jsp, (double)J);
             // NineJ for beta: active orbit first in each row
-            double n9j_b = modelspace->GetNineJ(j1b, j2b_val, (double)Jabp,
+            double n9j_b = modelspace->GetNineJ(j1b, j2b, (double)Jabp,
                                                 j3b, j4b,     (double)Jijp,
                                                 (double)Jph, (double)Jsp, (double)J);
             ring_Jsp += (2*Jsp+1) * n9j_a * n9j_b;
@@ -635,7 +635,7 @@ void EOMImsrg::BuildH21_byIndex(size_t ich_CC)
     const Orbit& o_jj = modelspace->GetOrbit(jj);
 
     double ja   = 0.5*oa.j2,   jb   = 0.5*ob.j2;
-    double ji   = 0.5*o_ii.j2, jj_v = 0.5*o_jj.j2;
+    double ji   = 0.5*o_ii.j2, j_jj = 0.5*o_jj.j2;
 
     double Nab = std::sqrt(1.0 + (a  == b  ? 1.0 : 0.0));
     double Nij = std::sqrt(1.0 + (ii == jj ? 1.0 : 0.0));
@@ -705,7 +705,7 @@ void EOMImsrg::BuildH21_byIndex(size_t ich_CC)
         const Orbit& o_c = modelspace->GetOrbit(c_orb);
         double jc = 0.5*o_c.j2;
         double w6j = modelspace->GetSixJ((double)Jab, (double)Jij, (double)J,
-                                         jj_v, jc, ji);
+                                         j_jj, jc, ji);
         if (w6j == 0.0) continue;
         // Λ(J_ab; a,b | i,c) = GetTBME_J(J_ab, a, b, ii, c)
         double lam = H.TwoBody.GetTBME_J(Jab, a, b, ii, c_orb);
@@ -728,7 +728,7 @@ void EOMImsrg::BuildH21_byIndex(size_t ich_CC)
         const Orbit& o_c = modelspace->GetOrbit(c_orb);
         double jc = 0.5*o_c.j2;
         double w6j = modelspace->GetSixJ((double)Jab, (double)Jij, (double)J,
-                                         ji, jc, jj_v);
+                                         ji, jc, j_jj);
         if (w6j == 0.0) continue;
         // Λ(J_ab; a,b | j,c) = GetTBME_J(J_ab, a, b, jj, c)
         double lam = H.TwoBody.GetTBME_J(Jab, a, b, jj, c_orb);
@@ -856,7 +856,7 @@ void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
     double ja   = 0.5*j2a;
     double jb   = 0.5*j2b;
     double ji   = 0.5*j2ii;
-    double jj_v = 0.5*j2jj;
+    double j_jj = 0.5*j2jj;
     double Nab = std::sqrt(1.0 + (a == b  ? 1.0 : 0.0));
     double Nij = std::sqrt(1.0 + (ii == jj ? 1.0 : 0.0));
 
@@ -876,10 +876,10 @@ void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
       double j3, j4;
     };
     std::array<ACase, 4> alpha_cases = {{
-      {a,  b,  ii, jj, 1,                        ja,  jb,   ji,    jj_v },
-      {a,  b,  jj, ii, phase_hh_a,               ja,  jb,   jj_v,  ji   },
-      {b,  a,  ii, jj, phase_pp_a,               jb,  ja,   ji,    jj_v },
-      {b,  a,  jj, ii, phase_pp_a * phase_hh_a,  jb,  ja,   jj_v,  ji   }
+      {a,  b,  ii, jj, 1,                        ja,  jb,   ji,    j_jj },
+      {a,  b,  jj, ii, phase_hh_a,               ja,  jb,   j_jj,  ji   },
+      {b,  a,  ii, jj, phase_pp_a,               jb,  ja,   ji,    j_jj },
+      {b,  a,  jj, ii, phase_pp_a * phase_hh_a,  jb,  ja,   j_jj,  ji   }
     }};
 
     for (size_t beta = 0; beta < n2; ++beta)
@@ -938,7 +938,7 @@ void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
         if (act_hb != ip) phase_beta *= phase_hh_b;
 
         double j1b = (act_pb == ap) ? jap : jbp;
-        double j2b_val = (act_pb == ap) ? jbp : jap;
+        double j2b = (act_pb == ap) ? jbp : jap;
         double j3b = (act_hb == ip) ? jip : jjp;
         double j4b = (act_hb == ip) ? jjp : jip;
 
@@ -975,7 +975,7 @@ void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
             double n9j_a = modelspace->GetNineJ(ac.j1, ac.j2, (double)Jab,
                                                 ac.j3, ac.j4, (double)Jij,
                                                 (double)Jph, (double)Jsp, (double)J);
-            double n9j_b = modelspace->GetNineJ(j1b,  j2b_val, (double)Jabp,
+            double n9j_b = modelspace->GetNineJ(j1b,  j2b, (double)Jabp,
                                                 j3b,  j4b,     (double)Jijp,
                                                 (double)Jph, (double)Jsp, (double)J);
             ring_Jsp += (2*Jsp+1) * n9j_a * n9j_b;
@@ -1024,7 +1024,7 @@ void EOMImsrg::ApplyH21_matvec(const arma::vec& v_ph, arma::vec& Hv_2p2h) const
     const Orbit& o_jj = modelspace->GetOrbit(jj);
 
     double ja   = 0.5*oa.j2,   jb   = 0.5*ob.j2;
-    double ji   = 0.5*o_ii.j2, jj_v = 0.5*o_jj.j2;
+    double ji   = 0.5*o_ii.j2, j_jj = 0.5*o_jj.j2;
 
     double Nab = std::sqrt(1.0 + (a  == b  ? 1.0 : 0.0));
     double Nij = std::sqrt(1.0 + (ii == jj ? 1.0 : 0.0));
@@ -1089,7 +1089,7 @@ void EOMImsrg::ApplyH21_matvec(const arma::vec& v_ph, arma::vec& Hv_2p2h) const
         const Orbit& o_c = modelspace->GetOrbit(c_orb);
         double jc = 0.5*o_c.j2;
         double w6j = modelspace->GetSixJ((double)Jab, (double)Jij, (double)J,
-                                         jj_v, jc, ji);
+                                         j_jj, jc, ji);
         if (w6j == 0.0) continue;
         double lam = H.TwoBody.GetTBME_J(Jab, a, b, ii, c_orb);
         hv += phase3 * w6j * lam * K * mf_ph_phase[col_idx] * v_ph[col_idx];
@@ -1110,7 +1110,7 @@ void EOMImsrg::ApplyH21_matvec(const arma::vec& v_ph, arma::vec& Hv_2p2h) const
         const Orbit& o_c = modelspace->GetOrbit(c_orb);
         double jc = 0.5*o_c.j2;
         double w6j = modelspace->GetSixJ((double)Jab, (double)Jij, (double)J,
-                                         ji, jc, jj_v);
+                                         ji, jc, j_jj);
         if (w6j == 0.0) continue;
         double lam = H.TwoBody.GetTBME_J(Jab, a, b, jj, c_orb);
         hv -= phase4 * w6j * lam * K * mf_ph_phase[col_idx] * v_ph[col_idx];
@@ -1152,7 +1152,7 @@ void EOMImsrg::ApplyH21T_matvec(const arma::vec& v_2p2h, arma::vec& Hv_ph) const
     const Orbit& o_jj = modelspace->GetOrbit(jj);
 
     double ja   = 0.5*oa.j2,   jb   = 0.5*ob.j2;
-    double ji   = 0.5*o_ii.j2, jj_v = 0.5*o_jj.j2;
+    double ji   = 0.5*o_ii.j2, j_jj = 0.5*o_jj.j2;
 
     double Nab = std::sqrt(1.0 + (a  == b  ? 1.0 : 0.0));
     double Nij = std::sqrt(1.0 + (ii == jj ? 1.0 : 0.0));
@@ -1209,7 +1209,7 @@ void EOMImsrg::ApplyH21T_matvec(const arma::vec& v_2p2h, arma::vec& Hv_ph) const
         const Orbit& o_c = modelspace->GetOrbit(c_orb);
         double jc = 0.5*o_c.j2;
         double w6j = modelspace->GetSixJ((double)Jab, (double)Jij, (double)J,
-                                         jj_v, jc, ji);
+                                         j_jj, jc, ji);
         if (w6j == 0.0) continue;
         double lam = H.TwoBody.GetTBME_J(Jab, a, b, ii, c_orb);
         Hv_ph[col_idx] += phase3 * w6j * lam * K * mf_ph_phase[col_idx] * v_alpha;
@@ -1228,7 +1228,7 @@ void EOMImsrg::ApplyH21T_matvec(const arma::vec& v_2p2h, arma::vec& Hv_ph) const
         const Orbit& o_c = modelspace->GetOrbit(c_orb);
         double jc = 0.5*o_c.j2;
         double w6j = modelspace->GetSixJ((double)Jab, (double)Jij, (double)J,
-                                         ji, jc, jj_v);
+                                         ji, jc, j_jj);
         if (w6j == 0.0) continue;
         double lam = H.TwoBody.GetTBME_J(Jab, a, b, jj, c_orb);
         Hv_ph[col_idx] -= phase4 * w6j * lam * K * mf_ph_phase[col_idx] * v_alpha;
