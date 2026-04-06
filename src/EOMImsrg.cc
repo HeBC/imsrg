@@ -92,6 +92,49 @@ void EOMImsrg::Build_AMatrix_byIndex(size_t ich_CC)
 
   int Jph = tbc_CC.J;
 
+  // Pre-compute the Pandya-transformed H for this CC channel (ph × ph block).
+  //
+  //   Hbar_ch(ibra, iket) = H̄(a,i; b,j; Jph)
+  //     = -Σ_{J'}(2J'+1) W6j(ja,ji,Jph; jb,jj,J') × GetTBME_J(J', a,j,b,i)
+  //
+  // ibra and iket are the local ph indices in this channel, ordered the same as
+  // the A-matrix rows/columns (i.e., ibra=I in the outer loop, iket=II in the
+  // inner loop).  The particle/hole convention follows the CC-channel ket
+  // ordering: a_orb=particle, i_orb=hole after an optional swap.
+  arma::mat Hbar_ch(nph, nph, arma::fill::zeros);
+  for (size_t ibra = 0; ibra < nph; ++ibra)
+  {
+    Ket& bra = tbc_CC.GetKet(ph_list[ibra]);
+    size_t a_orb = bra.p, i_orb = bra.q;
+    if (bra.op->occ > bra.oq->occ) std::swap(a_orb, i_orb);
+    double ja_b = 0.5 * modelspace->GetOrbit(a_orb).j2;
+    double ji_b = 0.5 * modelspace->GetOrbit(i_orb).j2;
+
+    for (size_t iket = 0; iket < nph; ++iket)
+    {
+      Ket& ket = tbc_CC.GetKet(ph_list[iket]);
+      size_t b_orb = ket.p, j_orb = ket.q;
+      if (ket.op->occ > ket.oq->occ) std::swap(b_orb, j_orb);
+      double jb_b = 0.5 * modelspace->GetOrbit(b_orb).j2;
+      double jj_b = 0.5 * modelspace->GetOrbit(j_orb).j2;
+
+      int Jp_min = std::max(std::abs((int)(2*ja_b) - (int)(2*jj_b)),
+                            std::abs((int)(2*jb_b) - (int)(2*ji_b))) / 2;
+      int Jp_max = std::min((int)(2*ja_b) + (int)(2*jj_b),
+                            (int)(2*jb_b) + (int)(2*ji_b)) / 2;
+      double V_bar = 0.0;
+      for (int Jp = Jp_min; Jp <= Jp_max; ++Jp)
+      {
+        double sixj = modelspace->GetSixJ(ja_b, ji_b, (double)Jph,
+                                          jb_b, jj_b, (double)Jp);
+        if (std::abs(sixj) < 1e-8) continue;
+        V_bar -= (2*Jp+1) * sixj
+               * H.TwoBody.GetTBME_J(Jp, a_orb, j_orb, b_orb, i_orb);
+      }
+      Hbar_ch(ibra, iket) = V_bar;
+    }
+  }
+
   #pragma omp parallel for schedule(dynamic,1)
   for (long long I = 0; I < static_cast<long long>(nph); ++I)
   {
@@ -133,33 +176,11 @@ void EOMImsrg::Build_AMatrix_byIndex(size_t ich_CC)
       }
 
       // 1-body contribution: f_{ab} * δ_{ij} - f_{ij} * δ_{ab}
-      //
-      // f_{ab} (and f_{ij}) can be off-diagonal within a one-body channel
-      // (a ≠ b is allowed when a,b share the same l,j2,tz2), so H.OneBody(a,b)
-      // is the full off-diagonal matrix element.  The delta conditions on the
-      // spectator indices are strict orbit-index equalities (not channel checks):
-      // only when i==j (same hole orbit) does f_{ab} contribute, and only when
-      // a==b (same particle orbit) does f_{ij} contribute.
       double H1b = (i == j ? H.OneBody(a, b) : 0.0)
                  - (a == b ? H.OneBody(i, j) : 0.0);
 
-      // Two-body Pandya term
-      // A_{ai,bj}(J) -= sum_{J'} (2J'+1) {ja ji J; jb jj J'} <aj';J'|V|bi';J'>
-      int J1min = std::max(std::abs(j2a - j2j), std::abs(j2b - j2i)) / 2;
-      int J1max = std::min(j2a + j2j, j2b + j2i) / 2;
-      double V_ph = 0.0;
-
-      if (AngMom::Triangle(0.5*j2j, 0.5*j2b, Jph) && AngMom::Triangle(0.5*j2i, 0.5*j2a, Jph))
-      {
-        for (int J1 = J1min; J1 <= J1max; ++J1)
-        {
-          V_ph -= modelspace->GetSixJ(0.5*j2a, 0.5*j2i, Jph, 0.5*j2b, 0.5*j2j, J1)
-                  * (2 * J1 + 1)
-                  * H.TwoBody.GetTBME_J(J1, a, j, b, i);
-        }
-      }
-
-      A(I, II) = (H1b + V_ph) * phase_ai * phase_bj;
+      // Two-body Pandya term: look up from pre-computed table
+      A(I, II) = (H1b + Hbar_ch(I, II)) * phase_ai * phase_bj;
     }
   }
 }
@@ -200,6 +221,47 @@ void EOMImsrg::BuildBMatrix_byIndex(size_t ich_CC)
 
   int Jph = tbc_CC.J;
 
+  // Pre-compute the B-matrix CC-channel table (ph × ph block).
+  //
+  //   Hbar_B(ibra, iket)
+  //     = Σ_{J'}(-1)^{J'} (2J'+1) W6j(ja,ji,Jph; jj,jb,J') × GetTBME_J(J', a,b,i,j)
+  //
+  // ibra/iket follow the same ordering as the ph_list (particle=a_orb, hole=i_orb
+  // after an optional swap).
+  arma::mat Hbar_B(nph, nph, arma::fill::zeros);
+  for (size_t ibra = 0; ibra < nph; ++ibra)
+  {
+    Ket& bra = tbc_CC.GetKet(ph_list[ibra]);
+    size_t a_orb = bra.p, i_orb = bra.q;
+    if (bra.op->occ > bra.oq->occ) std::swap(a_orb, i_orb);
+    double ja_b = 0.5 * modelspace->GetOrbit(a_orb).j2;
+    double ji_b = 0.5 * modelspace->GetOrbit(i_orb).j2;
+
+    for (size_t iket = 0; iket < nph; ++iket)
+    {
+      Ket& ket = tbc_CC.GetKet(ph_list[iket]);
+      size_t b_orb = ket.p, j_orb = ket.q;
+      if (ket.op->occ > ket.oq->occ) std::swap(b_orb, j_orb);
+      double jb_b = 0.5 * modelspace->GetOrbit(b_orb).j2;
+      double jj_b = 0.5 * modelspace->GetOrbit(j_orb).j2;
+
+      int Jp_min = std::max(std::abs((int)(2*ja_b) - (int)(2*jb_b)),
+                            std::abs((int)(2*ji_b) - (int)(2*jj_b))) / 2;
+      int Jp_max = std::min((int)(2*ja_b) + (int)(2*jb_b),
+                            (int)(2*ji_b) + (int)(2*jj_b)) / 2;
+      double V_B = 0.0;
+      for (int Jp = Jp_min; Jp <= Jp_max; ++Jp)
+      {
+        double sixj = modelspace->GetSixJ(ja_b, ji_b, (double)Jph,
+                                          jj_b, jb_b, (double)Jp);
+        if (std::abs(sixj) < 1e-8) continue;
+        V_B += AngMom::phase(Jp) * (2*Jp+1) * sixj
+             * H.TwoBody.GetTBME_J(Jp, a_orb, b_orb, i_orb, j_orb);
+      }
+      Hbar_B(ibra, iket) = V_B;
+    }
+  }
+
   #pragma omp parallel for schedule(dynamic,1)
   for (long long I = 0; I < static_cast<long long>(nph); ++I)
   {
@@ -237,23 +299,8 @@ void EOMImsrg::BuildBMatrix_byIndex(size_t ich_CC)
         std::swap(phase_bj, phase_jb);
       }
 
-      int J1min = std::max(std::abs(j2a - j2b), std::abs(j2i - j2j)) / 2;
-      int J1max = std::min(j2a + j2b, j2i + j2j) / 2;
-      double V_pp = 0.0;
       int phase_ib = AngMom::phase((j2i + j2b)/2 + Jph);
-
-      if (AngMom::Triangle(0.5*j2j, 0.5*j2b, Jph) && AngMom::Triangle(0.5*j2i, 0.5*j2a, Jph))
-      {
-        for (int J1 = J1min; J1 <= J1max; ++J1)
-        {
-          V_pp += AngMom::phase(J1)
-                  * (2 * J1 + 1)
-                  * modelspace->GetSixJ(0.5*j2a, 0.5*j2i, Jph, 0.5*j2j, 0.5*j2b, J1)
-                  * H.TwoBody.GetTBME_J(J1, a, b, i, j);
-        }
-      }
-
-      B(I, II) = V_pp * phase_ib * phase_ai * phase_bj;
+      B(I, II) = Hbar_B(I, II) * phase_ib * phase_ai * phase_bj;
     }
   }
 }
@@ -704,9 +751,6 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
       H22(alpha, beta) += ring_val;
     }
   }
-
-  // Symmetrize to remove any numerical asymmetry
-  H22 = 0.5 * (H22 + H22.t());
 }
 
 // ---------------------------------------------------------------------------
@@ -1116,11 +1160,11 @@ void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
 
       // PP-PP ladder
       if (ii == ip && jj == jp && Jij == Jijp && Jab == Jabp)
-        val += H.TwoBody.GetTBME_J_norm(Jab, a, b, ap, bp);
+        val += 0.5 * H.TwoBody.GetTBME_J(Jab, a, b, ap, bp);
 
       // HH-HH ladder
       if (a == ap && b == bp && Jab == Jabp && Jij == Jijp)
-        val -= H.TwoBody.GetTBME_J_norm(Jij, ii, jj, ip, jp);
+        val -= 0.5 * H.TwoBody.GetTBME_J(Jij, ii, jj, ip, jp);
 
       // Ph ring
       int phase_pp_b = AngMom::phase((j2ap + j2bp) / 2 - Jabp + 1);
