@@ -1006,22 +1006,25 @@ PYBIND11_MODULE(pyIMSRG, m)
       py::class_<EOMImsrg>(m, "EOMImsrg")
           .def(py::init<Operator &>())
           // ---- matrix construction ----
-          .def("BuildAMatrix", &EOMImsrg::BuildAMatrix,
+          .def("Build_AMatrix", &EOMImsrg::Build_AMatrix,
                py::arg("J"), py::arg("parity"), py::arg("Tz"))
           .def("BuildBMatrix", &EOMImsrg::BuildBMatrix,
                py::arg("J"), py::arg("parity"), py::arg("Tz"))
           // index-addressed variants (use TwoBodyChannel_CC index directly)
-          .def("BuildAMatrix_byIndex", &EOMImsrg::BuildAMatrix_byIndex,
+          .def("Build_AMatrix_byIndex", &EOMImsrg::Build_AMatrix_byIndex,
                py::arg("ich_CC"))
           .def("BuildBMatrix_byIndex", &EOMImsrg::BuildBMatrix_byIndex,
                py::arg("ich_CC"))
           // ---- solvers ----
           .def("Solve", &EOMImsrg::Solve,
-               py::arg("J"), py::arg("parity"), py::arg("Tz"), py::arg("mode") = "TDA")
+               py::arg("J"), py::arg("parity"), py::arg("Tz"), py::arg("mode") = "TDA",
+               "mode: 'TDA'|'EOM'|'RPA'|'EOM2'")
           .def("Solve_byIndex", &EOMImsrg::Solve_byIndex,
-               py::arg("ich_CC"), py::arg("mode") = "TDA")
+               py::arg("ich_CC"), py::arg("mode") = "TDA",
+               "mode: 'TDA'|'EOM'|'RPA'|'EOM2'")
           .def("SolveAllChannels", &EOMImsrg::SolveAllChannels,
-               py::arg("mode") = "TDA")
+               py::arg("mode") = "TDA",
+               "mode: 'TDA'|'EOM'|'RPA'|'EOM2'")
           // ---- matrix-free Lanczos solvers (EOM2 without building H22/H21) ----
           .def("Solve_byIndex_MF", &EOMImsrg::Solve_byIndex_MF,
                py::arg("ich_CC"), py::arg("nev"),
@@ -1115,8 +1118,8 @@ PYBIND11_MODULE(pyIMSRG, m)
                 },
                 "Print the 1p1h basis ordering for the A (A11) matrix. "
                 "Shows particle orbit a, hole orbit i, CC-channel storage order, "
-                "and the phase factor applied in BuildAMatrix_byIndex. "
-                "Must call BuildAMatrix_byIndex or Solve_byIndex first.")
+                "and the phase factor applied in Build_AMatrix_byIndex. "
+                "Must call Build_AMatrix_byIndex or Solve_byIndex first.")
           .def("PrintBasis2p2h", [](EOMImsrg &self)
                 {
                   ModelSpace* ms = self.modelspace;
@@ -1181,7 +1184,7 @@ PYBIND11_MODULE(pyIMSRG, m)
                  }
                  return out; },
                "A (A11) 1p1h block as a list-of-rows. "
-               "Must call BuildAMatrix_byIndex or Solve_byIndex first.")
+               "Must call Build_AMatrix_byIndex or Solve_byIndex first.")
           .def_property_readonly("H21_matrix", [](EOMImsrg &self)
                { std::vector<std::vector<double>> out;
                  for (size_t r = 0; r < self.H21.n_rows; r++) {

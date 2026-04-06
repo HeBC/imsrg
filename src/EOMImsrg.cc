@@ -54,14 +54,14 @@ EOMImsrg::EOMImsrg(Operator& H_imsrg)
 {}
 
 // ---------------------------------------------------------------------------
-// BuildAMatrix
+// Build_AMatrix
 // ---------------------------------------------------------------------------
 
-/// Dispatch helper: look up the channel index then call BuildAMatrix_byIndex.
-void EOMImsrg::BuildAMatrix(int J, int parity, int Tz)
+/// Dispatch helper: look up the channel index then call Build_AMatrix_byIndex.
+void EOMImsrg::Build_AMatrix(int J, int parity, int Tz)
 {
   size_t ich_CC = modelspace->GetTwoBodyChannelIndex(J, parity, Tz);
-  BuildAMatrix_byIndex(ich_CC);
+  Build_AMatrix_byIndex(ich_CC);
 }
 
 ///
@@ -69,16 +69,15 @@ void EOMImsrg::BuildAMatrix(int J, int parity, int Tz)
 ///
 /// The matrix element is
 /// \f[
-///   A_{ai,bj}(J) = (\varepsilon_a - \varepsilon_i)\delta_{ab}\delta_{ij}
+///   A_{ai,bj}(J) = f_{ab}\delta_{ij} - f_{ij}\delta_{ab}
 ///                  - \sum_{J'} (2J'+1)
 ///                    \begin{Bmatrix} j_a & j_i & J \\ j_b & j_j & J' \end{Bmatrix}
 ///                    \langle a j; J' \| V \| b i; J' \rangle,
 /// \f]
-/// which is the Pandya transform of the antisymmetrised two-body interaction.
-/// This is identical to the TDA A matrix, but evaluated with the
-/// IMSRG-evolved \f$\tilde{H}\f$.
+/// where the one-body term uses the full off-diagonal f_{ab} (or f_{ij}) within
+/// each one-body channel (i.e. same l, j, tz), following the IMSRG convention.
 ///
-void EOMImsrg::BuildAMatrix_byIndex(size_t ich_CC)
+void EOMImsrg::Build_AMatrix_byIndex(size_t ich_CC)
 {
   current_channel = ich_CC;
   TwoBodyChannel_CC& tbc_CC = modelspace->GetTwoBodyChannel_CC(ich_CC);
@@ -95,18 +94,18 @@ void EOMImsrg::BuildAMatrix_byIndex(size_t ich_CC)
     Ket& ket_ai = tbc_CC.GetKet(iket_ai);
     index_t a = ket_ai.p;
     index_t i = ket_ai.q;
-    double ja = 0.5 * modelspace->GetOrbit(a).j2;
-    double ji = 0.5 * modelspace->GetOrbit(i).j2;
+    int j2a = modelspace->GetOrbit(a).j2;
+    int j2i = modelspace->GetOrbit(i).j2;
 
     // phase_ai tracks the sign convention for the CC-channel ket ordering.
     // When the ket is stored as (hole, particle) we swap to (particle=a, hole=i)
-    // and apply the corresponding phase -(-1)^{ja+ji-Jph}, matching RPA.cc.
+    // and apply the corresponding phase -(-1)^{(j2a+j2i)/2-Jph}.
     int phase_ai = 1;
-    int phase_ia = -AngMom::phase(ja + ji - Jph);
+    int phase_ia = -AngMom::phase((j2a + j2i)/2 - Jph);
     if (ket_ai.op->occ > ket_ai.oq->occ)
     {
       std::swap(a, i);
-      std::swap(ja, ji);
+      std::swap(j2a, j2i);
       std::swap(phase_ai, phase_ia);
     }
 
@@ -116,32 +115,35 @@ void EOMImsrg::BuildAMatrix_byIndex(size_t ich_CC)
       Ket& ket_bj = tbc_CC.GetKet(iket_bj);
       index_t b = ket_bj.p;
       index_t j = ket_bj.q;
-      double jb = 0.5 * modelspace->GetOrbit(b).j2;
-      double jj = 0.5 * modelspace->GetOrbit(j).j2;
+      int j2b = modelspace->GetOrbit(b).j2;
+      int j2j = modelspace->GetOrbit(j).j2;
 
       int phase_bj = 1;
-      int phase_jb = -AngMom::phase(jb + jj - Jph);
+      int phase_jb = -AngMom::phase((j2b + j2j)/2 - Jph);
       if (ket_bj.op->occ > ket_bj.oq->occ)
       {
         std::swap(b, j);
-        std::swap(jb, jj);
+        std::swap(j2b, j2j);
         std::swap(phase_bj, phase_jb);
       }
 
-      // Diagonal SPE term: (eps_a - eps_i) * delta_{ai,bj}
-      double H1b = (iket_ai == iket_bj) ? H.OneBody(a, a) - H.OneBody(i, i) : 0.0;
+      // 1-body contribution: f_{ab}*delta_{ij} - f_{ij}*delta_{ab}
+      // f_{ab} is nonzero for any a,b in the same one-body channel (same l,j,tz),
+      // not just when a==b.  Same for f_{ij}.
+      double H1b = (i == j ? H.OneBody(a, b) : 0.0)
+                 - (a == b ? H.OneBody(i, j) : 0.0);
 
       // Two-body Pandya term
       // A_{ai,bj}(J) -= sum_{J'} (2J'+1) {ja ji J; jb jj J'} <aj';J'|V|bi';J'>
-      int J1min = std::max(std::abs(ja - jj), std::abs(jb - ji));
-      int J1max = std::min(ja + jj, jb + ji);
+      int J1min = std::max(std::abs(j2a - j2j), std::abs(j2b - j2i)) / 2;
+      int J1max = std::min(j2a + j2j, j2b + j2i) / 2;
       double V_ph = 0.0;
 
-      if (AngMom::Triangle(jj, jb, Jph) && AngMom::Triangle(ji, ja, Jph))
+      if (AngMom::Triangle(0.5*j2j, 0.5*j2b, Jph) && AngMom::Triangle(0.5*j2i, 0.5*j2a, Jph))
       {
         for (int J1 = J1min; J1 <= J1max; ++J1)
         {
-          V_ph -= modelspace->GetSixJ(ja, ji, Jph, jb, jj, J1)
+          V_ph -= modelspace->GetSixJ(0.5*j2a, 0.5*j2i, Jph, 0.5*j2b, 0.5*j2j, J1)
                   * (2 * J1 + 1)
                   * H.TwoBody.GetTBME_J(J1, a, j, b, i);
         }
@@ -195,15 +197,15 @@ void EOMImsrg::BuildBMatrix_byIndex(size_t ich_CC)
     Ket& ket_ai = tbc_CC.GetKet(iket_ai);
     index_t a = ket_ai.p;
     index_t i = ket_ai.q;
-    double ja = 0.5 * modelspace->GetOrbit(a).j2;
-    double ji = 0.5 * modelspace->GetOrbit(i).j2;
+    int j2a = modelspace->GetOrbit(a).j2;
+    int j2i = modelspace->GetOrbit(i).j2;
 
     int phase_ai = 1;
-    int phase_ia = -AngMom::phase(ja + ji - Jph);
+    int phase_ia = -AngMom::phase((j2a + j2i)/2 - Jph);
     if (ket_ai.op->occ > ket_ai.oq->occ)
     {
       std::swap(a, i);
-      std::swap(ja, ji);
+      std::swap(j2a, j2i);
       std::swap(phase_ai, phase_ia);
     }
 
@@ -213,30 +215,30 @@ void EOMImsrg::BuildBMatrix_byIndex(size_t ich_CC)
       Ket& ket_bj = tbc_CC.GetKet(iket_bj);
       index_t b = ket_bj.p;
       index_t j = ket_bj.q;
-      double jb = 0.5 * modelspace->GetOrbit(b).j2;
-      double jj = 0.5 * modelspace->GetOrbit(j).j2;
+      int j2b = modelspace->GetOrbit(b).j2;
+      int j2j = modelspace->GetOrbit(j).j2;
 
       int phase_bj = 1;
-      int phase_jb = -AngMom::phase(jb + jj - Jph);
+      int phase_jb = -AngMom::phase((j2b + j2j)/2 - Jph);
       if (ket_bj.op->occ > ket_bj.oq->occ)
       {
         std::swap(b, j);
-        std::swap(jb, jj);
+        std::swap(j2b, j2j);
         std::swap(phase_bj, phase_jb);
       }
 
-      int J1min = std::max(std::abs(ja - jb), std::abs(ji - jj));
-      int J1max = std::min(ja + jb, ji + jj);
+      int J1min = std::max(std::abs(j2a - j2b), std::abs(j2i - j2j)) / 2;
+      int J1max = std::min(j2a + j2b, j2i + j2j) / 2;
       double V_pp = 0.0;
-      int phase_ib = AngMom::phase(ji + jb + Jph);
+      int phase_ib = AngMom::phase((j2i + j2b)/2 + Jph);
 
-      if (AngMom::Triangle(jj, jb, Jph) && AngMom::Triangle(ji, ja, Jph))
+      if (AngMom::Triangle(0.5*j2j, 0.5*j2b, Jph) && AngMom::Triangle(0.5*j2i, 0.5*j2a, Jph))
       {
         for (int J1 = J1min; J1 <= J1max; ++J1)
         {
           V_pp += AngMom::phase(J1)
                   * (2 * J1 + 1)
-                  * modelspace->GetSixJ(ja, ji, Jph, jj, jb, J1)
+                  * modelspace->GetSixJ(0.5*j2a, 0.5*j2i, Jph, 0.5*j2j, 0.5*j2b, J1)
                   * H.TwoBody.GetTBME_J(J1, a, b, i, j);
         }
       }
@@ -351,9 +353,9 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
   for (long long alpha_ll = 0; alpha_ll < static_cast<long long>(n2); ++alpha_ll)
   {
     size_t alpha = static_cast<size_t>(alpha_ll);
-    const TwoPTwoHState& sa = tpth_basis[alpha];
-    size_t a = sa.a, b = sa.b, ii = sa.i, jj = sa.j;
-    int Jab = sa.Jab, Jij = sa.Jij;
+    const TwoPTwoHState& st_alpha = tpth_basis[alpha];
+    size_t a = st_alpha.a, b = st_alpha.b, ii = st_alpha.i, jj = st_alpha.j;
+    int Jab = st_alpha.Jab, Jij = st_alpha.Jij;
     int j2a  = modelspace->GetOrbit(a).j2;
     int j2b  = modelspace->GetOrbit(b).j2;
     int j2ii = modelspace->GetOrbit(ii).j2;
@@ -365,7 +367,7 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
     double Nab = std::sqrt(1.0 + (a == b  ? 1.0 : 0.0));
     double Nij = std::sqrt(1.0 + (ii == jj ? 1.0 : 0.0));
 
-    // Diagonal SPE term
+    // Diagonal SPE term (off-diagonal 1-body contributions are added in beta loop)
     H22(alpha, alpha) = H.OneBody(a, a) + H.OneBody(b, b)
                       - H.OneBody(ii, ii) - H.OneBody(jj, jj);
 
@@ -406,9 +408,9 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
 
     for (size_t beta = 0; beta < n2; ++beta)
     {
-      const TwoPTwoHState& sb = tpth_basis[beta];
-      size_t ap = sb.a, bp = sb.b, ip = sb.i, jp = sb.j;
-      int Jabp = sb.Jab, Jijp = sb.Jij;
+      const TwoPTwoHState& st_beta = tpth_basis[beta];
+      size_t ap = st_beta.a, bp = st_beta.b, ip = st_beta.i, jp = st_beta.j;
+      int Jabp = st_beta.Jab, Jijp = st_beta.Jij;
       int j2ap = modelspace->GetOrbit(ap).j2;
       int j2bp = modelspace->GetOrbit(bp).j2;
       int j2ip = modelspace->GetOrbit(ip).j2;
@@ -421,8 +423,27 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
       double Nijp = std::sqrt(1.0 + (ip == jp ? 1.0 : 0.0));
 
       // val accumulates all contributions for H22(alpha, beta):
-      //   diagonal SPE (only when alpha==beta) + pp-pp + hh-hh + ph ring
+      //   diagonal SPE (only when alpha==beta) + 1-body off-diagonal
+      //   + pp-pp + hh-hh + ph ring
       double val = (alpha == beta) ? H22(alpha, alpha) : 0.0;
+
+      // Off-diagonal 1-body contributions (comm121):
+      //   f_{a,ap} when b==bp, ii==ip, jj==jp, Jab==Jabp, Jij==Jijp  (alpha!=beta)
+      //   f_{b,bp} when a==ap, ii==ip, jj==jp, Jab==Jabp, Jij==Jijp  (alpha!=beta)
+      //  -f_{ii,ip} when a==ap, b==bp, jj==jp, Jab==Jabp, Jij==Jijp  (alpha!=beta)
+      //  -f_{jj,jp} when a==ap, b==bp, ii==ip, Jab==Jabp, Jij==Jijp  (alpha!=beta)
+      // (The diagonal case alpha==beta is already handled by H22(alpha,alpha) above.)
+      if (alpha != beta)
+      {
+        if (b == bp && ii == ip && jj == jp && Jab == Jabp && Jij == Jijp)
+          val += H.OneBody(a, ap);
+        if (a == ap && ii == ip && jj == jp && Jab == Jabp && Jij == Jijp)
+          val += H.OneBody(b, bp);
+        if (a == ap && b == bp && jj == jp && Jab == Jabp && Jij == Jijp)
+          val -= H.OneBody(ii, ip);
+        if (a == ap && b == bp && ii == ip && Jab == Jabp && Jij == Jijp)
+          val -= H.OneBody(jj, jp);
+      }
 
       // PP-PP ladder: same hh pair and same J couplings
       if (ii == ip && jj == jp && Jij == Jijp && Jab == Jabp)
@@ -540,7 +561,7 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
 }
 
 // ---------------------------------------------------------------------------
-// BuildH21_byIndex
+// Build_H21_byIndex
 // ---------------------------------------------------------------------------
 
 ///
@@ -582,12 +603,12 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
 /// Using GetTBME_J (not _norm) is consistent with the N_ab/N_ij prefactor in K.
 ///
 /// After filling the matrix, the same CC-channel ket-ordering phase used in
-/// BuildAMatrix_byIndex is applied column-wise so that the 1p1h columns of
+/// Build_AMatrix_byIndex is applied column-wise so that the 1p1h columns of
 /// H21 are aligned with those of A in the full EOM2 secular matrix:
 ///   [ A       H21^T ]
 ///   [ H21     H22   ]
 ///
-void EOMImsrg::BuildH21_byIndex(size_t ich_CC)
+void EOMImsrg::Build_H21_byIndex(size_t ich_CC)
 {
   TwoBodyChannel_CC& tbc_CC = modelspace->GetTwoBodyChannel_CC(ich_CC);
   const auto& ph_list = tbc_CC.GetKetIndex_ph();
@@ -623,10 +644,10 @@ void EOMImsrg::BuildH21_byIndex(size_t ich_CC)
   for (long long alpha_ll = 0; alpha_ll < static_cast<long long>(n2); ++alpha_ll)
   {
     size_t alpha = static_cast<size_t>(alpha_ll);
-    const TwoPTwoHState& sa = tpth_basis[alpha];
+    const TwoPTwoHState& st_alpha = tpth_basis[alpha];
     // 2p-2h state: particles a,b coupled to J_ab; holes ii,jj coupled to J_ij
-    size_t a = sa.a, b = sa.b, ii = sa.i, jj = sa.j;
-    int Jab = sa.Jab, Jij = sa.Jij;
+    size_t a = st_alpha.a, b = st_alpha.b, ii = st_alpha.i, jj = st_alpha.j;
+    int Jab = st_alpha.Jab, Jij = st_alpha.Jij;
 
     const Orbit& oa   = modelspace->GetOrbit(a);
     const Orbit& ob   = modelspace->GetOrbit(b);
@@ -737,8 +758,8 @@ void EOMImsrg::BuildH21_byIndex(size_t ich_CC)
   }
 
   // Apply the same CC-channel ket-ordering phase corrections used in
-  // BuildAMatrix_byIndex.  When a ph ket at column col is stored as
-  // (hole, particle), BuildAMatrix multiplies row and column col by
+  // Build_AMatrix_byIndex.  When a ph ket at column col is stored as
+  // (hole, particle), Build_AMatrix multiplies row and column col by
   // phase_ki = -(-1)^{j_c+j_k-J}  (using notation c=particle, k=hole).
   // For the EOM2 full secular matrix
   //   [ A       H21^T ]
@@ -771,19 +792,23 @@ void EOMImsrg::Solve(int J, int parity, int Tz, std::string mode)
 void EOMImsrg::Solve_byIndex(size_t ich_CC, std::string mode)
 {
   current_channel = ich_CC;
-  BuildAMatrix_byIndex(ich_CC);
+  Build_AMatrix_byIndex(ich_CC);
   one_ph_count = A.n_rows;
   two_ph_count = 0;
   lanczos_iterations = 0;
   OnePhNorms.reset();
-  B.zeros(A.n_rows, A.n_cols);
+
+  if (mode == "RPA")
+    BuildBMatrix_byIndex(ich_CC);
+  else
+    B.zeros(A.n_rows, A.n_cols);
 
   if (mode == "EOM2")
   {
     Build2p2hBasis_byIndex(ich_CC);
     two_ph_count = tpth_basis.size();
     BuildH22_byIndex(ich_CC);
-    BuildH21_byIndex(ich_CC);
+    Build_H21_byIndex(ich_CC);
   }
 
   SolveCurrentChannel(mode);
@@ -842,9 +867,9 @@ void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
   for (long long alpha_ll = 0; alpha_ll < static_cast<long long>(n2); ++alpha_ll)
   {
     size_t alpha = static_cast<size_t>(alpha_ll);
-    const TwoPTwoHState& sa = tpth_basis[alpha];
-    size_t a = sa.a, b = sa.b, ii = sa.i, jj = sa.j;
-    int Jab = sa.Jab, Jij = sa.Jij;
+    const TwoPTwoHState& st_alpha = tpth_basis[alpha];
+    size_t a = st_alpha.a, b = st_alpha.b, ii = st_alpha.i, jj = st_alpha.j;
+    int Jab = st_alpha.Jab, Jij = st_alpha.Jij;
     int j2a  = modelspace->GetOrbit(a).j2;
     int j2b  = modelspace->GetOrbit(b).j2;
     int j2ii = modelspace->GetOrbit(ii).j2;
@@ -856,9 +881,27 @@ void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
     double Nab = std::sqrt(1.0 + (a == b  ? 1.0 : 0.0));
     double Nij = std::sqrt(1.0 + (ii == jj ? 1.0 : 0.0));
 
-    // Diagonal SPE contribution
+    // Diagonal SPE contribution and off-diagonal 1-body contributions (comm121)
     double hv_alpha = (H.OneBody(a, a) + H.OneBody(b, b)
                      - H.OneBody(ii, ii) - H.OneBody(jj, jj)) * v[alpha];
+
+    // Off-diagonal 1-body: loop over beta states that share 3 of 4 orbits
+    // with alpha but differ in one orbit within the same one-body channel.
+    for (size_t beta2 = 0; beta2 < n2; ++beta2)
+    {
+      if (beta2 == alpha || std::abs(v[beta2]) < 1e-15) continue;
+      const TwoPTwoHState& st_b2 = tpth_basis[beta2];
+      size_t ap2 = st_b2.a, bp2 = st_b2.b, ip2 = st_b2.i, jp2 = st_b2.j;
+      int Jabp2 = st_b2.Jab, Jijp2 = st_b2.Jij;
+      if (b == bp2 && ii == ip2 && jj == jp2 && Jab == Jabp2 && Jij == Jijp2)
+        hv_alpha += H.OneBody(a, ap2) * v[beta2];
+      if (a == ap2 && ii == ip2 && jj == jp2 && Jab == Jabp2 && Jij == Jijp2)
+        hv_alpha += H.OneBody(b, bp2) * v[beta2];
+      if (a == ap2 && b == bp2 && jj == jp2 && Jab == Jabp2 && Jij == Jijp2)
+        hv_alpha -= H.OneBody(ii, ip2) * v[beta2];
+      if (a == ap2 && b == bp2 && ii == ip2 && Jab == Jabp2 && Jij == Jijp2)
+        hv_alpha -= H.OneBody(jj, jp2) * v[beta2];
+    }
 
     int phase_pp_a = AngMom::phase((j2a  + j2b)  / 2 - Jab + 1);
     int phase_hh_a = AngMom::phase((j2ii + j2jj) / 2 - Jij + 1);
@@ -884,9 +927,9 @@ void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
       // are also needed for the diagonal, beyond the SPE handled above.
       if (std::abs(v[beta]) < 1e-15) continue;
 
-      const TwoPTwoHState& sb = tpth_basis[beta];
-      size_t ap = sb.a, bp = sb.b, ip = sb.i, jp = sb.j;
-      int Jabp = sb.Jab, Jijp = sb.Jij;
+      const TwoPTwoHState& st_beta = tpth_basis[beta];
+      size_t ap = st_beta.a, bp = st_beta.b, ip = st_beta.i, jp = st_beta.j;
+      int Jabp = st_beta.Jab, Jijp = st_beta.Jij;
       int j2ap = modelspace->GetOrbit(ap).j2;
       int j2bp = modelspace->GetOrbit(bp).j2;
       int j2ip = modelspace->GetOrbit(ip).j2;
@@ -990,14 +1033,14 @@ void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
 
 /// Compute Hv_2p2h += H21 * v_ph without building H21.
 ///
-/// Applies the same formula as BuildH21_byIndex but without materialising H21.
+/// Applies the same formula as Build_H21_byIndex but without materialising H21.
 /// Parallelised over 2p-2h states α; uses the precomputed lookup tables:
 ///   mf_orbit_to_ph[orb]  → (col, is_particle) pairs for each orbit
 ///   mf_ph_particle[col]  → particle orbit (a,b,c,…) of ph column col
 ///   mf_ph_hole[col]      → hole    orbit  (i,j,k,…) of ph column col
 /// These are populated once by Solve_byIndex_MF before Lanczos iterations.
 ///
-/// The four terms sm1-sm4 are identical to BuildH21_byIndex; see that
+/// The four terms sm1-sm4 are identical to Build_H21_byIndex; see that
 /// function's comment for the full formula with consistent notation.
 void EOMImsrg::ApplyH21_matvec(const arma::vec& v_ph, arma::vec& Hv_2p2h) const
 {
@@ -1009,10 +1052,10 @@ void EOMImsrg::ApplyH21_matvec(const arma::vec& v_ph, arma::vec& Hv_2p2h) const
   for (long long alpha_ll = 0; alpha_ll < static_cast<long long>(n2); ++alpha_ll)
   {
     size_t alpha = static_cast<size_t>(alpha_ll);
-    const TwoPTwoHState& sa = tpth_basis[alpha];
+    const TwoPTwoHState& st_alpha = tpth_basis[alpha];
     // 2p-2h state: particles a,b coupled to J_ab; holes ii,jj coupled to J_ij
-    size_t a = sa.a, b = sa.b, ii = sa.i, jj = sa.j;
-    int Jab = sa.Jab, Jij = sa.Jij;
+    size_t a = st_alpha.a, b = st_alpha.b, ii = st_alpha.i, jj = st_alpha.j;
+    int Jab = st_alpha.Jab, Jij = st_alpha.Jij;
 
     const Orbit& oa   = modelspace->GetOrbit(a);
     const Orbit& ob   = modelspace->GetOrbit(b);
@@ -1124,7 +1167,7 @@ void EOMImsrg::ApplyH21_matvec(const arma::vec& v_ph, arma::vec& Hv_2p2h) const
 /// Because multiple α states can write to the same ph column this loop
 /// cannot be parallelised without synchronisation and runs serially.
 ///
-/// The four terms sm1-sm4 are the transpose of those in BuildH21_byIndex;
+/// The four terms sm1-sm4 are the transpose of those in Build_H21_byIndex;
 /// see that function for the full formula with consistent notation.
 void EOMImsrg::ApplyH21T_matvec(const arma::vec& v_2p2h, arma::vec& Hv_ph) const
 {
@@ -1137,10 +1180,10 @@ void EOMImsrg::ApplyH21T_matvec(const arma::vec& v_2p2h, arma::vec& Hv_ph) const
     double v_alpha = v_2p2h[alpha];
     if (std::abs(v_alpha) < 1e-15) continue;
 
-    const TwoPTwoHState& sa = tpth_basis[alpha];
+    const TwoPTwoHState& st_alpha = tpth_basis[alpha];
     // 2p-2h state: particles a,b coupled to J_ab; holes ii,jj coupled to J_ij
-    size_t a = sa.a, b = sa.b, ii = sa.i, jj = sa.j;
-    int Jab = sa.Jab, Jij = sa.Jij;
+    size_t a = st_alpha.a, b = st_alpha.b, ii = st_alpha.i, jj = st_alpha.j;
+    int Jab = st_alpha.Jab, Jij = st_alpha.Jij;
 
     const Orbit& oa   = modelspace->GetOrbit(a);
     const Orbit& ob   = modelspace->GetOrbit(b);
@@ -1292,7 +1335,7 @@ struct EOMMatFreeOp
 /// Solve channel ich_CC using a matrix-free Lanczos method (EOM2 mode).
 ///
 /// This is the memory-efficient alternative to Solve_byIndex(..., "EOM2"):
-///   - Reuses BuildAMatrix_byIndex() and Build2p2hBasis_byIndex() (unchanged).
+///   - Reuses Build_AMatrix_byIndex() and Build2p2hBasis_byIndex() (unchanged).
 ///   - Does NOT build H22 (N2×N2) or H21 (N2×Nph).
 ///   - Runs armadillo's newarp SymEigsSolver with a custom matrix-product
 ///     operator that computes H_EOM2 * v on the fly each Lanczos step.
@@ -1312,7 +1355,7 @@ void EOMImsrg::Solve_byIndex_MF(size_t ich_CC, int nev)
   current_channel = ich_CC;
 
   // --- Reuse existing builders for A and the 2p2h basis ---
-  BuildAMatrix_byIndex(ich_CC);
+  Build_AMatrix_byIndex(ich_CC);
   one_ph_count = A.n_rows;
 
   Build2p2hBasis_byIndex(ich_CC);
@@ -1367,7 +1410,7 @@ void EOMImsrg::Solve_byIndex_MF(size_t ich_CC, int nev)
               << "; falling back to dense EOM2 solve in channel " << ich_CC
               << std::endl;
     BuildH22_byIndex(ich_CC);
-    BuildH21_byIndex(ich_CC);
+    Build_H21_byIndex(ich_CC);
     SolveCurrentChannel("EOM2");
   }
   else
@@ -1537,10 +1580,63 @@ void EOMImsrg::SolveCurrentChannel(std::string mode)
       OnePhNorms = ComputeOnePhNorms(X);
     }
   }
+  else if (mode == "RPA")
+  {
+    // RPA secular equation: [ A  B; -B  -A ] (B must already be built by caller)
+    // Produces both excitation (X) and de-excitation (Y) amplitudes.
+    arma::mat M = arma::join_vert(
+        arma::join_horiz( A,  B),
+        arma::join_horiz(-B, -A));
+
+    arma::cx_vec cx_eigvals;
+    arma::cx_mat cx_eigvecs;
+    arma::eig_gen(cx_eigvals, cx_eigvecs, M);
+
+    static const double RPA_IMAG_TOL = 1e-3;
+    static const double RPA_NORM_TOL = 1e-10;
+
+    double norm_imag = arma::norm(arma::imag(cx_eigvals), "fro");
+    if (norm_imag > RPA_IMAG_TOL)
+    {
+      std::cout << "WARNING EOMImsrg RPA: non-zero imaginary eigenvalues ("
+                << norm_imag << ") in channel " << current_channel
+                << "  " << __FILE__ << ":" << __LINE__ << std::endl;
+    }
+
+    // Keep only positive-real solutions (discard spurious negative partners)
+    arma::uvec pos_idx = arma::find(arma::real(cx_eigvals)
+                                    + arma::imag(cx_eigvals) > 0);
+    size_t nph_rpa = A.n_rows;
+    arma::vec Etmp = arma::real(cx_eigvals(pos_idx));
+    arma::mat Vtmp = arma::real(cx_eigvecs.cols(pos_idx));
+
+    arma::uvec ord = arma::sort_index(Etmp);
+    Energies = Etmp(ord);
+    arma::mat Vsorted = Vtmp.cols(ord);
+
+    // The secular matrix is 2*nph × 2*nph.  First nph rows = X (excitation),
+    // last nph rows = Y (de-excitation).
+    X = Vsorted.head_rows(nph_rpa);
+    Y = Vsorted.tail_rows(nph_rpa);
+
+    // Normalise each solution: X^T X - Y^T Y = 1
+    for (size_t mu = 0; mu < Energies.n_elem; mu++)
+    {
+      double nxy = arma::dot(X.col(mu), X.col(mu))
+                 - arma::dot(Y.col(mu), Y.col(mu));
+      if (std::abs(nxy) > RPA_NORM_TOL)
+      {
+        double inv_sqrt_nxy = 1.0 / std::sqrt(std::abs(nxy));
+        X.col(mu) *= inv_sqrt_nxy;
+        Y.col(mu) *= inv_sqrt_nxy;
+      }
+    }
+    OnePhNorms = ComputeOnePhNorms(X);
+  }
   else
   {
     throw std::invalid_argument("EOMImsrg::Solve: unknown mode '" + mode
-                                + "'. Use 'TDA', 'EOM', or 'EOM2'.");
+                                + "'. Use 'TDA', 'EOM', 'RPA', or 'EOM2'.");
   }
 }
 
