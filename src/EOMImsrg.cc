@@ -25,6 +25,11 @@
 #include <iostream>
 #include <stdexcept>
 
+// Tolerance for warning about non-zero imaginary parts of RPA eigenvalues
+static const double RPA_IMAG_TOL = 1e-3;
+// Tolerance below which we skip renormalization of an RPA amplitude pair
+static const double RPA_NORM_TOL = 1e-10;
+
 
 namespace
 {
@@ -1591,9 +1596,6 @@ void EOMImsrg::SolveCurrentChannel(std::string mode)
     arma::cx_vec cx_eigvals;
     arma::cx_mat cx_eigvecs;
     arma::eig_gen(cx_eigvals, cx_eigvecs, M);
-
-    static const double RPA_IMAG_TOL = 1e-3;
-    static const double RPA_NORM_TOL = 1e-10;
 
     double norm_imag = arma::norm(arma::imag(cx_eigvals), "fro");
     if (norm_imag > RPA_IMAG_TOL)
