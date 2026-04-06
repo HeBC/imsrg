@@ -132,33 +132,16 @@ void EOMImsrg::Build_AMatrix_byIndex(size_t ich_CC)
         std::swap(phase_bj, phase_jb);
       }
 
-      // 1-body contribution: f_{ab} * δ_{ch(i,j)} - f_{ij} * δ_{ch(a,b)}
+      // 1-body contribution: f_{ab} * δ_{ij} - f_{ij} * δ_{ab}
       //
-      // In spherical HF (after IMSRG evolution), f is block-diagonal in the
-      // one-body channel (same l, j2, tz2) but need NOT be diagonal within a
-      // channel (off-diagonal n-n' elements can be nonzero).
-      //
-      // The correct coupling conditions are:
-      //   • f_{ab}: nonzero when a,b are in same 1b channel (H.OneBody handles this);
-      //             contributes when i and j belong to the SAME 1b channel.
-      //   • f_{ij}: nonzero when i,j are in same 1b channel (H.OneBody handles this);
-      //             contributes when a and b belong to the SAME 1b channel.
-      //
-      // Note: H.OneBody(a,b) is automatically zero when a,b are in different
-      // channels; the explicit channel check on (i,j) / (a,b) below guards only
-      // the "coupling side" that does NOT carry the matrix element itself.
-      const Orbit& oa_ref = modelspace->GetOrbit(a);
-      const Orbit& oi_ref = modelspace->GetOrbit(i);
-      const Orbit& ob_ref = modelspace->GetOrbit(b);
-      const Orbit& oj_ref = modelspace->GetOrbit(j);
-
-      double H1b = 0.0;
-      // f_{ab} * δ_{ch(i,j)}: i and j must be in the same one-body channel
-      if (oi_ref.l == oj_ref.l && oi_ref.j2 == oj_ref.j2 && oi_ref.tz2 == oj_ref.tz2)
-        H1b += H.OneBody(a, b);
-      // f_{ij} * δ_{ch(a,b)}: a and b must be in the same one-body channel
-      if (oa_ref.l == ob_ref.l && oa_ref.j2 == ob_ref.j2 && oa_ref.tz2 == ob_ref.tz2)
-        H1b -= H.OneBody(i, j);
+      // f_{ab} (and f_{ij}) can be off-diagonal within a one-body channel
+      // (a ≠ b is allowed when a,b share the same l,j2,tz2), so H.OneBody(a,b)
+      // is the full off-diagonal matrix element.  The delta conditions on the
+      // spectator indices are strict orbit-index equalities (not channel checks):
+      // only when i==j (same hole orbit) does f_{ab} contribute, and only when
+      // a==b (same particle orbit) does f_{ij} contribute.
+      double H1b = (i == j ? H.OneBody(a, b) : 0.0)
+                 - (a == b ? H.OneBody(i, j) : 0.0);
 
       // Two-body Pandya term
       // A_{ai,bj}(J) -= sum_{J'} (2J'+1) {ja ji J; jb jj J'} <aj';J'|V|bi';J'>
