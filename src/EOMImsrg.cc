@@ -1216,7 +1216,7 @@ void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
         if (act_hb != ip) phase_beta *= phase_hh_b;
 
         double j1b = (act_pb == ap) ? jap : jbp;
-        double j2b_v = (act_pb == ap) ? jbp : jap;
+        double j2b_beta = (act_pb == ap) ? jbp : jap;
         double j3b = (act_hb == ip) ? jip : jjp;
         double j4b = (act_hb == ip) ? jjp : jip;
 
@@ -1257,7 +1257,7 @@ void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
             double n9j_a = modelspace->GetNineJ(ac.j1, ac.j2, (double)Jab,
                                                 ac.j3, ac.j4, (double)Jij,
                                                 (double)Jph, (double)Jsp, (double)J);
-            double n9j_b = modelspace->GetNineJ(j1b,   j2b_v, (double)Jabp,
+            double n9j_b = modelspace->GetNineJ(j1b,   j2b_beta, (double)Jabp,
                                                 j3b,   j4b,   (double)Jijp,
                                                 (double)Jph, (double)Jsp, (double)J);
             ring_Jsp += (2*Jsp+1) * n9j_a * n9j_b;

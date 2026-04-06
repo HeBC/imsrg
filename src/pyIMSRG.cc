@@ -1008,12 +1008,12 @@ PYBIND11_MODULE(pyIMSRG, m)
           // ---- matrix construction ----
           .def("Build_AMatrix", &EOMImsrg::Build_AMatrix,
                py::arg("J"), py::arg("parity"), py::arg("Tz"))
-          .def("BuildBMatrix", &EOMImsrg::BuildBMatrix,
+          .def("Build_BMatrix", &EOMImsrg::Build_BMatrix,
                py::arg("J"), py::arg("parity"), py::arg("Tz"))
           // index-addressed variants (use TwoBodyChannel_CC index directly)
           .def("Build_AMatrix_byIndex", &EOMImsrg::Build_AMatrix_byIndex,
                py::arg("ich_CC"))
-          .def("BuildBMatrix_byIndex", &EOMImsrg::BuildBMatrix_byIndex,
+          .def("Build_BMatrix_byIndex", &EOMImsrg::Build_BMatrix_byIndex,
                py::arg("ich_CC"))
           .def("Build_H21_byIndex", &EOMImsrg::Build_H21_byIndex,
                py::arg("ich_CC"),
