@@ -186,14 +186,14 @@ void EOMImsrg::Build_AMatrix_byIndex(size_t ich_CC)
 }
 
 // ---------------------------------------------------------------------------
-// BuildBMatrix
+// Build_BMatrix
 // ---------------------------------------------------------------------------
 
 /// Dispatch helper.
-void EOMImsrg::BuildBMatrix(int J, int parity, int Tz)
+void EOMImsrg::Build_BMatrix(int J, int parity, int Tz)
 {
   size_t ich_CC = modelspace->GetTwoBodyChannelIndex(J, parity, Tz);
-  BuildBMatrix_byIndex(ich_CC);
+  Build_BMatrix_byIndex(ich_CC);
 }
 
 ///
@@ -211,7 +211,7 @@ void EOMImsrg::BuildBMatrix(int J, int parity, int Tz)
 ///                  \langle ab; J' \| V \| ij; J' \rangle.
 /// \f]
 ///
-void EOMImsrg::BuildBMatrix_byIndex(size_t ich_CC)
+void EOMImsrg::Build_BMatrix_byIndex(size_t ich_CC)
 {
   current_channel = ich_CC;
   TwoBodyChannel_CC& tbc_CC = modelspace->GetTwoBodyChannel_CC(ich_CC);
@@ -472,18 +472,20 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
 
   // -----------------------------------------------------------------------
   // Pre-compute Pandya-transformed H in all CC channels (ph × ph block).
+  // Results are stored in member variables ring_Hbar_CC and ring_pan_idx
+  // so that ApplyH22_matvec can reuse them without re-doing the 6j sums.
   //
-  //   Hbar_CC[ich_ph](ibra, iket)
+  //   ring_Hbar_CC[ich_ph](ibra, iket)
   //     = H̄(a, k; c, l; J_ph)
   //     = -Σ_{J'}(2J'+1) W6j(j_a, j_k, J_ph; j_l, j_c, J')
   //                      × GetTBME_J(J', a, l, c, k)
   //
   // ibra/iket index the ph-ket subset of CC channel ich_ph.
-  // pan_idx[ich_ph][(particle_orb, hole_orb)] → local ph index.
+  // ring_pan_idx[ich_ph][(particle_orb, hole_orb)] → local ph index.
   // -----------------------------------------------------------------------
   size_t n_CC_total = modelspace->GetNumberTwoBodyChannels_CC();
-  std::vector<std::map<std::pair<size_t,size_t>, int>> pan_idx(n_CC_total);
-  std::vector<arma::mat> Hbar_CC(n_CC_total);
+  ring_pan_idx.assign(n_CC_total, std::map<std::pair<size_t,size_t>,int>());
+  ring_Hbar_CC.assign(n_CC_total, arma::mat());
 
   for (size_t ich_ph = 0; ich_ph < n_CC_total; ++ich_ph)
   {
@@ -498,10 +500,10 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
       Ket& kt = tbc_ph.GetKet(ph_idx[i]);
       size_t p_orb = kt.p, h_orb = kt.q;
       if (kt.op->occ > 0.5) std::swap(p_orb, h_orb);  // ensure p_orb=particle
-      pan_idx[ich_ph][{p_orb, h_orb}] = i;
+      ring_pan_idx[ich_ph][{p_orb, h_orb}] = i;
     }
 
-    Hbar_CC[ich_ph].zeros(n_ph, n_ph);
+    ring_Hbar_CC[ich_ph].zeros(n_ph, n_ph);
     for (int ibra = 0; ibra < n_ph; ++ibra)
     {
       Ket& bra = tbc_ph.GetKet(ph_idx[ibra]);
@@ -530,10 +532,14 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
           V_bar -= (2*Jp+1) * sixj
                  * H.TwoBody.GetTBME_J(Jp, a_orb, l_orb, c_orb, k_orb);
         }
-        Hbar_CC[ich_ph](ibra, iket) = V_bar;
+        ring_Hbar_CC[ich_ph](ibra, iket) = V_bar;
       }
     }
   }
+
+  // Convenience aliases so the existing ring-term code below compiles unchanged.
+  const auto& pan_idx  = ring_pan_idx;
+  const auto& Hbar_CC  = ring_Hbar_CC;
 
   // -----------------------------------------------------------------------
   // Main loop: compute H22 row by row (parallelized over alpha).
@@ -587,7 +593,9 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
     }
 
     // -------------------------------------------------------------------
-    // (b) PP-PP ladder: +0.5 × GetTBME_J(Jab, a,b, a',b')
+    // (b) PP-PP ladder: GetTBME_J(Jab, a,b, a',b')
+    //     Factor = 0.5 when ap==bp (identical, no exchange partner);
+    //            = 1.0 when ap!=bp (distinct: includes both orderings).
     //     Loop over pp kets in the TBC with J=Jab, parity=(la+lb)%2,
     //     Tz=(tza+tzb)/2.  The lookup uses the canonical pair (a',b')
     //     directly from the channel.
@@ -602,12 +610,16 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
         size_t ap = kp.p, bp = kp.q;
         auto it = basis_map.find({ap, bp, ii, jj, Jab, Jij});
         if (it != basis_map.end())
-          H22(alpha, it->second) += 0.5 * H.TwoBody.GetTBME_J(Jab, a, b, ap, bp);
+        {
+          double fac = (ap == bp) ? 0.5 : 1.0;
+          H22(alpha, it->second) += fac * H.TwoBody.GetTBME_J(Jab, a, b, ap, bp);
+        }
       }
     }
 
     // -------------------------------------------------------------------
-    // (c) HH-HH ladder: -0.5 × GetTBME_J(Jij, ii,jj, i',j')
+    // (c) HH-HH ladder: -GetTBME_J(Jij, ii,jj, i',j')
+    //     Factor = 0.5 when ip==jp (identical); = 1.0 when ip!=jp.
     //     Loop over hh kets in the TBC with J=Jij, parity=(li+lj)%2,
     //     Tz=(tzi+tzj)/2.
     // -------------------------------------------------------------------
@@ -621,7 +633,10 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
         size_t ip = kh.p, jp = kh.q;
         auto it = basis_map.find({a, b, ip, jp, Jab, Jij});
         if (it != basis_map.end())
-          H22(alpha, it->second) -= 0.5 * H.TwoBody.GetTBME_J(Jij, ii, jj, ip, jp);
+        {
+          double fac = (ip == jp) ? 0.5 : 1.0;
+          H22(alpha, it->second) -= fac * H.TwoBody.GetTBME_J(Jij, ii, jj, ip, jp);
+        }
       }
     }
 
@@ -1015,7 +1030,7 @@ void EOMImsrg::Solve_byIndex(size_t ich_CC, std::string mode)
   OnePhNorms.reset();
 
   if (mode == "RPA")
-    BuildBMatrix_byIndex(ich_CC);
+    Build_BMatrix_byIndex(ich_CC);
   else
     B.zeros(A.n_rows, A.n_cols);
 
@@ -1159,14 +1174,23 @@ void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
       double val = 0.0;
 
       // PP-PP ladder
+      // Factor = 0.5 when ap==bp (identical, no exchange partner);
+      //        = 1.0 when ap!=bp (distinct: counts both orderings).
       if (ii == ip && jj == jp && Jij == Jijp && Jab == Jabp)
-        val += 0.5 * H.TwoBody.GetTBME_J(Jab, a, b, ap, bp);
+      {
+        double fac = (ap == bp) ? 0.5 : 1.0;
+        val += fac * H.TwoBody.GetTBME_J(Jab, a, b, ap, bp);
+      }
 
-      // HH-HH ladder
+      // HH-HH ladder  (factor = 0.5 when ip==jp, 1.0 otherwise)
       if (a == ap && b == bp && Jab == Jabp && Jij == Jijp)
-        val -= 0.5 * H.TwoBody.GetTBME_J(Jij, ii, jj, ip, jp);
+      {
+        double fac = (ip == jp) ? 0.5 : 1.0;
+        val -= fac * H.TwoBody.GetTBME_J(Jij, ii, jj, ip, jp);
+      }
 
-      // Ph ring
+      // Ph ring — use pre-computed Pandya table (ring_Hbar_CC / ring_pan_idx)
+      // populated by the most recent BuildH22_byIndex call.
       int phase_pp_b = AngMom::phase((j2ap + j2bp) / 2 - Jabp + 1);
       int phase_hh_b = AngMom::phase((j2ip + j2jp) / 2 - Jijp + 1);
       double prefactor = std::sqrt((2.0*Jab+1)*(2.0*Jij+1)
@@ -1192,7 +1216,7 @@ void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
         if (act_hb != ip) phase_beta *= phase_hh_b;
 
         double j1b = (act_pb == ap) ? jap : jbp;
-        double j2b = (act_pb == ap) ? jbp : jap;
+        double j2b_v = (act_pb == ap) ? jbp : jap;
         double j3b = (act_hb == ip) ? jip : jjp;
         double j4b = (act_hb == ip) ? jjp : jip;
 
@@ -1204,33 +1228,37 @@ void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
         int Jsp_min_base = std::abs((int)(2*j_spec_p) - (int)(2*j_spec_h)) / 2;
         int Jsp_max_base = ((int)(2*j_spec_p) + (int)(2*j_spec_h)) / 2;
 
+        const Orbit& o_act_pa = modelspace->GetOrbit(ac.act_p);
+        const Orbit& o_act_ha = modelspace->GetOrbit(ac.act_h);
+        int par_ph = (o_act_pa.l + o_act_ha.l) % 2;
+        int Tz_ph  = (o_act_pa.tz2 + o_act_ha.tz2) / 2;
+
         double ring_total = 0.0;
         for (int Jph = Jph_min; Jph <= Jph_max; ++Jph)
         {
-          int Jp_min2 = std::abs((int)(2*j_act_pa) - (int)(2*j_act_hb)) / 2;
-          int Jp_max2 = ((int)(2*j_act_pa) + (int)(2*j_act_hb)) / 2;
-          double Vcc = 0.0;
-          for (int Jp = Jp_min2; Jp <= Jp_max2; ++Jp)
-          {
-            if (!AngMom::Triangle(j_act_pb, j_act_ha, (double)Jp)) continue;
-            double sixj = modelspace->GetSixJ(j_act_pa, j_act_ha, (double)Jph,
-                                              j_act_hb, j_act_pb, (double)Jp);
-            if (std::abs(sixj) < 1e-8) continue;
-            Vcc -= (2*Jp+1) * sixj
-                 * H.TwoBody.GetTBME_J(Jp, ac.act_p, act_hb, act_pb, ac.act_h);
-          }
+          // Look up pre-computed H̄ from member table (ring_Hbar_CC / ring_pan_idx)
+          size_t ich_ph = modelspace->GetTwoBodyChannelIndex(Jph, par_ph, Tz_ph);
+          if (ich_ph >= ring_pan_idx.size()) continue;
+
+          const auto& pidx = ring_pan_idx[ich_ph];
+          auto it_bra = pidx.find({ac.act_p, ac.act_h});
+          auto it_ket = pidx.find({act_pb,   act_hb  });
+          if (it_bra == pidx.end() || it_ket == pidx.end()) continue;
+
+          double Vcc = ring_Hbar_CC[ich_ph](it_bra->second, it_ket->second);
           if (std::abs(Vcc) < 1e-10) continue;
 
           int Jsp_min = std::max(Jsp_min_base, std::abs(J - Jph));
           int Jsp_max = std::min(Jsp_max_base, J + Jph);
+
           double ring_Jsp = 0.0;
           for (int Jsp = Jsp_min; Jsp <= Jsp_max; ++Jsp)
           {
             double n9j_a = modelspace->GetNineJ(ac.j1, ac.j2, (double)Jab,
                                                 ac.j3, ac.j4, (double)Jij,
                                                 (double)Jph, (double)Jsp, (double)J);
-            double n9j_b = modelspace->GetNineJ(j1b,  j2b, (double)Jabp,
-                                                j3b,  j4b,     (double)Jijp,
+            double n9j_b = modelspace->GetNineJ(j1b,   j2b_v, (double)Jabp,
+                                                j3b,   j4b,   (double)Jijp,
                                                 (double)Jph, (double)Jsp, (double)J);
             ring_Jsp += (2*Jsp+1) * n9j_a * n9j_b;
           }

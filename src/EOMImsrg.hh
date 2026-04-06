@@ -117,7 +117,7 @@ class EOMImsrg
   ModelSpace* modelspace; ///< Pointer to the model space
   Operator    H;          ///< Copy of the IMSRG-evolved Hamiltonian
 
-  /// Current working matrices (populated by Build_AMatrix / BuildBMatrix)
+  /// Current working matrices (populated by Build_AMatrix / Build_BMatrix)
   arma::mat A;
   arma::mat B;
 
@@ -163,12 +163,12 @@ class EOMImsrg
   /// Build the A matrix for the given quantum numbers.
   void Build_AMatrix(int J, int parity, int Tz);
   /// Build the RPA B matrix (de-excitation coupling, for RPA use only).
-  void BuildBMatrix(int J, int parity, int Tz);
+  void Build_BMatrix(int J, int parity, int Tz);
 
   /// Build the A matrix by TwoBodyChannel_CC index.
   void Build_AMatrix_byIndex(size_t ich_CC);
   /// Build the RPA B matrix by TwoBodyChannel_CC index (for RPA use only).
-  void BuildBMatrix_byIndex(size_t ich_CC);
+  void Build_BMatrix_byIndex(size_t ich_CC);
 
   /// Enumerate the 2p2h basis states compatible with EOM channel ich_CC.
   void Build2p2hBasis_byIndex(size_t ich_CC);
@@ -271,6 +271,21 @@ class EOMImsrg
   /// CC-channel ket-ordering phase for each ph column, matching Build_AMatrix_byIndex.
   /// phase = 1 if ket stored as (particle,hole); -(-1)^{ja+ji-J} if stored as (hole,particle).
   std::vector<int>     mf_ph_phase;
+
+  // -----------------------------------------------------------------------
+  // Pre-computed Pandya table for the H22 ring term.
+  // Populated once by BuildH22_byIndex; reused by ApplyH22_matvec so that
+  // the expensive 6j-symbol/J' loop is not repeated every Lanczos iteration.
+  //
+  //   ring_Hbar_CC[ich_ph](ibra, iket)
+  //     = H̄(act_pa, act_ha; act_pb, act_hb; J_ph)
+  //     = -Σ_{J'}(2J'+1) W6j(j_act_pa, j_act_ha, J_ph; j_act_hb, j_act_pb, J')
+  //               × GetTBME_J(J', act_pa, act_hb, act_pb, act_ha)
+  //
+  // ring_pan_idx[ich_ph][(p_orb, h_orb)] → local row/col index inside Hbar_CC.
+  // -----------------------------------------------------------------------
+  std::vector<arma::mat>                            ring_Hbar_CC;
+  std::vector<std::map<std::pair<size_t,size_t>,int>> ring_pan_idx;
 
   /// Compute Hv_2p2h += H22 * v_2p2h without building H22.
   void ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const;
