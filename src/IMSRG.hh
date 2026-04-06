@@ -40,5 +40,5 @@
 #include "UnitTest.hh"
 #include "PhysicalConstants.hh"
 #include "RPA.hh"
-#include "EOMImsrg.hh"
+#include "EOM_IMSRG.hh"
 #include "ReferenceImplementations.hh"

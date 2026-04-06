@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////////////
-//    EOMImsrg.hh, part of  imsrg++
+//    EOM_IMSRG.hh, part of  imsrg++
 //    Copyright (C) 2024  imsrg++ developers
 //
 //    This program is free software; you can redistribute it and/or modify
@@ -18,7 +18,7 @@
 ///////////////////////////////////////////////////////////////////////////////////
 
 ///
-/// \file EOMImsrg.hh
+/// \file EOM_IMSRG.hh
 ///
 /// Equation-of-Motion IMSRG (EOM-IMSRG) solver.
 ///
@@ -65,8 +65,8 @@
 ///   double B_E2 = eom.ComputeTransitionME(E2op, 0); // lowest 2+ state
 /// \endcode
 
-#ifndef EOMImsrg_hh
-#define EOMImsrg_hh 1
+#ifndef EOM_IMSRG_hh
+#define EOM_IMSRG_hh 1
 
 #include <armadillo>
 #include <map>

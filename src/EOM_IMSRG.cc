@@ -1,5 +1,6 @@
+// EOM_IMSRG.cc
 ///////////////////////////////////////////////////////////////////////////////////
-//    EOMImsrg.cc, part of  imsrg++
+//    EOM_IMSRG.cc, part of  imsrg++
 //    Copyright (C) 2024  imsrg++ developers
 //
 //    This program is free software; you can redistribute it and/or modify
@@ -17,7 +18,7 @@
 //    51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 ///////////////////////////////////////////////////////////////////////////////////
 
-#include "EOMImsrg.hh"
+#include "EOM_IMSRG.hh"
 #include "AngMom.hh"
 
 #include <cmath>
@@ -387,18 +388,23 @@ void EOMImsrg::Build2p2hBasis_byIndex(size_t ich_CC)
 ///       one-body channel (same l, j2, tz2) can contribute.
 ///
 ///   (b) PP-PP ladder — loop over pp kets in the TBC with J=Jab:
-///         +0.5 × GetTBME_J(Jab, a,b, a',b')  when β = {a',b',i,j;Jab,Jij}
+///         +0.5 × GetTBME_J_norm(Jab, a,b, a',b')  when β = {a',b',i,j;Jab,Jij}
 ///
 ///   (c) HH-HH ladder — loop over hh kets in the TBC with J=Jij:
-///         -0.5 × GetTBME_J(Jij, i,j, i',j')  when β = {a,b,i',j';Jab,Jij}
+///         +0.5 × GetTBME_J_norm(Jij, i,j, i',j')  when β = {a,b,i',j';Jab,Jij}
 ///
 ///   (d) Ph ring term — pre-computed Pandya H̄ + NineJ recoupling:
-///         Pandya-transformed H is computed once per CC channel before the main
-///         loop.  For each (α,β) pair and each of 4 active-ph choices the
-///         ring contribution is:
+///         Pandya-transformed H is computed once per ph channel before the
+///         main loop.  For each of 4 active-ph choices in alpha the ring
+///         contribution is:
 ///           phase_α × phase_β × prefactor
 ///           × Σ_{J_ph,J_sp}(2J_ph+1)(2J_sp+1)
 ///             × NineJ_α × H̄(act_pa,act_ha; act_pb,act_hb; J_ph) × NineJ_β
+///
+///         Instead of an O(n_2p2h) scan over beta states the loop iterates
+///         over ph channels first, then over ph-pair kets in each channel to
+///         recover beta via a basis_map lookup — O(n_Jph × n_ph × n_Jabp × n_Jijp × n_Jsp)
+///         per alpha.
 ///
 ///         H̄(a,k; c,l; J_ph) = -Σ_{J'}(2J'+1) W6j(j_a,j_k,J_ph; j_l,j_c,J')
 ///                               × GetTBME_J(J', a, l, c, k)
@@ -563,8 +569,6 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
     double jb   = 0.5 * ob.j2;
     double ji   = 0.5 * oii.j2;
     double j_jj = 0.5 * ojj.j2;
-    double Nab  = std::sqrt(1.0 + (a == b  ? 1.0 : 0.0));
-    double Nij  = std::sqrt(1.0 + (ii == jj ? 1.0 : 0.0));
 
     // -------------------------------------------------------------------
     // (a) 1-body term: iterate orbits in the same OB channel as each of
@@ -593,7 +597,7 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
     }
 
     // -------------------------------------------------------------------
-    // (b) PP-PP ladder: GetTBME_J(Jab, a,b, a',b')
+    // (b) PP-PP ladder: GetTBME_J_norm(Jab, a,b, a',b')
     //     Factor = 0.5 when ap==bp (identical, no exchange partner);
     //            = 1.0 when ap!=bp (distinct: includes both orderings).
     //     Loop over pp kets in the TBC with J=Jab, parity=(la+lb)%2,
@@ -612,13 +616,13 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
         if (it != basis_map.end())
         {
           double fac = (ap == bp) ? 0.5 : 1.0;
-          H22(alpha, it->second) += fac * H.TwoBody.GetTBME_J(Jab, a, b, ap, bp);
+          H22(alpha, it->second) += fac * H.TwoBody.GetTBME_J_norm(Jab, a, b, ap, bp);
         }
       }
     }
 
     // -------------------------------------------------------------------
-    // (c) HH-HH ladder: -GetTBME_J(Jij, ii,jj, i',j')
+    // (c) HH-HH ladder: +GetTBME_J_norm(Jij, ii,jj, i',j')
     //     Factor = 0.5 when ip==jp (identical); = 1.0 when ip!=jp.
     //     Loop over hh kets in the TBC with J=Jij, parity=(li+lj)%2,
     //     Tz=(tzi+tzj)/2.
@@ -635,21 +639,27 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
         if (it != basis_map.end())
         {
           double fac = (ip == jp) ? 0.5 : 1.0;
-          H22(alpha, it->second) -= fac * H.TwoBody.GetTBME_J(Jij, ii, jj, ip, jp);
+          H22(alpha, it->second) += fac * H.TwoBody.GetTBME_J_norm(Jij, ii, jj, ip, jp);
         }
       }
     }
 
     // -------------------------------------------------------------------
-    // (d) Ph ring term: pre-computed H̄ + NineJ recoupling.
+    // (d) Ph ring term: loop over ph channels first to avoid O(n_2p2h²).
     //
-    // Phase convention (active orbit = second-listed orbit of its pair):
-    //   phase_pp_a = (-1)^{j_a+j_b-J_ab+1}   (swap pp when b is active)
-    //   phase_hh_a = (-1)^{j_i+j_j-J_ij+1}   (swap hh when jj is active)
+    // For each of 4 (act_p, act_h) choices of alpha, iterate over every
+    // ph channel that contains (act_p, act_h) as a bra, then over every
+    // ket (p_ket, h_ket) in that channel.  The corresponding beta state
+    // has canonical particles {min(spec_p, p_ket), max(spec_p, p_ket)}
+    // and canonical holes {min(spec_h, h_ket), max(spec_h, h_ket)}.
+    // A basis_map lookup finds beta; if absent the pair is skipped.
     //
-    // For each of 4 (act_p, act_h) choices in alpha and each compatible
-    // beta, the ring contribution is looked up from the pre-computed
-    // Hbar_CC table and combined with two NineJ symbols.
+    // Phase convention: phase_beta_pp = (-1)^{j_can_p1+j_can_p2-Jabp+1}
+    // when act_pb = p_ket is the second (larger) partner in canonical order;
+    // otherwise 1.  Similarly for hh.
+    //
+    // This is O(4 × n_Jph × n_ph × n_Jabp × n_Jijp × n_Jsp) per alpha,
+    // far cheaper than the O(n_2p2h) beta scan it replaces.
     // -------------------------------------------------------------------
     int phase_pp_a = AngMom::phase((oa.j2  + ob.j2)  / 2 - Jab + 1);
     int phase_hh_a = AngMom::phase((oii.j2 + ojj.j2) / 2 - Jij + 1);
@@ -668,102 +678,112 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
       {b, a, jj, ii, phase_pp_a*phase_hh_a,  jb,  ja,  j_jj, ji  }
     }};
 
-    for (size_t beta = 0; beta < n2; ++beta)
+    for (const ACase& ac : alpha_cases)
     {
-      const TwoPTwoHState& st_beta = tpth_basis[beta];
-      size_t ap = st_beta.a, bp = st_beta.b, ip = st_beta.i, jp = st_beta.j;
-      int Jabp = st_beta.Jab, Jijp = st_beta.Jij;
+      const Orbit& o_act_pa = modelspace->GetOrbit(ac.act_p);
+      const Orbit& o_act_ha = modelspace->GetOrbit(ac.act_h);
+      int par_ph = (o_act_pa.l + o_act_ha.l) % 2;
+      int Tz_ph  = (o_act_pa.tz2 + o_act_ha.tz2) / 2;
 
-      const Orbit& oap = modelspace->GetOrbit(ap);
-      const Orbit& obp = modelspace->GetOrbit(bp);
-      const Orbit& oip = modelspace->GetOrbit(ip);
-      const Orbit& ojp = modelspace->GetOrbit(jp);
+      int j2_act_pa = o_act_pa.j2, j2_act_ha = o_act_ha.j2;
+      int Jph_range_min = std::abs(j2_act_pa - j2_act_ha) / 2;
+      int Jph_range_max = (j2_act_pa + j2_act_ha) / 2;
 
-      double jap  = 0.5*oap.j2, jbp = 0.5*obp.j2;
-      double jip  = 0.5*oip.j2, jjp = 0.5*ojp.j2;
-      double Nabp = std::sqrt(1.0 + (ap == bp ? 1.0 : 0.0));
-      double Nijp = std::sqrt(1.0 + (ip == jp ? 1.0 : 0.0));
+      int j2_spec_p = modelspace->GetOrbit(ac.spec_p).j2;
+      int j2_spec_h = modelspace->GetOrbit(ac.spec_h).j2;
+      int Jsp_min_base = std::abs(j2_spec_p - j2_spec_h) / 2;
+      int Jsp_max_base = (j2_spec_p + j2_spec_h) / 2;
+      double j_spec_p = 0.5 * j2_spec_p;
+      double j_spec_h = 0.5 * j2_spec_h;
 
-      int phase_pp_b = AngMom::phase((oap.j2 + obp.j2) / 2 - Jabp + 1);
-      int phase_hh_b = AngMom::phase((oip.j2 + ojp.j2) / 2 - Jijp + 1);
-
-      double prefactor = std::sqrt((2.0*Jab+1)*(2.0*Jij+1)
-                                  *(2.0*Jabp+1)*(2.0*Jijp+1))
-                       / (Nab * Nij * Nabp * Nijp);
-
-      double ring_val = 0.0;
-      for (const ACase& ac : alpha_cases)
+      for (int Jph_cur = Jph_range_min; Jph_cur <= Jph_range_max; ++Jph_cur)
       {
-        if (ac.spec_p != ap && ac.spec_p != bp) continue;
-        if (ac.spec_h != ip && ac.spec_h != jp) continue;
+        size_t ich_ph = modelspace->GetTwoBodyChannelIndex(Jph_cur, par_ph, Tz_ph);
+        if (ich_ph >= pan_idx.size()) continue;
 
-        size_t act_pb = (ac.spec_p == ap) ? bp : ap;
-        size_t act_hb = (ac.spec_h == ip) ? jp : ip;
+        const auto& pidx = pan_idx[ich_ph];
+        auto it_bra = pidx.find({ac.act_p, ac.act_h});
+        if (it_bra == pidx.end()) continue;
+        int ibra = it_bra->second;
+        const arma::mat& Vmat = Hbar_CC[ich_ph];
 
-        int phase_beta = 1;
-        if (act_pb != ap) phase_beta *= phase_pp_b;
-        if (act_hb != ip) phase_beta *= phase_hh_b;
+        int Jsp_min = std::max(Jsp_min_base, std::abs(J - Jph_cur));
+        int Jsp_max = std::min(Jsp_max_base, J + Jph_cur);
+        if (Jsp_min > Jsp_max) continue;
 
-        double j_act_pa = 0.5 * modelspace->GetOrbit(ac.act_p).j2;
-        double j_act_ha = 0.5 * modelspace->GetOrbit(ac.act_h).j2;
-        double j_act_pb = 0.5 * modelspace->GetOrbit(act_pb).j2;
-        double j_act_hb = 0.5 * modelspace->GetOrbit(act_hb).j2;
-        double j_spec_p = 0.5 * modelspace->GetOrbit(ac.spec_p).j2;
-        double j_spec_h = 0.5 * modelspace->GetOrbit(ac.spec_h).j2;
-
-        double j1b = (act_pb == ap) ? jap : jbp;
-        double j2b = (act_pb == ap) ? jbp : jap;
-        double j3b = (act_hb == ip) ? jip : jjp;
-        double j4b = (act_hb == ip) ? jjp : jip;
-
-        int Jph_min = std::max(std::abs((int)(2*j_act_pa) - (int)(2*j_act_ha)),
-                               std::abs((int)(2*j_act_pb) - (int)(2*j_act_hb))) / 2;
-        int Jph_max = std::min((int)(2*j_act_pa) + (int)(2*j_act_ha),
-                               (int)(2*j_act_pb) + (int)(2*j_act_hb)) / 2;
-
-        int Jsp_min_base = std::abs((int)(2*j_spec_p) - (int)(2*j_spec_h)) / 2;
-        int Jsp_max_base = ((int)(2*j_spec_p) + (int)(2*j_spec_h)) / 2;
-
-        const Orbit& o_act_pa = modelspace->GetOrbit(ac.act_p);
-        const Orbit& o_act_ha = modelspace->GetOrbit(ac.act_h);
-        int par_ph = (o_act_pa.l + o_act_ha.l) % 2;
-        int Tz_ph  = (o_act_pa.tz2 + o_act_ha.tz2) / 2;
-
-        double ring_total = 0.0;
-        for (int Jph = Jph_min; Jph <= Jph_max; ++Jph)
+        for (const auto& ket_entry : pidx)
         {
-          // Look up pre-computed H̄(act_pa, act_ha; act_pb, act_hb; Jph)
-          size_t ich_ph = modelspace->GetTwoBodyChannelIndex(Jph, par_ph, Tz_ph);
-          if (ich_ph >= n_CC_total) continue;
+          size_t p_ket = ket_entry.first.first;
+          size_t h_ket = ket_entry.first.second;
+          int    iket  = ket_entry.second;
 
-          const std::map<std::pair<size_t,size_t>,int>& pidx = pan_idx[ich_ph];
-          auto it_bra = pidx.find({ac.act_p, ac.act_h});
-          auto it_ket = pidx.find({act_pb,   act_hb  });
-          if (it_bra == pidx.end() || it_ket == pidx.end()) continue;
+          double V = Vmat(ibra, iket);
+          if (std::abs(V) < 1e-10) continue;
 
-          double Vcc = Hbar_CC[ich_ph](it_bra->second, it_ket->second);
-          if (std::abs(Vcc) < 1e-10) continue;
+          // Beta state: canonical particles {min(spec_p,p_ket), max(spec_p,p_ket)},
+          //             canonical holes    {min(spec_h,h_ket), max(spec_h,h_ket)}.
+          size_t can_p1 = std::min(ac.spec_p, p_ket);
+          size_t can_p2 = std::max(ac.spec_p, p_ket);
+          size_t can_h1 = std::min(ac.spec_h, h_ket);
+          size_t can_h2 = std::max(ac.spec_h, h_ket);
+          int j2_can_p1 = modelspace->GetOrbit(can_p1).j2;
+          int j2_can_p2 = modelspace->GetOrbit(can_p2).j2;
+          int j2_can_h1 = modelspace->GetOrbit(can_h1).j2;
+          int j2_can_h2 = modelspace->GetOrbit(can_h2).j2;
 
-          int Jsp_min = std::max(Jsp_min_base, std::abs(J - Jph));
-          int Jsp_max = std::min(Jsp_max_base, J + Jph);
+          // j-values for NineJ_beta: act_pb = p_ket (row 1), spec_pb = ac.spec_p (row 2)
+          double j1b = 0.5 * modelspace->GetOrbit(p_ket).j2;
+          double j2b = j_spec_p;
+          double j3b = 0.5 * modelspace->GetOrbit(h_ket).j2;
+          double j4b = j_spec_h;
 
-          double ring_Jsp = 0.0;
-          for (int Jsp = Jsp_min; Jsp <= Jsp_max; ++Jsp)
+          int Jabp_min = std::abs(j2_can_p1 - j2_can_p2) / 2;
+          int Jabp_max = (j2_can_p1 + j2_can_p2) / 2;
+          int Jijp_min = std::abs(j2_can_h1 - j2_can_h2) / 2;
+          int Jijp_max = (j2_can_h1 + j2_can_h2) / 2;
+
+          for (int Jabp = Jabp_min; Jabp <= Jabp_max; ++Jabp)
           {
-            double n9j_a = modelspace->GetNineJ(ac.j1, ac.j2, (double)Jab,
-                                                ac.j3, ac.j4, (double)Jij,
-                                                (double)Jph, (double)Jsp, (double)J);
-            double n9j_b = modelspace->GetNineJ(j1b, j2b, (double)Jabp,
-                                                j3b, j4b, (double)Jijp,
-                                                (double)Jph, (double)Jsp, (double)J);
-            ring_Jsp += (2*Jsp+1) * n9j_a * n9j_b;
-          }
-          ring_total += Vcc * (2*Jph+1) * ring_Jsp;
-        }
-        ring_val += (double)(ac.phase_alpha * phase_beta) * prefactor * ring_total;
-      }
+            // Phase for beta pp pair: p_ket is "active"; if it is the second
+            // (larger) orbit in canonical order a phase swap is needed.
+            int phase_beta_pp = 1;
+            if (p_ket == can_p2 && can_p1 != can_p2)
+              phase_beta_pp = AngMom::phase((j2_can_p1 + j2_can_p2) / 2 - Jabp + 1);
 
-      H22(alpha, beta) += ring_val;
+            for (int Jijp = Jijp_min; Jijp <= Jijp_max; ++Jijp)
+            {
+              auto it_beta = basis_map.find({can_p1, can_p2, can_h1, can_h2, Jabp, Jijp});
+              if (it_beta == basis_map.end()) continue;
+              size_t beta = it_beta->second;
+
+              // Phase for beta hh pair: h_ket is "active".
+              int phase_beta_hh = 1;
+              if (h_ket == can_h2 && can_h1 != can_h2)
+                phase_beta_hh = AngMom::phase((j2_can_h1 + j2_can_h2) / 2 - Jijp + 1);
+
+              int phase_beta = phase_beta_pp * phase_beta_hh;
+
+              double prefactor = std::sqrt((2.0*Jab+1)*(2.0*Jij+1)
+                                          *(2.0*Jabp+1)*(2.0*Jijp+1));
+
+              double ring_Jsp = 0.0;
+              for (int Jsp = Jsp_min; Jsp <= Jsp_max; ++Jsp)
+              {
+                double n9j_a = modelspace->GetNineJ(ac.j1, ac.j2, (double)Jab,
+                                                    ac.j3, ac.j4, (double)Jij,
+                                                    (double)Jph_cur, (double)Jsp, (double)J);
+                double n9j_b = modelspace->GetNineJ(j1b, j2b, (double)Jabp,
+                                                    j3b, j4b, (double)Jijp,
+                                                    (double)Jph_cur, (double)Jsp, (double)J);
+                ring_Jsp += (2*Jsp+1) * n9j_a * n9j_b;
+              }
+
+              H22(alpha, beta) += (double)(ac.phase_alpha * phase_beta)
+                                * prefactor * (2*Jph_cur+1) * V * ring_Jsp;
+            }
+          }
+        }
+      }
     }
   }
 }
@@ -1085,7 +1105,7 @@ void EOMImsrg::SolveAllChannels(std::string mode)
 /// Terms (notation: a,b particles; i,j holes; H = f + Λ):
 ///   - Diagonal SPE:   (f_aa + f_bb - f_ii - f_jj) × v[α]
 ///   - PP-PP ladder:   +Λ_norm(J_ab; a,b|a',b') × v[β]   when ij=i'j', J_ij=J_ij'
-///   - HH-HH ladder:   -Λ_norm(J_ij; i,j|i',j') × v[β]   when ab=a'b', J_ab=J_ab'
+///   - HH-HH ladder:   +Λ_norm(J_ij; i,j|i',j') × v[β]   when ab=a'b', J_ab=J_ab'
 ///   - Ph ring term:   see BuildH22_byIndex for the full 9j-symbol formula
 ///
 /// The loop is trivially thread-safe under OpenMP because each α accumulates
@@ -1094,6 +1114,14 @@ void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
 {
   int J = modelspace->GetTwoBodyChannel_CC(current_channel).J;
   size_t n2 = tpth_basis.size();
+
+  // Build basis lookup map for the ring term beta search.
+  std::map<std::tuple<size_t,size_t,size_t,size_t,int,int>, size_t> basis_map_mv;
+  for (size_t idx = 0; idx < n2; ++idx)
+  {
+    const TwoPTwoHState& st = tpth_basis[idx];
+    basis_map_mv[{st.a, st.b, st.i, st.j, st.Jab, st.Jij}] = idx;
+  }
 
   #pragma omp parallel for schedule(dynamic,1)
   for (long long alpha_ll = 0; alpha_ll < static_cast<long long>(n2); ++alpha_ll)
@@ -1110,8 +1138,6 @@ void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
     double jb   = 0.5*j2b;
     double ji   = 0.5*j2ii;
     double j_jj = 0.5*j2jj;
-    double Nab = std::sqrt(1.0 + (a == b  ? 1.0 : 0.0));
-    double Nij = std::sqrt(1.0 + (ii == jj ? 1.0 : 0.0));
 
     // 1-body contributions (comm121): sum over all intermediate-state beta.
     // For beta==alpha the four conditions each collapse to one term, recovering
@@ -1160,16 +1186,6 @@ void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
       const TwoPTwoHState& st_beta = tpth_basis[beta];
       size_t ap = st_beta.a, bp = st_beta.b, ip = st_beta.i, jp = st_beta.j;
       int Jabp = st_beta.Jab, Jijp = st_beta.Jij;
-      int j2ap = modelspace->GetOrbit(ap).j2;
-      int j2bp = modelspace->GetOrbit(bp).j2;
-      int j2ip = modelspace->GetOrbit(ip).j2;
-      int j2jp = modelspace->GetOrbit(jp).j2;
-      double jap   = 0.5*j2ap;
-      double jbp   = 0.5*j2bp;
-      double jip   = 0.5*j2ip;
-      double jjp   = 0.5*j2jp;
-      double Nabp = std::sqrt(1.0 + (ap == bp ? 1.0 : 0.0));
-      double Nijp = std::sqrt(1.0 + (ip == jp ? 1.0 : 0.0));
 
       double val = 0.0;
 
@@ -1179,95 +1195,127 @@ void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
       if (ii == ip && jj == jp && Jij == Jijp && Jab == Jabp)
       {
         double fac = (ap == bp) ? 0.5 : 1.0;
-        val += fac * H.TwoBody.GetTBME_J(Jab, a, b, ap, bp);
+        val += fac * H.TwoBody.GetTBME_J_norm(Jab, a, b, ap, bp);
       }
 
-      // HH-HH ladder  (factor = 0.5 when ip==jp, 1.0 otherwise)
+      // HH-HH ladder: +GetTBME_J_norm (sign is +, factor = 0.5 when ip==jp, 1.0 otherwise)
       if (a == ap && b == bp && Jab == Jabp && Jij == Jijp)
       {
         double fac = (ip == jp) ? 0.5 : 1.0;
-        val -= fac * H.TwoBody.GetTBME_J(Jij, ii, jj, ip, jp);
-      }
-
-      // Ph ring — use pre-computed Pandya table (ring_Hbar_CC / ring_pan_idx)
-      // populated by the most recent BuildH22_byIndex call.
-      int phase_pp_b = AngMom::phase((j2ap + j2bp) / 2 - Jabp + 1);
-      int phase_hh_b = AngMom::phase((j2ip + j2jp) / 2 - Jijp + 1);
-      double prefactor = std::sqrt((2.0*Jab+1)*(2.0*Jij+1)
-                                  *(2.0*Jabp+1)*(2.0*Jijp+1))
-                       / (Nab * Nij * Nabp * Nijp);
-
-      for (const ACase& ac : alpha_cases)
-      {
-        if (ac.spec_p != ap && ac.spec_p != bp) continue;
-        if (ac.spec_h != ip && ac.spec_h != jp) continue;
-
-        size_t act_pb = (ac.spec_p == ap) ? bp : ap;
-        size_t act_hb = (ac.spec_h == ip) ? jp : ip;
-        double j_act_pa = 0.5*modelspace->GetOrbit(ac.act_p).j2;
-        double j_act_ha = 0.5*modelspace->GetOrbit(ac.act_h).j2;
-        double j_act_pb = 0.5*modelspace->GetOrbit(act_pb).j2;
-        double j_act_hb = 0.5*modelspace->GetOrbit(act_hb).j2;
-        double j_spec_p = 0.5*modelspace->GetOrbit(ac.spec_p).j2;
-        double j_spec_h = 0.5*modelspace->GetOrbit(ac.spec_h).j2;
-
-        int phase_beta = 1;
-        if (act_pb != ap) phase_beta *= phase_pp_b;
-        if (act_hb != ip) phase_beta *= phase_hh_b;
-
-        double j1b = (act_pb == ap) ? jap : jbp;
-        double j2b_beta = (act_pb == ap) ? jbp : jap;
-        double j3b = (act_hb == ip) ? jip : jjp;
-        double j4b = (act_hb == ip) ? jjp : jip;
-
-        int Jph_min = std::max(std::abs((int)(2*j_act_pa) - (int)(2*j_act_ha)),
-                               std::abs((int)(2*j_act_pb) - (int)(2*j_act_hb))) / 2;
-        int Jph_max = std::min((int)(2*j_act_pa) + (int)(2*j_act_ha),
-                               (int)(2*j_act_pb) + (int)(2*j_act_hb)) / 2;
-
-        int Jsp_min_base = std::abs((int)(2*j_spec_p) - (int)(2*j_spec_h)) / 2;
-        int Jsp_max_base = ((int)(2*j_spec_p) + (int)(2*j_spec_h)) / 2;
-
-        const Orbit& o_act_pa = modelspace->GetOrbit(ac.act_p);
-        const Orbit& o_act_ha = modelspace->GetOrbit(ac.act_h);
-        int par_ph = (o_act_pa.l + o_act_ha.l) % 2;
-        int Tz_ph  = (o_act_pa.tz2 + o_act_ha.tz2) / 2;
-
-        double ring_total = 0.0;
-        for (int Jph = Jph_min; Jph <= Jph_max; ++Jph)
-        {
-          // Look up pre-computed H̄ from member table (ring_Hbar_CC / ring_pan_idx)
-          size_t ich_ph = modelspace->GetTwoBodyChannelIndex(Jph, par_ph, Tz_ph);
-          if (ich_ph >= ring_pan_idx.size()) continue;
-
-          const auto& pidx = ring_pan_idx[ich_ph];
-          auto it_bra = pidx.find({ac.act_p, ac.act_h});
-          auto it_ket = pidx.find({act_pb,   act_hb  });
-          if (it_bra == pidx.end() || it_ket == pidx.end()) continue;
-
-          double Vcc = ring_Hbar_CC[ich_ph](it_bra->second, it_ket->second);
-          if (std::abs(Vcc) < 1e-10) continue;
-
-          int Jsp_min = std::max(Jsp_min_base, std::abs(J - Jph));
-          int Jsp_max = std::min(Jsp_max_base, J + Jph);
-
-          double ring_Jsp = 0.0;
-          for (int Jsp = Jsp_min; Jsp <= Jsp_max; ++Jsp)
-          {
-            double n9j_a = modelspace->GetNineJ(ac.j1, ac.j2, (double)Jab,
-                                                ac.j3, ac.j4, (double)Jij,
-                                                (double)Jph, (double)Jsp, (double)J);
-            double n9j_b = modelspace->GetNineJ(j1b,   j2b_beta, (double)Jabp,
-                                                j3b,   j4b,   (double)Jijp,
-                                                (double)Jph, (double)Jsp, (double)J);
-            ring_Jsp += (2*Jsp+1) * n9j_a * n9j_b;
-          }
-          ring_total += Vcc * (2*Jph+1) * ring_Jsp;
-        }
-        val += (double)(ac.phase_alpha * phase_beta) * prefactor * ring_total;
+        val += fac * H.TwoBody.GetTBME_J_norm(Jij, ii, jj, ip, jp);
       }
 
       hv_alpha += val * v[beta];
+    }
+
+    // Ph ring — use pre-computed Pandya table (ring_Hbar_CC / ring_pan_idx).
+    // Loop over ph channels first; for each channel iterate over kets to
+    // find compatible beta states via basis_map, avoiding the O(n_2p2h) scan.
+    for (const ACase& ac : alpha_cases)
+    {
+      const Orbit& o_act_pa = modelspace->GetOrbit(ac.act_p);
+      const Orbit& o_act_ha = modelspace->GetOrbit(ac.act_h);
+      int par_ph = (o_act_pa.l + o_act_ha.l) % 2;
+      int Tz_ph  = (o_act_pa.tz2 + o_act_ha.tz2) / 2;
+
+      int j2_act_pa = o_act_pa.j2, j2_act_ha = o_act_ha.j2;
+      int Jph_range_min = std::abs(j2_act_pa - j2_act_ha) / 2;
+      int Jph_range_max = (j2_act_pa + j2_act_ha) / 2;
+
+      int j2_spec_p = modelspace->GetOrbit(ac.spec_p).j2;
+      int j2_spec_h = modelspace->GetOrbit(ac.spec_h).j2;
+      int Jsp_min_base = std::abs(j2_spec_p - j2_spec_h) / 2;
+      int Jsp_max_base = (j2_spec_p + j2_spec_h) / 2;
+      double j_spec_p = 0.5 * j2_spec_p;
+      double j_spec_h = 0.5 * j2_spec_h;
+
+      for (int Jph_cur = Jph_range_min; Jph_cur <= Jph_range_max; ++Jph_cur)
+      {
+        size_t ich_ph = modelspace->GetTwoBodyChannelIndex(Jph_cur, par_ph, Tz_ph);
+        if (ich_ph >= ring_pan_idx.size()) continue;
+
+        const auto& pidx = ring_pan_idx[ich_ph];
+        auto it_bra = pidx.find({ac.act_p, ac.act_h});
+        if (it_bra == pidx.end()) continue;
+        int ibra = it_bra->second;
+        const arma::mat& Vmat = ring_Hbar_CC[ich_ph];
+
+        int Jsp_min = std::max(Jsp_min_base, std::abs(J - Jph_cur));
+        int Jsp_max = std::min(Jsp_max_base, J + Jph_cur);
+        if (Jsp_min > Jsp_max) continue;
+
+        for (const auto& ket_entry : pidx)
+        {
+          size_t p_ket = ket_entry.first.first;
+          size_t h_ket = ket_entry.first.second;
+          int    iket  = ket_entry.second;
+
+          double V = Vmat(ibra, iket);
+          if (std::abs(V) < 1e-10) continue;
+
+          size_t can_p1 = std::min(ac.spec_p, p_ket);
+          size_t can_p2 = std::max(ac.spec_p, p_ket);
+          size_t can_h1 = std::min(ac.spec_h, h_ket);
+          size_t can_h2 = std::max(ac.spec_h, h_ket);
+          int j2_can_p1 = modelspace->GetOrbit(can_p1).j2;
+          int j2_can_p2 = modelspace->GetOrbit(can_p2).j2;
+          int j2_can_h1 = modelspace->GetOrbit(can_h1).j2;
+          int j2_can_h2 = modelspace->GetOrbit(can_h2).j2;
+
+          double j1b = 0.5 * modelspace->GetOrbit(p_ket).j2;
+          double j2b_v = j_spec_p;
+          double j3b = 0.5 * modelspace->GetOrbit(h_ket).j2;
+          double j4b = j_spec_h;
+
+          int Jabp_min = std::abs(j2_can_p1 - j2_can_p2) / 2;
+          int Jabp_max = (j2_can_p1 + j2_can_p2) / 2;
+          int Jijp_min = std::abs(j2_can_h1 - j2_can_h2) / 2;
+          int Jijp_max = (j2_can_h1 + j2_can_h2) / 2;
+
+          for (int Jabp = Jabp_min; Jabp <= Jabp_max; ++Jabp)
+          {
+            int phase_beta_pp = 1;
+            if (p_ket == can_p2 && can_p1 != can_p2)
+              phase_beta_pp = AngMom::phase((j2_can_p1 + j2_can_p2) / 2 - Jabp + 1);
+
+            for (int Jijp = Jijp_min; Jijp <= Jijp_max; ++Jijp)
+            {
+              // Look up beta in 2p2h basis
+              size_t beta = n2;
+              {
+                auto it = basis_map_mv.find({can_p1, can_p2, can_h1, can_h2, Jabp, Jijp});
+                if (it == basis_map_mv.end()) continue;
+                beta = it->second;
+              }
+              if (std::abs(v[beta]) < 1e-15) continue;
+
+              int phase_beta_hh = 1;
+              if (h_ket == can_h2 && can_h1 != can_h2)
+                phase_beta_hh = AngMom::phase((j2_can_h1 + j2_can_h2) / 2 - Jijp + 1);
+
+              int phase_beta = phase_beta_pp * phase_beta_hh;
+
+              double prefactor = std::sqrt((2.0*Jab+1)*(2.0*Jij+1)
+                                          *(2.0*Jabp+1)*(2.0*Jijp+1));
+
+              double ring_Jsp = 0.0;
+              for (int Jsp = Jsp_min; Jsp <= Jsp_max; ++Jsp)
+              {
+                double n9j_a = modelspace->GetNineJ(ac.j1, ac.j2, (double)Jab,
+                                                    ac.j3, ac.j4, (double)Jij,
+                                                    (double)Jph_cur, (double)Jsp, (double)J);
+                double n9j_b = modelspace->GetNineJ(j1b, j2b_v, (double)Jabp,
+                                                    j3b, j4b, (double)Jijp,
+                                                    (double)Jph_cur, (double)Jsp, (double)J);
+                ring_Jsp += (2*Jsp+1) * n9j_a * n9j_b;
+              }
+
+              hv_alpha += (double)(ac.phase_alpha * phase_beta)
+                        * prefactor * (2*Jph_cur+1) * V * ring_Jsp * v[beta];
+            }
+          }
+        }
+      }
     }
 
     Hv[alpha] += hv_alpha;
@@ -2000,7 +2048,6 @@ double EOMImsrg::ComputeTransitionME_byIndex(size_t ich_CC,
 
   TwoBodyChannel_CC& tbc_CC = modelspace->GetTwoBodyChannel_CC(ich_CC);
   const auto& ph_list = tbc_CC.GetKetIndex_ph();
-  size_t nph = ph_list.size();
 
   // Channel angular momentum J_ν (= operator rank λ for the matrix element to be nonzero).
   int J = tbc_CC.J;

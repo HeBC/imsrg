@@ -626,11 +626,11 @@ target_link_libraries(
 )
 
 add_library(
-    EOMImsrg
-    EOMImsrg.hh EOMImsrg.cc
+    EOM_IMSRG
+    EOM_IMSRG.hh EOM_IMSRG.cc
 )
 target_link_libraries(
-    EOMImsrg
+    EOM_IMSRG
     PUBLIC
     armadillo
     ModelSpace
@@ -703,7 +703,7 @@ add_library(
     UnitTest
     PhysicalConstants
     RPA
-    EOMImsrg
+    EOM_IMSRG
 )
 target_link_libraries(
     IMSRG
@@ -728,7 +728,7 @@ target_link_libraries(
     UnitTest
     PhysicalConstants
     RPA
-    EOMImsrg
+    EOM_IMSRG
 )
 set_target_properties(IMSRG PROPERTIES SUFFIX ".so")
 
