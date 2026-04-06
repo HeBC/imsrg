@@ -377,10 +377,6 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
     double Nab = std::sqrt(1.0 + (a == b  ? 1.0 : 0.0));
     double Nij = std::sqrt(1.0 + (ii == jj ? 1.0 : 0.0));
 
-    // Diagonal SPE term (off-diagonal 1-body contributions are added in beta loop)
-    H22(alpha, alpha) = H.OneBody(a, a) + H.OneBody(b, b)
-                      - H.OneBody(ii, ii) - H.OneBody(jj, jj);
-
     // Phase factors for the NineJ when active orbit is the SECOND-listed orbit.
     //
     // For the antisymmetric 2p2h state, singling out the second-listed orbit
@@ -433,27 +429,26 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
       double Nijp = std::sqrt(1.0 + (ip == jp ? 1.0 : 0.0));
 
       // val accumulates all contributions for H22(alpha, beta):
-      //   diagonal SPE (only when alpha==beta) + 1-body off-diagonal
-      //   + pp-pp + hh-hh + ph ring
-      double val = (alpha == beta) ? H22(alpha, alpha) : 0.0;
+      //   1-body (comm121) + pp-pp + hh-hh + ph ring.
+      //
+      // The 1-body formula (image: C = [S,T] with S=f, T=identity) gives:
+      //   +f_{a,ap}  when b==bp, ii==ip, jj==jp, Jab==Jabp, Jij==Jijp
+      //   +f_{b,bp}  when a==ap, ii==ip, jj==jp, Jab==Jabp, Jij==Jijp
+      //   -f_{ii,ip} when a==ap, b==bp, jj==jp, Jab==Jabp, Jij==Jijp
+      //   -f_{jj,jp} when a==ap, b==bp, ii==ip, Jab==Jabp, Jij==Jijp
+      // For alpha==beta each sum collapses to one intermediate state (the
+      // orbit itself), recovering the diagonal SPE f_{aa}+f_{bb}-f_{ii}-f_{jj}.
+      double val = 0.0;
 
-      // Off-diagonal 1-body contributions (comm121):
-      //   f_{a,ap} when b==bp, ii==ip, jj==jp, Jab==Jabp, Jij==Jijp  (alpha!=beta)
-      //   f_{b,bp} when a==ap, ii==ip, jj==jp, Jab==Jabp, Jij==Jijp  (alpha!=beta)
-      //  -f_{ii,ip} when a==ap, b==bp, jj==jp, Jab==Jabp, Jij==Jijp  (alpha!=beta)
-      //  -f_{jj,jp} when a==ap, b==bp, ii==ip, Jab==Jabp, Jij==Jijp  (alpha!=beta)
-      // (The diagonal case alpha==beta is already handled by H22(alpha,alpha) above.)
-      if (alpha != beta)
-      {
-        if (b == bp && ii == ip && jj == jp && Jab == Jabp && Jij == Jijp)
-          val += H.OneBody(a, ap);
-        if (a == ap && ii == ip && jj == jp && Jab == Jabp && Jij == Jijp)
-          val += H.OneBody(b, bp);
-        if (a == ap && b == bp && jj == jp && Jab == Jabp && Jij == Jijp)
-          val -= H.OneBody(ii, ip);
-        if (a == ap && b == bp && ii == ip && Jab == Jabp && Jij == Jijp)
-          val -= H.OneBody(jj, jp);
-      }
+      // 1-body contributions (all beta, including alpha==beta):
+      if (b == bp && ii == ip && jj == jp && Jab == Jabp && Jij == Jijp)
+        val += H.OneBody(a, ap);
+      if (a == ap && ii == ip && jj == jp && Jab == Jabp && Jij == Jijp)
+        val += H.OneBody(b, bp);
+      if (a == ap && b == bp && jj == jp && Jab == Jabp && Jij == Jijp)
+        val -= H.OneBody(ii, ip);
+      if (a == ap && b == bp && ii == ip && Jab == Jabp && Jij == Jijp)
+        val -= H.OneBody(jj, jp);
 
       // PP-PP ladder: same hh pair and same J couplings
       if (ii == ip && jj == jp && Jij == Jijp && Jab == Jabp)
@@ -915,15 +910,13 @@ void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
     double Nab = std::sqrt(1.0 + (a == b  ? 1.0 : 0.0));
     double Nij = std::sqrt(1.0 + (ii == jj ? 1.0 : 0.0));
 
-    // Diagonal SPE contribution and off-diagonal 1-body contributions (comm121)
-    double hv_alpha = (H.OneBody(a, a) + H.OneBody(b, b)
-                     - H.OneBody(ii, ii) - H.OneBody(jj, jj)) * v[alpha];
-
-    // Off-diagonal 1-body: loop over beta states that share 3 of 4 orbits
-    // with alpha but differ in one orbit within the same one-body channel.
+    // 1-body contributions (comm121): sum over all intermediate-state beta.
+    // For beta==alpha the four conditions each collapse to one term, recovering
+    // the diagonal SPE f_{aa}+f_{bb}-f_{ii}-f_{jj}.
+    double hv_alpha = 0.0;
     for (size_t beta2 = 0; beta2 < n2; ++beta2)
     {
-      if (beta2 == alpha || std::abs(v[beta2]) < 1e-15) continue;
+      if (std::abs(v[beta2]) < 1e-15) continue;
       const TwoPTwoHState& st_b2 = tpth_basis[beta2];
       size_t ap2 = st_b2.a, bp2 = st_b2.b, ip2 = st_b2.i, jp2 = st_b2.j;
       int Jabp2 = st_b2.Jab, Jijp2 = st_b2.Jij;
@@ -958,7 +951,7 @@ void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
     for (size_t beta = 0; beta < n2; ++beta)
     {
       // Do NOT skip beta==alpha: PP-PP/HH-HH self-coupling and diagonal ring
-      // are also needed for the diagonal, beyond the SPE handled above.
+      // are also needed for the alpha==beta diagonal element.
       if (std::abs(v[beta]) < 1e-15) continue;
 
       const TwoPTwoHState& st_beta = tpth_basis[beta];
