@@ -31,10 +31,10 @@
 ///
 /// Three levels of approximation are supported:
 ///   - **TDA** (Tamm-Dancoff Approximation): diagonalises the A matrix in the
-///     1p-1h sector. Equivalent to IMSRG-TDA.
-///   - **EOM** (full Equation of Motion): solves the RPA-like secular equation
-///     including the B matrix that couples forward and backward amplitudes.
-///     Equivalent to IMSRG-RPA.
+///     1p-1h sector. Equivalent to EOM-IMSRG(1).
+///   - **EOM** (Equation of Motion at 1p-1h level): diagonalises the A matrix
+///     in the 1p-1h sector (same as TDA).  The EOM ladder operator contains
+///     only excitation amplitudes X; there are no de-excitation terms.
 ///   - **EOM2** (EOM-IMSRG with 2p-2h): diagonalises the full
 ///     [H_11 H_12; H_21 H_22] block matrix in the combined 1p-1h + 2p-2h space.
 ///     This is the proper EOM-IMSRG following Parzuchowski et al. (PRC 2017).
@@ -55,9 +55,7 @@
 ///                  + \overline{V}^J_{aibj},
 /// \f]
 /// where \f$\overline{V}^J\f$ is the Pandya-transformed two-body matrix
-/// element of \f$\tilde{H}\f$.  This is identical to the RPA A matrix, but
-/// evaluated with the IMSRG-evolved \f$\tilde{H}\f$ rather than the bare
-/// Hamiltonian.
+/// element of \f$\tilde{H}\f$, evaluated with the IMSRG-evolved Hamiltonian.
 ///
 /// Usage example:
 /// \code
@@ -92,12 +90,10 @@ struct TwoPTwoHState
 struct EOMChannel
 {
   arma::vec Energies; ///< Excitation energies (MeV), sorted ascending
-  arma::mat X;        ///< Forward 1p1h amplitudes  (nph x nstates)
+  arma::mat X;        ///< 1p1h excitation amplitudes  (nph x nstates)
   /// Mode-dependent:
-  ///   - TDA:  zero matrix (nph x nstates)
-  ///   - EOM:  backward (de-excitation) 1p1h amplitudes (nph x nstates)
-  ///   - EOM2: 2p2h amplitudes X̌_{abij}^{Jab,Jij,J}(ν) (n2p2h x nstates)
-  ///           (NOT backward amplitudes — EOM2 has no separate backward sector)
+  ///   - TDA/EOM: zero matrix (nph x nstates) — no de-excitation amplitudes
+  ///   - EOM2:    2p2h amplitudes X̌_{abij}^{Jab,Jij,J}(ν) (n2p2h x nstates)
   arma::mat Y;
   arma::vec OnePhNorms; ///< n(1p1h) = sum_ai |X_ai|^2 for each state
   size_t OnePhCount = 0; ///< Number of 1p1h amplitudes in the solved channel
@@ -163,14 +159,14 @@ class EOMImsrg
   // -----------------------------------------------------------------------
   // Matrix construction
   // -----------------------------------------------------------------------
-  /// Build the A matrix (TDA / EOM forward block) for the given quantum numbers.
+  /// Build the A matrix for the given quantum numbers.
   void BuildAMatrix(int J, int parity, int Tz);
-  /// Build the B matrix (backward coupling block) for the given quantum numbers.
+  /// Build the RPA B matrix (de-excitation coupling, for RPA use only).
   void BuildBMatrix(int J, int parity, int Tz);
 
   /// Build the A matrix by TwoBodyChannel_CC index.
   void BuildAMatrix_byIndex(size_t ich_CC);
-  /// Build the B matrix by TwoBodyChannel_CC index.
+  /// Build the RPA B matrix by TwoBodyChannel_CC index (for RPA use only).
   void BuildBMatrix_byIndex(size_t ich_CC);
 
   /// Enumerate the 2p2h basis states compatible with EOM channel ich_CC.
@@ -184,8 +180,9 @@ class EOMImsrg
   // Solvers
   // -----------------------------------------------------------------------
   /// Solve for excitation energies and amplitudes in one (J, parity, Tz) channel.
-  /// @param mode  "TDA"   – diagonalise A only (no B matrix).
-  ///              "EOM"   – solve the RPA secular equation (A and B).
+  /// @param mode  "TDA"   – diagonalise A only in the 1p1h sector.
+  ///              "EOM"   – diagonalise A in the 1p1h sector (same as TDA;
+  ///                        excitation amplitudes only, no de-excitation terms).
   ///              "EOM2"  – full EOM-IMSRG with 1p1h+2p2h block matrix.
   void Solve(int J, int parity, int Tz, std::string mode = "TDA");
   /// Same as Solve() but addressed by channel index.
@@ -213,9 +210,9 @@ class EOMImsrg
   // -----------------------------------------------------------------------
   /// Excitation energies for the most recently solved channel (ascending order).
   arma::vec GetExcitationEnergies() const;
-  /// Forward amplitudes X_{ai} for state \p state_index in the current channel.
+  /// 1p1h excitation amplitudes X_{ai} for state \p state_index in the current channel.
   arma::vec GetAmplitudesX(size_t state_index) const;
-  /// Backward amplitudes Y_{ai} for state \p state_index in the current channel.
+  /// For EOM2: 2p2h amplitudes for state \p state_index.  Zero for TDA/EOM.
   arma::vec GetAmplitudesY(size_t state_index) const;
   /// 1p1h norm weights n(1p1h)=sum_ai |X_ai|^2 for the solved states.
   arma::vec GetOnePhNorms() const;

@@ -25,10 +25,6 @@
 #include <iostream>
 #include <stdexcept>
 
-// Tolerance for warning about non-zero imaginary parts of EOM eigenvalues
-static const double EOM_IMAG_TOL = 1e-3;
-// Tolerance below which we skip renormalization of an EOM amplitude pair
-static const double EOM_NORM_TOL = 1e-10;
 
 namespace
 {
@@ -69,7 +65,7 @@ void EOMImsrg::BuildAMatrix(int J, int parity, int Tz)
 }
 
 ///
-/// Build the EOM A matrix (forward/TDA block) for the 1p-1h sector.
+/// Build the EOM A matrix for the 1p-1h sector.
 ///
 /// The matrix element is
 /// \f[
@@ -79,7 +75,7 @@ void EOMImsrg::BuildAMatrix(int J, int parity, int Tz)
 ///                    \langle a j; J' \| V \| b i; J' \rangle,
 /// \f]
 /// which is the Pandya transform of the antisymmetrised two-body interaction.
-/// This is identical to the TDA/RPA A matrix, but evaluated with the
+/// This is identical to the TDA A matrix, but evaluated with the
 /// IMSRG-evolved \f$\tilde{H}\f$.
 ///
 void EOMImsrg::BuildAMatrix_byIndex(size_t ich_CC)
@@ -168,10 +164,13 @@ void EOMImsrg::BuildBMatrix(int J, int parity, int Tz)
 }
 
 ///
-/// Build the EOM B matrix (backward coupling block) for the 1p-1h sector.
+/// Build the RPA B matrix (de-excitation coupling block) for the 1p-1h sector.
 ///
-/// The matrix element is the same as in the RPA B matrix and couples the
-/// forward (particle-hole) and backward (hole-particle) sectors:
+/// This matrix is used only for RPA-type calculations.  In EOM-IMSRG the
+/// ladder operator contains only excitation amplitudes, so this matrix is not
+/// needed for any EOM mode.
+///
+/// The matrix element couples the particle-hole and hole-particle sectors:
 /// \f[
 ///   B_{ai,bj}(J) = (-1)^{j_i+j_b+J}
 ///                  \sum_{J'} (-1)^{J'} (2J'+1)
@@ -777,10 +776,7 @@ void EOMImsrg::Solve_byIndex(size_t ich_CC, std::string mode)
   two_ph_count = 0;
   lanczos_iterations = 0;
   OnePhNorms.reset();
-  if (mode == "EOM")
-    BuildBMatrix_byIndex(ich_CC);
-  else
-    B.zeros(A.n_rows, A.n_cols);
+  B.zeros(A.n_rows, A.n_cols);
 
   if (mode == "EOM2")
   {
@@ -1448,54 +1444,16 @@ void EOMImsrg::SolveCurrentChannel(std::string mode)
   }
   else if (mode == "EOM")
   {
-    // Secular matrix: [ A  B; -B -A ]
-    arma::mat M = arma::join_vert(
-        arma::join_horiz( A,  B),
-        arma::join_horiz(-B, -A));
-
-    arma::cx_vec cx_eigvals;
-    arma::cx_mat cx_eigvecs;
-    arma::eig_gen(cx_eigvals, cx_eigvecs, M);
-
-    double norm_imag = arma::norm(arma::imag(cx_eigvals), "fro");
-    if (norm_imag > EOM_IMAG_TOL)
-    {
-      std::cout << "WARNING EOMImsrg: non-zero imaginary eigenvalues ("
-                << norm_imag << ") in channel " << current_channel
-                << "  " << __FILE__ << ":" << __LINE__ << std::endl;
-    }
-
-    // Keep only positive-real solutions (discard spurious negatives)
-    arma::uvec pos_idx = arma::find(arma::real(cx_eigvals)
-                                    + arma::imag(cx_eigvals) > 0);
-    size_t len = pos_idx.n_elem;
-    arma::vec Etmp = arma::real(cx_eigvals(pos_idx));
-    arma::mat Vtmp = arma::real(cx_eigvecs.cols(pos_idx));
-
-    arma::uvec ord = arma::sort_index(Etmp);
-    Energies = Etmp(ord);
-    arma::mat Vsorted = Vtmp.cols(ord);
-
-    // The secular matrix has size 2*nph × 2*nph; each eigenvector has 2*nph
-    // components.  The first nph components are the forward (X) amplitudes and
-    // the last nph are the backward (Y) amplitudes.  Use nph (not len) so that
-    // the split is always correct even when len differs from nph.
-    size_t nph_eom = A.n_rows;
-    X = Vsorted.head_rows(nph_eom);
-    Y = Vsorted.tail_rows(nph_eom);
-
-    // Normalise: X^T X - Y^T Y = 1
-    for (size_t mu = 0; mu < len; mu++)
-    {
-      double nxy = arma::dot(X.col(mu), X.col(mu))
-                   - arma::dot(Y.col(mu), Y.col(mu));
-      if (std::abs(nxy) > EOM_NORM_TOL)
-      {
-        double inv_sqrt_nxy = 1.0 / std::sqrt(std::abs(nxy));
-        X.col(mu) *= inv_sqrt_nxy;
-        Y.col(mu) *= inv_sqrt_nxy;
-      }
-    }
+    // EOM-IMSRG at the 1p1h level: diagonalise A.
+    // The EOM ladder operator Q†_ν = Σ_ai X_{ai} a†_a a_i contains only
+    // excitation amplitudes.  There are no de-excitation terms; those arise
+    // in RPA but are absent in EOM-IMSRG.
+    arma::vec eigvals;
+    arma::mat eigvecs;
+    arma::eig_sym(eigvals, eigvecs, A);
+    Energies = eigvals;
+    X = eigvecs;
+    Y = arma::zeros(arma::size(X));
     OnePhNorms = ComputeOnePhNorms(X);
   }
   else if (mode == "EOM2")
@@ -1668,11 +1626,8 @@ EOMChannel EOMImsrg::GetChannelResults(size_t ich_CC) const
 /// following eq. (16) of Parzuchowski et al., Phys. Rev. C **96**, 034324 (2017).
 ///
 /// Modes:
-///   - **TDA / EOM**: only the 1p1h term is evaluated. For full EOM the backward
-///     amplitude \f$Y_{ai}\f$ contributes via
-///     \f$(-1)^{\lambda+1}\langle i\|O^\lambda\|a\rangle\f$.
-///   - **EOM2**: \p ch.Y stores the 2p2h amplitudes \f$\breve{X}^{J_1J_2J}_{abij}\f$
-///     (not backward amplitudes), so the EOM backward-amplitude term is skipped.
+///   - **TDA / EOM**: only the 1p1h term is evaluated.
+///   - **EOM2**: \p ch.Y stores the 2p2h amplitudes \f$\breve{X}^{J_1J_2J}_{abij}\f$.
 ///     When \p Op has a two-body part (\c particle_rank >= 2) the 2p2h matrix
 ///     elements \f$\breve{\mathcal{O}}^{J_1J_2}_{abij}(\lambda)\f$ are included.
 ///
@@ -1717,16 +1672,10 @@ double EOMImsrg::ComputeTransitionME_byIndex(size_t ich_CC,
   // 1p1h contribution (paper eq. 16 first sum):
   //   Σ_{ai} X_{ai}(ν) O_{ai}(λ,Π)
   //
-  // Only the forward (X) amplitudes enter. The backward (Y) amplitudes
-  // do NOT contribute: in the EOM-IMSRG framework the reference state
-  // |Φ_0⟩ is already IMSRG-decoupled, so the de-excitation part of the
-  // EOM ladder operator gives X̄_ν|Φ_0⟩ = 0 (paper eq. 16, Parzuchowski
-  // et al. PRC 96, 034324 (2017)).
-  //
-  // The A and B matrices include phase_ai * phase_bj factors following
-  // the same CC-channel convention as RPA.cc.  Each X(I) therefore
-  // carries phase_ai(I), and the matching operator matrix element is
-  // O_{m_stored, i_stored} (using the unswapped, as-stored indices).
+  // In EOM-IMSRG the ladder operator Q†_ν = Σ_ai X_{ai} a†_a a_i contains
+  // only excitation (particle-hole) amplitudes.  The A-matrix convention
+  // includes a CC-channel ket-ordering phase per pair; each X(I) carries
+  // that phase and the operator is read with the same stored-index ordering.
   // -------------------------------------------------------------------
   double T = 0.0;
   size_t I = 0;
