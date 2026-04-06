@@ -123,7 +123,8 @@ class EOMImsrg
 
   /// 2p2h working matrices (populated when mode == "EOM2")
   arma::mat H22; ///< 2p2h × 2p2h block
-  arma::mat H21; ///< 2p2h × 1p1h coupling block
+  arma::mat H21; ///< 2p2h × 1p1h coupling block (rows = 2p2h states, cols = 1p1h states)
+  arma::mat A12; ///< 1p1h × 2p2h coupling block (rows = 1p1h states, cols = 2p2h states; = H21^T)
   std::vector<TwoPTwoHState> tpth_basis; ///< 2p2h basis for current channel
 
   /// Results for the most recently solved channel
@@ -175,6 +176,10 @@ class EOMImsrg
   void BuildH22_byIndex(size_t ich_CC);
   /// Build the 2p2h × 1p1h coupling block H21 from [Γ, Q_ph] → 2p2h.
   void Build_H21_byIndex(size_t ich_CC);
+  /// Build the 1p1h × 2p2h coupling block A12 (= H21^T) for the matrix EOM2 solver.
+  /// Called only by the explicit-matrix path (Solve_byIndex with mode "EOM2").
+  /// The matrix-free Lanczos path uses ApplyH21T_matvec instead.
+  void Build_A12_byIndex(size_t ich_CC);
 
   // -----------------------------------------------------------------------
   // Solvers

@@ -1015,6 +1015,14 @@ PYBIND11_MODULE(pyIMSRG, m)
                py::arg("ich_CC"))
           .def("BuildBMatrix_byIndex", &EOMImsrg::BuildBMatrix_byIndex,
                py::arg("ich_CC"))
+          .def("Build_H21_byIndex", &EOMImsrg::Build_H21_byIndex,
+               py::arg("ich_CC"),
+               "Build 2p2h × 1p1h coupling block H21.  "
+               "Must call Build2p2hBasis_byIndex first.")
+          .def("Build_A12_byIndex", &EOMImsrg::Build_A12_byIndex,
+               py::arg("ich_CC"),
+               "Build 1p1h × 2p2h coupling block A12 = H21^T (explicit matrix).  "
+               "Must call Build_H21_byIndex first.")
           // ---- solvers ----
           .def("Solve", &EOMImsrg::Solve,
                py::arg("J"), py::arg("parity"), py::arg("Tz"), py::arg("mode") = "TDA",
@@ -1152,6 +1160,7 @@ PYBIND11_MODULE(pyIMSRG, m)
           .def_readwrite("A", &EOMImsrg::A)
           .def_readwrite("B", &EOMImsrg::B)
           .def_readwrite("H21", &EOMImsrg::H21)
+          .def_readwrite("A12", &EOMImsrg::A12)
           .def_readwrite("H22", &EOMImsrg::H22)
           // Lanczos control: set to n>0 to use IRAM Lanczos for EOM2
           // (computes only n algebraically-lowest eigenvalues; 0 = dense full diag)
@@ -1194,6 +1203,16 @@ PYBIND11_MODULE(pyIMSRG, m)
                  }
                  return out; },
                "H21 (A21) matrix as a list-of-rows (2p2h x 1p1h). "
+               "Must call Solve_byIndex with mode='EOM2' first.")
+          .def_property_readonly("A12_matrix", [](EOMImsrg &self)
+               { std::vector<std::vector<double>> out;
+                 for (size_t r = 0; r < self.A12.n_rows; r++) {
+                   std::vector<double> row;
+                   for (size_t c = 0; c < self.A12.n_cols; c++) row.push_back(self.A12(r,c));
+                   out.push_back(row);
+                 }
+                 return out; },
+               "A12 matrix as a list-of-rows (1p1h x 2p2h). "
                "Must call Solve_byIndex with mode='EOM2' first.")
           .def_property_readonly("H22_matrix", [](EOMImsrg &self)
                { std::vector<std::vector<double>> out;

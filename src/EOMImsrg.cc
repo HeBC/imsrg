@@ -132,11 +132,33 @@ void EOMImsrg::Build_AMatrix_byIndex(size_t ich_CC)
         std::swap(phase_bj, phase_jb);
       }
 
-      // 1-body contribution: f_{ab}*delta_{ij} - f_{ij}*delta_{ab}
-      // f_{ab} is nonzero for any a,b in the same one-body channel (same l,j,tz),
-      // not just when a==b.  Same for f_{ij}.
-      double H1b = (i == j ? H.OneBody(a, b) : 0.0)
-                 - (a == b ? H.OneBody(i, j) : 0.0);
+      // 1-body contribution: f_{ab} * δ_{ch(i,j)} - f_{ij} * δ_{ch(a,b)}
+      //
+      // In spherical HF (after IMSRG evolution), f is block-diagonal in the
+      // one-body channel (same l, j2, tz2) but need NOT be diagonal within a
+      // channel (off-diagonal n-n' elements can be nonzero).
+      //
+      // The correct coupling conditions are:
+      //   • f_{ab}: nonzero when a,b are in same 1b channel (H.OneBody handles this);
+      //             contributes when i and j belong to the SAME 1b channel.
+      //   • f_{ij}: nonzero when i,j are in same 1b channel (H.OneBody handles this);
+      //             contributes when a and b belong to the SAME 1b channel.
+      //
+      // Note: H.OneBody(a,b) is automatically zero when a,b are in different
+      // channels; the explicit channel check on (i,j) / (a,b) below guards only
+      // the "coupling side" that does NOT carry the matrix element itself.
+      const Orbit& oa_ref = modelspace->GetOrbit(a);
+      const Orbit& oi_ref = modelspace->GetOrbit(i);
+      const Orbit& ob_ref = modelspace->GetOrbit(b);
+      const Orbit& oj_ref = modelspace->GetOrbit(j);
+
+      double H1b = 0.0;
+      // f_{ab} * δ_{ch(i,j)}: i and j must be in the same one-body channel
+      if (oi_ref.l == oj_ref.l && oi_ref.j2 == oj_ref.j2 && oi_ref.tz2 == oj_ref.tz2)
+        H1b += H.OneBody(a, b);
+      // f_{ij} * δ_{ch(a,b)}: a and b must be in the same one-body channel
+      if (oa_ref.l == ob_ref.l && oa_ref.j2 == ob_ref.j2 && oa_ref.tz2 == ob_ref.tz2)
+        H1b -= H.OneBody(i, j);
 
       // Two-body Pandya term
       // A_{ai,bj}(J) -= sum_{J'} (2J'+1) {ja ji J; jb jj J'} <aj';J'|V|bi';J'>
@@ -785,6 +807,29 @@ void EOMImsrg::Build_H21_byIndex(size_t ich_CC)
 }
 
 // ---------------------------------------------------------------------------
+// Build_A12_byIndex
+// ---------------------------------------------------------------------------
+
+/// Build the 1p1h × 2p2h coupling block A12 for the explicit EOM2 matrix.
+///
+/// A12 is the Hermitian conjugate (transpose) of H21:
+///   A12[col, α] = H21[α, col]  for all 1p1h column col and 2p2h row α.
+///
+/// For a real Hermitian Hamiltonian A12 = H21^T exactly.  This function
+/// materialises A12 explicitly so that SolveCurrentChannel can assemble
+///   H_full = [ A     A12 ]
+///             [ H21   H22 ]
+/// without relying on an in-place transposition of H21.
+///
+/// Note: Build_H21_byIndex MUST be called before this function (H21 is
+/// used as the source).  The matrix-free Lanczos path (Solve_byIndex_MF)
+/// uses ApplyH21T_matvec instead and never calls Build_A12_byIndex.
+void EOMImsrg::Build_A12_byIndex(size_t /*ich_CC*/)
+{
+  A12 = H21.t();
+}
+
+// ---------------------------------------------------------------------------
 // Solve
 // ---------------------------------------------------------------------------
 
@@ -814,6 +859,7 @@ void EOMImsrg::Solve_byIndex(size_t ich_CC, std::string mode)
     two_ph_count = tpth_basis.size();
     BuildH22_byIndex(ich_CC);
     Build_H21_byIndex(ich_CC);
+    Build_A12_byIndex(ich_CC);
   }
 
   SolveCurrentChannel(mode);
@@ -1507,16 +1553,17 @@ void EOMImsrg::SolveCurrentChannel(std::string mode)
   else if (mode == "EOM2")
   {
     // Full 1p1h + 2p2h block matrix:
-    //   H_EOM = [ A     H12 ]   where H12 = H21^T
+    //   H_EOM = [ A     A12 ]   where A12 = H21^T (built by Build_A12_byIndex)
     //           [ H21   H22 ]
+    // A12 is precomputed as the explicit 1p1h × 2p2h coupling block so that
+    // the matrix assembly matches the Fortran EOM-IMSRG code structure.
     // Diagonalise with either the dense LAPACK driver (all eigenvalues) or the
     // newarp Implicitly Restarted Arnoldi / Lanczos solver (lowest lanczos_nev
     // eigenvalues only).  The latter mirrors the ARPACK-based approach used by
     // the reference Fortran EOM-IMSRG code of Parzuchowski et al.
     size_t nph = A.n_rows;
-    arma::mat H12 = H21.t();
     arma::mat Hfull = arma::join_vert(
-        arma::join_horiz(A,   H12),
+        arma::join_horiz(A,   A12),
         arma::join_horiz(H21, H22));
     // Enforce exact symmetry
     Hfull = 0.5 * (Hfull + Hfull.t());
