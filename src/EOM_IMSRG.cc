@@ -349,10 +349,10 @@ void EOMImsrg::Build2p2hBasis_byIndex(size_t ich_CC)
 ///       one-body channel (same l, j2, tz2) can contribute.
 ///
 ///   (b) PP-PP ladder — loop over pp kets in the TBC with J=Jab:
-///         +0.5 × GetTBME_J_norm(Jab, a,b, a',b')  when β = {a',b',i,j;Jab,Jij}
+///         +0.5 × GetTBME_J(Jab, a,b, a',b')  when β = {a',b',i,j;Jab,Jij}
 ///
 ///   (c) HH-HH ladder — loop over hh kets in the TBC with J=Jij:
-///         +0.5 × GetTBME_J_norm(Jij, i,j, i',j')  when β = {a,b,i',j';Jab,Jij}
+///         +0.5 × GetTBME_J(Jij, i,j, i',j')  when β = {a,b,i',j';Jab,Jij}
 ///
 ///   (d) Ph ring term — pre-computed Pandya H̄ + NineJ recoupling:
 ///         Pandya-transformed H is computed once per ph channel before the
@@ -490,7 +490,7 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
     }
 
     // -------------------------------------------------------------------
-    // (b) PP-PP ladder: GetTBME_J_norm(Jab, a,b, a',b')
+    // (b) PP-PP ladder: GetTBME_J(Jab, a,b, a',b')
     //     Factor = 0.5 when ap==bp (identical, no exchange partner);
     //            = 1.0 when ap!=bp (distinct: includes both orderings).
     //     Loop over pp kets in the TBC with J=Jab, parity=(la+lb)%2,
@@ -509,13 +509,13 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
         if (it != basis_map.end())
         {
           double fac = (ap == bp) ? 0.5 : 1.0;
-          H22(alpha, it->second) += fac * H.TwoBody.GetTBME_J_norm(Jab, a, b, ap, bp);
+          H22(alpha, it->second) += fac * H.TwoBody.GetTBME_J(Jab, a, b, ap, bp);
         }
       }
     }
 
     // -------------------------------------------------------------------
-    // (c) HH-HH ladder: +GetTBME_J_norm(Jij, ii,jj, i',j')
+    // (c) HH-HH ladder: +GetTBME_J(Jij, ii,jj, i',j')
     //     Factor = 0.5 when ip==jp (identical); = 1.0 when ip!=jp.
     //     Loop over hh kets in the TBC with J=Jij, parity=(li+lj)%2,
     //     Tz=(tzi+tzj)/2.
@@ -532,7 +532,7 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
         if (it != basis_map.end())
         {
           double fac = (ip == jp) ? 0.5 : 1.0;
-          H22(alpha, it->second) += fac * H.TwoBody.GetTBME_J_norm(Jij, ii, jj, ip, jp);
+          H22(alpha, it->second) += fac * H.TwoBody.GetTBME_J(Jij, ii, jj, ip, jp);
         }
       }
     }
@@ -1173,14 +1173,14 @@ void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
       if (ii == ip && jj == jp && Jij == Jijp && Jab == Jabp)
       {
         double fac = (ap == bp) ? 0.5 : 1.0;
-        val += fac * H.TwoBody.GetTBME_J_norm(Jab, a, b, ap, bp);
+        val += fac * H.TwoBody.GetTBME_J(Jab, a, b, ap, bp);
       }
 
-      // HH-HH ladder: +GetTBME_J_norm (sign is +, factor = 0.5 when ip==jp, 1.0 otherwise)
+      // HH-HH ladder: +GetTBME_J (sign is +, factor = 0.5 when ip==jp, 1.0 otherwise)
       if (a == ap && b == bp && Jab == Jabp && Jij == Jijp)
       {
         double fac = (ip == jp) ? 0.5 : 1.0;
-        val += fac * H.TwoBody.GetTBME_J_norm(Jij, ii, jj, ip, jp);
+        val += fac * H.TwoBody.GetTBME_J(Jij, ii, jj, ip, jp);
       }
 
       hv_alpha += val * v[beta];
