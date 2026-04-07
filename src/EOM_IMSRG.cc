@@ -698,7 +698,9 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
 ///   1p-1h state β = |ck; J⟩                  with c particle, k hole
 ///
 /// Common prefactor:
-///   K = sqrt((2J_ab+1)(2J_ij+1)) * (-1)^J
+///   K = sqrt((2J_ab+1)(2J_ij+1)) / (N_ab * N_ij) * (-1)^J
+///   where N_ab = sqrt(1+delta_{a,b}), N_ij = sqrt(1+delta_{i,j})
+///   account for the normalization of the identical-pair two-body states.
 ///
 /// Four non-zero contributions from <α|Λ|β>:
 ///
@@ -776,7 +778,9 @@ void EOMImsrg::Build_H21_byIndex(size_t ich_CC)
     double ja   = 0.5*oa.j2,   jb   = 0.5*ob.j2;
     double ji   = 0.5*o_ii.j2, j_jj = 0.5*o_jj.j2;
 
-    double K = std::sqrt((2.0*Jab+1)*(2.0*Jij+1)) * AngMom::phase(J);
+    double Nab  = (a  == b)  ? std::sqrt(2.0) : 1.0;
+    double Nij  = (ii == jj) ? std::sqrt(2.0) : 1.0;
+    double K = std::sqrt((2.0*Jab+1)*(2.0*Jij+1)) / (Nab * Nij) * AngMom::phase(J);
 
     // --- sm1: c == a  (1p1h particle matches first particle of 2p2h state) ---
     // H21[α,col] -= phase((j_a+j_b) - J_ij)
@@ -1334,7 +1338,9 @@ void EOMImsrg::ApplyH21_matvec(const arma::vec& v_ph, arma::vec& Hv_2p2h) const
     double ja   = 0.5*oa.j2,   jb   = 0.5*ob.j2;
     double ji   = 0.5*o_ii.j2, j_jj = 0.5*o_jj.j2;
 
-    double K = std::sqrt((2.0*Jab+1)*(2.0*Jij+1)) * AngMom::phase(J);
+    double Nab  = (a  == b)  ? std::sqrt(2.0) : 1.0;
+    double Nij  = (ii == jj) ? std::sqrt(2.0) : 1.0;
+    double K = std::sqrt((2.0*Jab+1)*(2.0*Jij+1)) / (Nab * Nij) * AngMom::phase(J);
 
     double hv = 0.0;
 
@@ -1459,7 +1465,9 @@ void EOMImsrg::ApplyH21T_matvec(const arma::vec& v_2p2h, arma::vec& Hv_ph) const
     double ja   = 0.5*oa.j2,   jb   = 0.5*ob.j2;
     double ji   = 0.5*o_ii.j2, j_jj = 0.5*o_jj.j2;
 
-    double K = std::sqrt((2.0*Jab+1)*(2.0*Jij+1)) * AngMom::phase(J);
+    double Nab  = (a  == b)  ? std::sqrt(2.0) : 1.0;
+    double Nij  = (ii == jj) ? std::sqrt(2.0) : 1.0;
+    double K = std::sqrt((2.0*Jab+1)*(2.0*Jij+1)) / (Nab * Nij) * AngMom::phase(J);
 
     // sm1: c == a  → Hv_ph[col] -= phase1 * w6j * Λ * K * phase_col * v_alpha
     {
