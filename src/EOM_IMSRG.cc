@@ -682,10 +682,8 @@ void EOM_IMSRG::BuildH22_byIndex(size_t ich_CC)
 
               int phase_beta = phase_beta_pp * phase_beta_hh;
 
-              double Nab  = (a      == b)      ? std::sqrt(2.0) : 1.0;
-              double Nij  = (ii     == jj)     ? std::sqrt(2.0) : 1.0;
-              double Nabp = (can_p1 == can_p2) ? std::sqrt(2.0) : 1.0;
-              double Nijp = (can_h1 == can_h2) ? std::sqrt(2.0) : 1.0;
+              double Nabp = std::sqrt(1.0 + (can_p1 == can_p2 ? 1.0 : 0.0));
+              double Nijp = std::sqrt(1.0 + (can_h1 == can_h2 ? 1.0 : 0.0));
               double prefactor = std::sqrt((2.0*Jab+1)*(2.0*Jij+1)
                                           *(2.0*Jabp+1)*(2.0*Jijp+1))
                                 / (Nab * Nij * Nabp * Nijp);
@@ -1341,10 +1339,8 @@ void EOM_IMSRG::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
 
               int phase_beta = phase_beta_pp * phase_beta_hh;
 
-              double Nab  = (a      == b)      ? std::sqrt(2.0) : 1.0;
-              double Nij  = (ii     == jj)     ? std::sqrt(2.0) : 1.0;
-              double Nabp = (can_p1 == can_p2) ? std::sqrt(2.0) : 1.0;
-              double Nijp = (can_h1 == can_h2) ? std::sqrt(2.0) : 1.0;
+              double Nabp = std::sqrt(1.0 + (can_p1 == can_p2 ? 1.0 : 0.0));
+              double Nijp = std::sqrt(1.0 + (can_h1 == can_h2 ? 1.0 : 0.0));
               double prefactor = std::sqrt((2.0*Jab+1)*(2.0*Jij+1)
                                           *(2.0*Jabp+1)*(2.0*Jijp+1))
                                 / (Nab * Nij * Nabp * Nijp);
