@@ -463,26 +463,37 @@ void EOM_IMSRG::BuildH22_byIndex(size_t ich_CC)
     // (a) 1-body term: iterate orbits in the same OB channel as each of
     //     a, b, ii, jj, look up the resulting basis state (with possible
     //     phase from reordering to canonical form), and add f * phase.
+    //
+    // Normalization factors Nab = sqrt(1+delta(a,b)) and Nij = sqrt(1+delta(i,j))
+    // for the alpha state, and the corresponding N for the beta state, are
+    // included so that the matrix element is between fully normalized 2p2h states.
     // -------------------------------------------------------------------
+    double Nab = std::sqrt(1.0 + (a  == b  ? 1.0 : 0.0));
+    double Nij = std::sqrt(1.0 + (ii == jj ? 1.0 : 0.0));
+
     for (auto c : modelspace->OneBodyChannels.at({oa.l, oa.j2, oa.tz2}))
     {
+      double Ncb = std::sqrt(1.0 + (c == b ? 1.0 : 0.0));
       std::pair<size_t,double> res = lookup_pp_swap(c, b, ii, jj, Jab, Jij);
-      if (res.first < n2) H22(alpha, res.first) += res.second * H.OneBody(a, c);
+      if (res.first < n2) H22(alpha, res.first) += res.second * (Nab / Ncb) * H.OneBody(a, c);
     }
     for (auto c : modelspace->OneBodyChannels.at({ob.l, ob.j2, ob.tz2}))
     {
+      double Nac = std::sqrt(1.0 + (a == c ? 1.0 : 0.0));
       std::pair<size_t,double> res = lookup_pp_swap(a, c, ii, jj, Jab, Jij);
-      if (res.first < n2) H22(alpha, res.first) += res.second * H.OneBody(b, c);
+      if (res.first < n2) H22(alpha, res.first) += res.second * (Nab / Nac) * H.OneBody(b, c);
     }
     for (auto k : modelspace->OneBodyChannels.at({oii.l, oii.j2, oii.tz2}))
     {
+      double Nkj = std::sqrt(1.0 + (k  == jj ? 1.0 : 0.0));
       std::pair<size_t,double> res = lookup_hh_swap(a, b, k, jj, Jab, Jij);
-      if (res.first < n2) H22(alpha, res.first) -= res.second * H.OneBody(ii, k);
+      if (res.first < n2) H22(alpha, res.first) -= res.second * (Nij / Nkj) * H.OneBody(ii, k);
     }
     for (auto k : modelspace->OneBodyChannels.at({ojj.l, ojj.j2, ojj.tz2}))
     {
+      double Nik = std::sqrt(1.0 + (ii == k  ? 1.0 : 0.0));
       std::pair<size_t,double> res = lookup_hh_swap(a, b, ii, k, Jab, Jij);
-      if (res.first < n2) H22(alpha, res.first) -= res.second * H.OneBody(jj, k);
+      if (res.first < n2) H22(alpha, res.first) -= res.second * (Nij / Nik) * H.OneBody(jj, k);
     }
 
     // -------------------------------------------------------------------
@@ -1144,6 +1155,9 @@ void EOM_IMSRG::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
     // 1-body contributions (comm121): sum over all intermediate-state beta.
     // For beta==alpha the four conditions each collapse to one term, recovering
     // the diagonal SPE f_{aa}+f_{bb}-f_{ii}-f_{jj}.
+    // Normalization factors for the alpha state:
+    double Nab = std::sqrt(1.0 + (a  == b  ? 1.0 : 0.0));
+    double Nij = std::sqrt(1.0 + (ii == jj ? 1.0 : 0.0));
     double hv_alpha = 0.0;
     for (size_t beta2 = 0; beta2 < n2; ++beta2)
     {
@@ -1152,13 +1166,25 @@ void EOM_IMSRG::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
       size_t ap2 = st_b2.a, bp2 = st_b2.b, ip2 = st_b2.i, jp2 = st_b2.j;
       int Jabp2 = st_b2.Jab, Jijp2 = st_b2.Jij;
       if (b == bp2 && ii == ip2 && jj == jp2 && Jab == Jabp2 && Jij == Jijp2)
-        hv_alpha += H.OneBody(a, ap2) * v[beta2];
+      {
+        double Nap2b = std::sqrt(1.0 + (ap2 == b   ? 1.0 : 0.0));
+        hv_alpha += (Nab / Nap2b) * H.OneBody(a, ap2) * v[beta2];
+      }
       if (a == ap2 && ii == ip2 && jj == jp2 && Jab == Jabp2 && Jij == Jijp2)
-        hv_alpha += H.OneBody(b, bp2) * v[beta2];
+      {
+        double Nabp2 = std::sqrt(1.0 + (a   == bp2 ? 1.0 : 0.0));
+        hv_alpha += (Nab / Nabp2) * H.OneBody(b, bp2) * v[beta2];
+      }
       if (a == ap2 && b == bp2 && jj == jp2 && Jab == Jabp2 && Jij == Jijp2)
-        hv_alpha -= H.OneBody(ii, ip2) * v[beta2];
+      {
+        double Nip2j = std::sqrt(1.0 + (ip2 == jj  ? 1.0 : 0.0));
+        hv_alpha -= (Nij / Nip2j) * H.OneBody(ii, ip2) * v[beta2];
+      }
       if (a == ap2 && b == bp2 && ii == ip2 && Jab == Jabp2 && Jij == Jijp2)
-        hv_alpha -= H.OneBody(jj, jp2) * v[beta2];
+      {
+        double Nijp2 = std::sqrt(1.0 + (ii  == jp2 ? 1.0 : 0.0));
+        hv_alpha -= (Nij / Nijp2) * H.OneBody(jj, jp2) * v[beta2];
+      }
     }
 
     int phase_pp_a = AngMom::phase((j2a  + j2b)  / 2 - Jab + 1);
