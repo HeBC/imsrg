@@ -698,8 +698,7 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
 ///   1p-1h state β = |ck; J⟩                  with c particle, k hole
 ///
 /// Common prefactor:
-///   K = sqrt((2J_ab+1)(2J_ij+1)) / (N_ab * N_ij) * (-1)^J
-///   where N_ab = sqrt(1+δ_ab), N_ij = sqrt(1+δ_ij)
+///   K = sqrt((2J_ab+1)(2J_ij+1)) * (-1)^J
 ///
 /// Four non-zero contributions from <α|Λ|β>:
 ///
@@ -721,7 +720,6 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
 ///
 /// where Λ(J; p,q|r,s) = GetTBME_J(J, p, q, r, s), the antisymmetric
 /// unnormalized two-body matrix element of H (includes sqrt(1+δ) factors).
-/// Using GetTBME_J (not _norm) is consistent with the N_ab/N_ij prefactor in K.
 ///
 /// After filling the matrix, the same CC-channel ket-ordering phase used in
 /// Build_AMatrix_byIndex is applied column-wise so that the 1p1h columns of
