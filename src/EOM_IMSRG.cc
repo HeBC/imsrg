@@ -93,48 +93,9 @@ void EOMImsrg::Build_AMatrix_byIndex(size_t ich_CC)
 
   int Jph = tbc_CC.J;
 
-  // Pre-compute the Pandya-transformed H for this CC channel (ph × ph block).
-  //
-  //   Hbar_ch(ibra, iket) = H̄(a,i; b,j; Jph)
-  //     = -Σ_{J'}(2J'+1) W6j(ja,ji,Jph; jb,jj,J') × GetTBME_J(J', a,j,b,i)
-  //
-  // ibra and iket are the local ph indices in this channel, ordered the same as
-  // the A-matrix rows/columns (i.e., ibra=I in the outer loop, iket=II in the
-  // inner loop).  The particle/hole convention follows the CC-channel ket
-  // ordering: a_orb=particle, i_orb=hole after an optional swap.
-  arma::mat Hbar_ch(nph, nph, arma::fill::zeros);
-  for (size_t ibra = 0; ibra < nph; ++ibra)
-  {
-    Ket& bra = tbc_CC.GetKet(ph_list[ibra]);
-    size_t a_orb = bra.p, i_orb = bra.q;
-    if (bra.op->occ > bra.oq->occ) std::swap(a_orb, i_orb);
-    double ja_b = 0.5 * modelspace->GetOrbit(a_orb).j2;
-    double ji_b = 0.5 * modelspace->GetOrbit(i_orb).j2;
-
-    for (size_t iket = 0; iket < nph; ++iket)
-    {
-      Ket& ket = tbc_CC.GetKet(ph_list[iket]);
-      size_t b_orb = ket.p, j_orb = ket.q;
-      if (ket.op->occ > ket.oq->occ) std::swap(b_orb, j_orb);
-      double jb_b = 0.5 * modelspace->GetOrbit(b_orb).j2;
-      double jj_b = 0.5 * modelspace->GetOrbit(j_orb).j2;
-
-      int Jp_min = std::max(std::abs((int)(2*ja_b) - (int)(2*jj_b)),
-                            std::abs((int)(2*jb_b) - (int)(2*ji_b))) / 2;
-      int Jp_max = std::min((int)(2*ja_b) + (int)(2*jj_b),
-                            (int)(2*jb_b) + (int)(2*ji_b)) / 2;
-      double V_bar = 0.0;
-      for (int Jp = Jp_min; Jp <= Jp_max; ++Jp)
-      {
-        double sixj = modelspace->GetSixJ(ja_b, ji_b, (double)Jph,
-                                          jb_b, jj_b, (double)Jp);
-        if (std::abs(sixj) < 1e-8) continue;
-        V_bar -= (2*Jp+1) * sixj
-               * H.TwoBody.GetTBME_J(Jp, a_orb, j_orb, b_orb, i_orb);
-      }
-      Hbar_ch(ibra, iket) = V_bar;
-    }
-  }
+  // Use pre-computed Pandya table for this channel.
+  BuildPandya();
+  const arma::mat& Hbar_ch = Hbar_CC[ich_CC];
 
   #pragma omp parallel for schedule(dynamic,1)
   for (long long I = 0; I < static_cast<long long>(nph); ++I)
@@ -406,7 +367,7 @@ void EOMImsrg::Build2p2hBasis_byIndex(size_t ich_CC)
 ///         recover beta via a basis_map lookup — O(n_Jph × n_ph × n_Jabp × n_Jijp × n_Jsp)
 ///         per alpha.
 ///
-///         H̄(a,k; c,l; J_ph) = -Σ_{J'}(2J'+1) W6j(j_a,j_k,J_ph; j_l,j_c,J')
+///         H̄(a,k; c,l; J_ph) = -Σ_{J'}(2J'+1) W6j(j_a,j_k,J_ph; j_c,j_l,J')
 ///                               × GetTBME_J(J', a, l, c, k)
 ///
 void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
@@ -476,76 +437,8 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
     return {n2, 0.0};
   };
 
-  // -----------------------------------------------------------------------
-  // Pre-compute Pandya-transformed H in all CC channels (ph × ph block).
-  // Results are stored in member variables ring_Hbar_CC and ring_pan_idx
-  // so that ApplyH22_matvec can reuse them without re-doing the 6j sums.
-  //
-  //   ring_Hbar_CC[ich_ph](ibra, iket)
-  //     = H̄(a, k; c, l; J_ph)
-  //     = -Σ_{J'}(2J'+1) W6j(j_a, j_k, J_ph; j_l, j_c, J')
-  //                      × GetTBME_J(J', a, l, c, k)
-  //
-  // ibra/iket index the ph-ket subset of CC channel ich_ph.
-  // ring_pan_idx[ich_ph][(particle_orb, hole_orb)] → local ph index.
-  // -----------------------------------------------------------------------
-  size_t n_CC_total = modelspace->GetNumberTwoBodyChannels_CC();
-  ring_pan_idx.assign(n_CC_total, std::map<std::pair<size_t,size_t>,int>());
-  ring_Hbar_CC.assign(n_CC_total, arma::mat());
-
-  for (size_t ich_ph = 0; ich_ph < n_CC_total; ++ich_ph)
-  {
-    TwoBodyChannel_CC& tbc_ph = modelspace->GetTwoBodyChannel_CC(ich_ph);
-    int J_ph = tbc_ph.J;
-    const arma::uvec& ph_idx = tbc_ph.GetKetIndex_ph();
-    int n_ph = (int)ph_idx.n_elem;
-    if (n_ph == 0) continue;
-
-    for (int i = 0; i < n_ph; ++i)
-    {
-      Ket& kt = tbc_ph.GetKet(ph_idx[i]);
-      size_t p_orb = kt.p, h_orb = kt.q;
-      if (kt.op->occ > 0.5) std::swap(p_orb, h_orb);  // ensure p_orb=particle
-      ring_pan_idx[ich_ph][{p_orb, h_orb}] = i;
-    }
-
-    ring_Hbar_CC[ich_ph].zeros(n_ph, n_ph);
-    for (int ibra = 0; ibra < n_ph; ++ibra)
-    {
-      Ket& bra = tbc_ph.GetKet(ph_idx[ibra]);
-      size_t a_orb = bra.p, k_orb = bra.q;
-      if (bra.op->occ > 0.5) std::swap(a_orb, k_orb);
-      double j_a = 0.5 * modelspace->GetOrbit(a_orb).j2;
-      double j_k = 0.5 * modelspace->GetOrbit(k_orb).j2;
-
-      for (int iket = 0; iket < n_ph; ++iket)
-      {
-        Ket& ket = tbc_ph.GetKet(ph_idx[iket]);
-        size_t c_orb = ket.p, l_orb = ket.q;
-        if (ket.op->occ > 0.5) std::swap(c_orb, l_orb);
-        double j_c = 0.5 * modelspace->GetOrbit(c_orb).j2;
-        double j_l = 0.5 * modelspace->GetOrbit(l_orb).j2;
-
-        int Jp_min = std::abs((int)(2*j_a) - (int)(2*j_l)) / 2;
-        int Jp_max = ((int)(2*j_a) + (int)(2*j_l)) / 2;
-        double V_bar = 0.0;
-        for (int Jp = Jp_min; Jp <= Jp_max; ++Jp)
-        {
-          if (!AngMom::Triangle(j_c, j_k, (double)Jp)) continue;
-          double sixj = modelspace->GetSixJ(j_a, j_k, (double)J_ph,
-                                            j_l, j_c, (double)Jp);
-          if (std::abs(sixj) < 1e-8) continue;
-          V_bar -= (2*Jp+1) * sixj
-                 * H.TwoBody.GetTBME_J(Jp, a_orb, l_orb, c_orb, k_orb);
-        }
-        ring_Hbar_CC[ich_ph](ibra, iket) = V_bar;
-      }
-    }
-  }
-
-  // Convenience aliases so the existing ring-term code below compiles unchanged.
-  const auto& pan_idx  = ring_pan_idx;
-  const auto& Hbar_CC  = ring_Hbar_CC;
+  // Use pre-computed Pandya table (built once for all CC channels).
+  BuildPandya();
 
   // -----------------------------------------------------------------------
   // Main loop: compute H22 row by row (parallelized over alpha).
@@ -885,11 +778,7 @@ void EOMImsrg::Build_H21_byIndex(size_t ich_CC)
     double ja   = 0.5*oa.j2,   jb   = 0.5*ob.j2;
     double ji   = 0.5*o_ii.j2, j_jj = 0.5*o_jj.j2;
 
-    double Nab = std::sqrt(1.0 + (a  == b  ? 1.0 : 0.0));
-    double Nij = std::sqrt(1.0 + (ii == jj ? 1.0 : 0.0));
-    // K = sqrt((2J_ab+1)(2J_ij+1)) / (N_ab * N_ij) * (-1)^J
-    double K = std::sqrt((2.0*Jab+1)*(2.0*Jij+1)) / (Nab * Nij)
-               * AngMom::phase(J);
+    double K = std::sqrt((2.0*Jab+1)*(2.0*Jij+1)) * AngMom::phase(J);
 
     // --- sm1: c == a  (1p1h particle matches first particle of 2p2h state) ---
     // H21[α,col] -= phase((j_a+j_b) - J_ij)
@@ -1031,6 +920,95 @@ void EOMImsrg::Build_A12_byIndex(size_t /*ich_CC*/)
 }
 
 // ---------------------------------------------------------------------------
+// BuildPandya / ClearPandya
+// ---------------------------------------------------------------------------
+
+///
+/// Precompute the Pandya-transformed Hamiltonian for every CC channel.
+///
+/// The result is stored in member arrays Hbar_CC and pan_idx so that both
+/// Build_AMatrix_byIndex and BuildH22_byIndex can share the same table.
+/// The function is idempotent: if Hbar_CC is already populated it returns
+/// immediately, so calling it multiple times is free.
+///
+/// The unified Pandya formula is:
+/// \f[
+///   \bar{H}(p_\text{bra}, h_\text{bra}; p_\text{ket}, h_\text{ket}; J_{ph})
+///   = -\sum_{J'} (2J'+1)
+///     \begin{Bmatrix} j_{p_\text{bra}} & j_{h_\text{bra}} & J_{ph} \\
+///                    j_{p_\text{ket}} & j_{h_\text{ket}} & J' \end{Bmatrix}
+///     \langle p_\text{bra}\, h_\text{ket}; J' \| V \|
+///             p_\text{ket}\, h_\text{bra}; J' \rangle
+/// \f]
+///
+void EOMImsrg::BuildPandya()
+{
+  if (!Hbar_CC.empty()) return;  // already built
+
+  size_t n_CC_total = modelspace->GetNumberTwoBodyChannels_CC();
+  pan_idx.assign(n_CC_total, std::map<std::pair<size_t,size_t>,int>());
+  Hbar_CC.assign(n_CC_total, arma::mat());
+
+  for (size_t ich_ph = 0; ich_ph < n_CC_total; ++ich_ph)
+  {
+    TwoBodyChannel_CC& tbc_ph = modelspace->GetTwoBodyChannel_CC(ich_ph);
+    int J_ph = tbc_ph.J;
+    const arma::uvec& ph_idx = tbc_ph.GetKetIndex_ph();
+    int n_ph = (int)ph_idx.n_elem;
+    if (n_ph == 0) continue;
+
+    for (int i = 0; i < n_ph; ++i)
+    {
+      Ket& kt = tbc_ph.GetKet(ph_idx[i]);
+      size_t p_orb = kt.p, h_orb = kt.q;
+      if (kt.op->occ > 0.5) std::swap(p_orb, h_orb);  // ensure p_orb=particle
+      pan_idx[ich_ph][{p_orb, h_orb}] = i;
+    }
+
+    Hbar_CC[ich_ph].zeros(n_ph, n_ph);
+    for (int ibra = 0; ibra < n_ph; ++ibra)
+    {
+      Ket& bra = tbc_ph.GetKet(ph_idx[ibra]);
+      size_t a_orb = bra.p, k_orb = bra.q;
+      if (bra.op->occ > 0.5) std::swap(a_orb, k_orb);
+      double j_a = 0.5 * modelspace->GetOrbit(a_orb).j2;
+      double j_k = 0.5 * modelspace->GetOrbit(k_orb).j2;
+
+      for (int iket = 0; iket < n_ph; ++iket)
+      {
+        Ket& ket = tbc_ph.GetKet(ph_idx[iket]);
+        size_t c_orb = ket.p, l_orb = ket.q;
+        if (ket.op->occ > 0.5) std::swap(c_orb, l_orb);
+        double j_c = 0.5 * modelspace->GetOrbit(c_orb).j2;
+        double j_l = 0.5 * modelspace->GetOrbit(l_orb).j2;
+
+        int Jp_min = std::abs((int)(2*j_a) - (int)(2*j_l)) / 2;
+        int Jp_max = ((int)(2*j_a) + (int)(2*j_l)) / 2;
+        double V_bar = 0.0;
+        for (int Jp = Jp_min; Jp <= Jp_max; ++Jp)
+        {
+          if (!AngMom::Triangle(j_c, j_k, (double)Jp)) continue;
+          // CORRECT W6j: row2 is (j_ket_particle=j_c, j_ket_hole=j_l, J')
+          double sixj = modelspace->GetSixJ(j_a, j_k, (double)J_ph,
+                                            j_c, j_l, (double)Jp);
+          if (std::abs(sixj) < 1e-8) continue;
+          V_bar -= (2*Jp+1) * sixj
+                 * H.TwoBody.GetTBME_J(Jp, a_orb, l_orb, c_orb, k_orb);
+        }
+        Hbar_CC[ich_ph](ibra, iket) = V_bar;
+      }
+    }
+  }
+}
+
+/// Release the precomputed Pandya table to free memory.
+void EOMImsrg::ClearPandya()
+{
+  Hbar_CC.clear();
+  pan_idx.clear();
+}
+
+// ---------------------------------------------------------------------------
 // Solve
 // ---------------------------------------------------------------------------
 
@@ -1083,6 +1061,7 @@ void EOMImsrg::Solve_byIndex(size_t ich_CC, std::string mode)
 /// Solve all particle-hole channels that have at least one ph pair.
 void EOMImsrg::SolveAllChannels(std::string mode)
 {
+  BuildPandya();
   size_t nch = modelspace->GetNumberTwoBodyChannels_CC();
   for (size_t ich = 0; ich < nch; ich++)
   {
@@ -1090,6 +1069,7 @@ void EOMImsrg::SolveAllChannels(std::string mode)
     if (tbc.GetKetIndex_ph().empty()) continue;
     Solve_byIndex(ich, mode);
   }
+  ClearPandya();
 }
 
 // ---------------------------------------------------------------------------
@@ -1208,7 +1188,7 @@ void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
       hv_alpha += val * v[beta];
     }
 
-    // Ph ring — use pre-computed Pandya table (ring_Hbar_CC / ring_pan_idx).
+    // Ph ring — use pre-computed Pandya table (Hbar_CC / pan_idx).
     // Loop over ph channels first; for each channel iterate over kets to
     // find compatible beta states via basis_map, avoiding the O(n_2p2h) scan.
     for (const ACase& ac : alpha_cases)
@@ -1232,13 +1212,13 @@ void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
       for (int Jph_cur = Jph_range_min; Jph_cur <= Jph_range_max; ++Jph_cur)
       {
         size_t ich_ph = modelspace->GetTwoBodyChannelIndex(Jph_cur, par_ph, Tz_ph);
-        if (ich_ph >= ring_pan_idx.size()) continue;
+        if (ich_ph >= pan_idx.size()) continue;
 
-        const auto& pidx = ring_pan_idx[ich_ph];
+        const auto& pidx = pan_idx[ich_ph];
         auto it_bra = pidx.find({ac.act_p, ac.act_h});
         if (it_bra == pidx.end()) continue;
         int ibra = it_bra->second;
-        const arma::mat& Vmat = ring_Hbar_CC[ich_ph];
+        const arma::mat& Vmat = Hbar_CC[ich_ph];
 
         int Jsp_min = std::max(Jsp_min_base, std::abs(J - Jph_cur));
         int Jsp_max = std::min(Jsp_max_base, J + Jph_cur);
@@ -1356,10 +1336,7 @@ void EOMImsrg::ApplyH21_matvec(const arma::vec& v_ph, arma::vec& Hv_2p2h) const
     double ja   = 0.5*oa.j2,   jb   = 0.5*ob.j2;
     double ji   = 0.5*o_ii.j2, j_jj = 0.5*o_jj.j2;
 
-    double Nab = std::sqrt(1.0 + (a  == b  ? 1.0 : 0.0));
-    double Nij = std::sqrt(1.0 + (ii == jj ? 1.0 : 0.0));
-    // K = sqrt((2J_ab+1)(2J_ij+1)) / (N_ab * N_ij) * (-1)^J
-    double K = std::sqrt((2.0*Jab+1)*(2.0*Jij+1)) / (Nab * Nij) * AngMom::phase(J);
+    double K = std::sqrt((2.0*Jab+1)*(2.0*Jij+1)) * AngMom::phase(J);
 
     double hv = 0.0;
 
@@ -1484,10 +1461,7 @@ void EOMImsrg::ApplyH21T_matvec(const arma::vec& v_2p2h, arma::vec& Hv_ph) const
     double ja   = 0.5*oa.j2,   jb   = 0.5*ob.j2;
     double ji   = 0.5*o_ii.j2, j_jj = 0.5*o_jj.j2;
 
-    double Nab = std::sqrt(1.0 + (a  == b  ? 1.0 : 0.0));
-    double Nij = std::sqrt(1.0 + (ii == jj ? 1.0 : 0.0));
-    // K = sqrt((2J_ab+1)(2J_ij+1)) / (N_ab * N_ij) * (-1)^J
-    double K = std::sqrt((2.0*Jab+1)*(2.0*Jij+1)) / (Nab * Nij) * AngMom::phase(J);
+    double K = std::sqrt((2.0*Jab+1)*(2.0*Jij+1)) * AngMom::phase(J);
 
     // sm1: c == a  → Hv_ph[col] -= phase1 * w6j * Λ * K * phase_col * v_alpha
     {
@@ -1754,6 +1728,7 @@ void EOMImsrg::Solve_byIndex_MF(size_t ich_CC, int nev)
 /// Run Solve_byIndex_MF for all ph channels.
 void EOMImsrg::SolveAllChannels_MF(int nev)
 {
+  BuildPandya();
   size_t nch = modelspace->GetNumberTwoBodyChannels_CC();
   for (size_t ich = 0; ich < nch; ich++)
   {
@@ -1761,6 +1736,7 @@ void EOMImsrg::SolveAllChannels_MF(int nev)
     if (tbc.GetKetIndex_ph().empty()) continue;
     Solve_byIndex_MF(ich, nev);
   }
+  ClearPandya();
 }
 
 

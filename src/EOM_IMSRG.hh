@@ -181,6 +181,12 @@ class EOMImsrg
   /// The matrix-free Lanczos path uses ApplyH21T_matvec instead.
   void Build_A12_byIndex(size_t ich_CC);
 
+  /// Precompute the Pandya-transformed H for ALL CC channels and store in
+  /// Hbar_CC / pan_idx.  Idempotent: returns immediately if already built.
+  void BuildPandya();
+  /// Release the Pandya table (Hbar_CC and pan_idx).
+  void ClearPandya();
+
   // -----------------------------------------------------------------------
   // Solvers
   // -----------------------------------------------------------------------
@@ -273,19 +279,19 @@ class EOMImsrg
   std::vector<int>     mf_ph_phase;
 
   // -----------------------------------------------------------------------
-  // Pre-computed Pandya table for the H22 ring term.
-  // Populated once by BuildH22_byIndex; reused by ApplyH22_matvec so that
-  // the expensive 6j-symbol/J' loop is not repeated every Lanczos iteration.
+  // Precomputed Pandya-transformed H for ALL CC channels.
+  // Call BuildPandya() once before any matrix construction.
+  // Release with ClearPandya().
   //
-  //   ring_Hbar_CC[ich_ph](ibra, iket)
-  //     = H̄(act_pa, act_ha; act_pb, act_hb; J_ph)
-  //     = -Σ_{J'}(2J'+1) W6j(j_act_pa, j_act_ha, J_ph; j_act_hb, j_act_pb, J')
-  //               × GetTBME_J(J', act_pa, act_hb, act_pb, act_ha)
+  //   Hbar_CC[ich_ph](ibra, iket)
+  //     = H̄(p_bra, h_bra; p_ket, h_ket; J_ph)
+  //     = -Σ_{J'}(2J'+1) W6j(j_p_bra, j_h_bra, J_ph; j_p_ket, j_h_ket, J')
+  //               × GetTBME_J(J', p_bra, h_ket, p_ket, h_bra)
   //
-  // ring_pan_idx[ich_ph][(p_orb, h_orb)] → local row/col index inside Hbar_CC.
+  // pan_idx[ich_ph][(p_orb, h_orb)] → local row/col index inside Hbar_CC.
   // -----------------------------------------------------------------------
-  std::vector<arma::mat>                            ring_Hbar_CC;
-  std::vector<std::map<std::pair<size_t,size_t>,int>> ring_pan_idx;
+  std::vector<arma::mat>                            Hbar_CC;
+  std::vector<std::map<std::pair<size_t,size_t>,int>> pan_idx;
 
   /// Compute Hv_2p2h += H22 * v_2p2h without building H22.
   void ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const;
