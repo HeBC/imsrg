@@ -49,12 +49,12 @@ arma::vec ComputeOnePhNorms(const arma::mat& X)
 // Constructors
 // ---------------------------------------------------------------------------
 
-EOMImsrg::EOMImsrg()
+EOM_IMSRG::EOM_IMSRG()
   : modelspace(nullptr), one_ph_count(0), two_ph_count(0),
     lanczos_iterations(0), current_channel(0), lanczos_nev(0)
 {}
 
-EOMImsrg::EOMImsrg(Operator& H_imsrg)
+EOM_IMSRG::EOM_IMSRG(Operator& H_imsrg)
   : modelspace(H_imsrg.modelspace), H(H_imsrg), one_ph_count(0),
     two_ph_count(0), lanczos_iterations(0), current_channel(0), lanczos_nev(0)
 {}
@@ -64,7 +64,7 @@ EOMImsrg::EOMImsrg(Operator& H_imsrg)
 // ---------------------------------------------------------------------------
 
 /// Dispatch helper: look up the channel index then call Build_AMatrix_byIndex.
-void EOMImsrg::Build_AMatrix(int J, int parity, int Tz)
+void EOM_IMSRG::Build_AMatrix(int J, int parity, int Tz)
 {
   size_t ich_CC = modelspace->GetTwoBodyChannelIndex(J, parity, Tz);
   Build_AMatrix_byIndex(ich_CC);
@@ -83,7 +83,7 @@ void EOMImsrg::Build_AMatrix(int J, int parity, int Tz)
 /// where the one-body term uses the full off-diagonal f_{ab} (or f_{ij}) within
 /// each one-body channel (i.e. same l, j, tz), following the IMSRG convention.
 ///
-void EOMImsrg::Build_AMatrix_byIndex(size_t ich_CC)
+void EOM_IMSRG::Build_AMatrix_byIndex(size_t ich_CC)
 {
   current_channel = ich_CC;
   TwoBodyChannel_CC& tbc_CC = modelspace->GetTwoBodyChannel_CC(ich_CC);
@@ -152,7 +152,7 @@ void EOMImsrg::Build_AMatrix_byIndex(size_t ich_CC)
 // ---------------------------------------------------------------------------
 
 /// Dispatch helper.
-void EOMImsrg::Build_BMatrix(int J, int parity, int Tz)
+void EOM_IMSRG::Build_BMatrix(int J, int parity, int Tz)
 {
   size_t ich_CC = modelspace->GetTwoBodyChannelIndex(J, parity, Tz);
   Build_BMatrix_byIndex(ich_CC);
@@ -173,7 +173,7 @@ void EOMImsrg::Build_BMatrix(int J, int parity, int Tz)
 ///                  \langle ab; J' \| V \| ij; J' \rangle.
 /// \f]
 ///
-void EOMImsrg::Build_BMatrix_byIndex(size_t ich_CC)
+void EOM_IMSRG::Build_BMatrix_byIndex(size_t ich_CC)
 {
   current_channel = ich_CC;
   TwoBodyChannel_CC& tbc_CC = modelspace->GetTwoBodyChannel_CC(ich_CC);
@@ -280,7 +280,7 @@ void EOMImsrg::Build_BMatrix_byIndex(size_t ich_CC)
 ///   - (parity_pp + parity_hh) % 2 == parity_EOM
 ///   - Tz_pp - Tz_hh == Tz_EOM
 ///
-void EOMImsrg::Build2p2hBasis_byIndex(size_t ich_CC)
+void EOM_IMSRG::Build2p2hBasis_byIndex(size_t ich_CC)
 {
   tpth_basis.clear();
 
@@ -370,7 +370,7 @@ void EOMImsrg::Build2p2hBasis_byIndex(size_t ich_CC)
 ///         H̄(a,k; c,l; J_ph) = -Σ_{J'}(2J'+1) W6j(j_a,j_k,J_ph; j_c,j_l,J')
 ///                               × GetTBME_J(J', a, l, c, k)
 ///
-void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
+void EOM_IMSRG::BuildH22_byIndex(size_t ich_CC)
 {
   TwoBodyChannel_CC& tbc_CC = modelspace->GetTwoBodyChannel_CC(ich_CC);
   int J = tbc_CC.J;
@@ -656,8 +656,13 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
 
               int phase_beta = phase_beta_pp * phase_beta_hh;
 
+              double Nab  = (a      == b)      ? std::sqrt(2.0) : 1.0;
+              double Nij  = (ii     == jj)     ? std::sqrt(2.0) : 1.0;
+              double Nabp = (can_p1 == can_p2) ? std::sqrt(2.0) : 1.0;
+              double Nijp = (can_h1 == can_h2) ? std::sqrt(2.0) : 1.0;
               double prefactor = std::sqrt((2.0*Jab+1)*(2.0*Jij+1)
-                                          *(2.0*Jabp+1)*(2.0*Jijp+1));
+                                          *(2.0*Jabp+1)*(2.0*Jijp+1))
+                                / (Nab * Nij * Nabp * Nijp);
 
               double ring_Jsp = 0.0;
               for (int Jsp = Jsp_min; Jsp <= Jsp_max; ++Jsp)
@@ -729,7 +734,7 @@ void EOMImsrg::BuildH22_byIndex(size_t ich_CC)
 ///   [ A       H21^T ]
 ///   [ H21     H22   ]
 ///
-void EOMImsrg::Build_H21_byIndex(size_t ich_CC)
+void EOM_IMSRG::Build_H21_byIndex(size_t ich_CC)
 {
   TwoBodyChannel_CC& tbc_CC = modelspace->GetTwoBodyChannel_CC(ich_CC);
   const auto& ph_list = tbc_CC.GetKetIndex_ph();
@@ -916,7 +921,7 @@ void EOMImsrg::Build_H21_byIndex(size_t ich_CC)
 /// Note: Build_H21_byIndex MUST be called before this function (H21 is
 /// used as the source).  The matrix-free Lanczos path (Solve_byIndex_MF)
 /// uses ApplyH21T_matvec instead and never calls Build_A12_byIndex.
-void EOMImsrg::Build_A12_byIndex(size_t /*ich_CC*/)
+void EOM_IMSRG::Build_A12_byIndex(size_t /*ich_CC*/)
 {
   A12 = H21.t();
 }
@@ -943,7 +948,7 @@ void EOMImsrg::Build_A12_byIndex(size_t /*ich_CC*/)
 ///             p_\text{ket}\, h_\text{bra}; J' \rangle
 /// \f]
 ///
-void EOMImsrg::BuildPandya()
+void EOM_IMSRG::BuildPandya()
 {
   if (!Hbar_CC.empty()) return;  // already built
 
@@ -1004,7 +1009,7 @@ void EOMImsrg::BuildPandya()
 }
 
 /// Release the precomputed Pandya table to free memory.
-void EOMImsrg::ClearPandya()
+void EOM_IMSRG::ClearPandya()
 {
   Hbar_CC.clear();
   pan_idx.clear();
@@ -1014,13 +1019,13 @@ void EOMImsrg::ClearPandya()
 // Solve
 // ---------------------------------------------------------------------------
 
-void EOMImsrg::Solve(int J, int parity, int Tz, std::string mode)
+void EOM_IMSRG::Solve(int J, int parity, int Tz, std::string mode)
 {
   size_t ich_CC = modelspace->GetTwoBodyChannelIndex(J, parity, Tz);
   Solve_byIndex(ich_CC, mode);
 }
 
-void EOMImsrg::Solve_byIndex(size_t ich_CC, std::string mode)
+void EOM_IMSRG::Solve_byIndex(size_t ich_CC, std::string mode)
 {
   current_channel = ich_CC;
   Build_AMatrix_byIndex(ich_CC);
@@ -1061,7 +1066,7 @@ void EOMImsrg::Solve_byIndex(size_t ich_CC, std::string mode)
 }
 
 /// Solve all particle-hole channels that have at least one ph pair.
-void EOMImsrg::SolveAllChannels(std::string mode)
+void EOM_IMSRG::SolveAllChannels(std::string mode)
 {
   BuildPandya();
   size_t nch = modelspace->GetNumberTwoBodyChannels_CC();
@@ -1092,7 +1097,7 @@ void EOMImsrg::SolveAllChannels(std::string mode)
 ///
 /// The loop is trivially thread-safe under OpenMP because each α accumulates
 /// into a private double hv_alpha before writing to Hv[α].
-void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
+void EOM_IMSRG::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
 {
   int J = modelspace->GetTwoBodyChannel_CC(current_channel).J;
   size_t n2 = tpth_basis.size();
@@ -1277,8 +1282,13 @@ void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
 
               int phase_beta = phase_beta_pp * phase_beta_hh;
 
+              double Nab  = (a      == b)      ? std::sqrt(2.0) : 1.0;
+              double Nij  = (ii     == jj)     ? std::sqrt(2.0) : 1.0;
+              double Nabp = (can_p1 == can_p2) ? std::sqrt(2.0) : 1.0;
+              double Nijp = (can_h1 == can_h2) ? std::sqrt(2.0) : 1.0;
               double prefactor = std::sqrt((2.0*Jab+1)*(2.0*Jij+1)
-                                          *(2.0*Jabp+1)*(2.0*Jijp+1));
+                                          *(2.0*Jabp+1)*(2.0*Jijp+1))
+                                / (Nab * Nij * Nabp * Nijp);
 
               double ring_Jsp = 0.0;
               for (int Jsp = Jsp_min; Jsp <= Jsp_max; ++Jsp)
@@ -1315,7 +1325,7 @@ void EOMImsrg::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
 ///
 /// The four terms sm1-sm4 are identical to Build_H21_byIndex; see that
 /// function's comment for the full formula with consistent notation.
-void EOMImsrg::ApplyH21_matvec(const arma::vec& v_ph, arma::vec& Hv_2p2h) const
+void EOM_IMSRG::ApplyH21_matvec(const arma::vec& v_ph, arma::vec& Hv_2p2h) const
 {
   TwoBodyChannel_CC& tbc_CC = modelspace->GetTwoBodyChannel_CC(current_channel);
   int J = tbc_CC.J;
@@ -1441,7 +1451,7 @@ void EOMImsrg::ApplyH21_matvec(const arma::vec& v_ph, arma::vec& Hv_2p2h) const
 ///
 /// The four terms sm1-sm4 are the transpose of those in Build_H21_byIndex;
 /// see that function for the full formula with consistent notation.
-void EOMImsrg::ApplyH21T_matvec(const arma::vec& v_2p2h, arma::vec& Hv_ph) const
+void EOM_IMSRG::ApplyH21T_matvec(const arma::vec& v_2p2h, arma::vec& Hv_ph) const
 {
   TwoBodyChannel_CC& tbc_CC = modelspace->GetTwoBodyChannel_CC(current_channel);
   int J = tbc_CC.J;
@@ -1549,7 +1559,7 @@ void EOMImsrg::ApplyH21T_matvec(const arma::vec& v_2p2h, arma::vec& Hv_ph) const
 
 /// Full H_EOM2 matvec: Hv = [A, H21^T; H21, H22] * v.
 /// v[0..nph-1] = 1p1h part; v[nph..] = 2p2h part.
-void EOMImsrg::ApplyH_EOM2_matvec(const arma::vec& v, arma::vec& Hv) const
+void EOM_IMSRG::ApplyH_EOM2_matvec(const arma::vec& v, arma::vec& Hv) const
 {
   size_t nph = A.n_rows;
   size_t n2  = tpth_basis.size();
@@ -1579,15 +1589,15 @@ void EOMImsrg::ApplyH_EOM2_matvec(const arma::vec& v, arma::vec& Hv) const
 namespace
 {
 /// Armadillo newarp MatProd-compatible operator that wraps
-/// EOMImsrg::ApplyH_EOM2_matvec.  Passed to SymEigsSolver in place of
+/// EOM_IMSRG::ApplyH_EOM2_matvec.  Passed to SymEigsSolver in place of
 /// DenseGenMatProd so that no H22 / H21 matrix is ever materialised.
 struct EOMMatFreeOp
 {
   typedef double elem_type;
-  const EOMImsrg* eom;
+  const EOM_IMSRG* eom;
   arma::uword n_rows;  ///< required by armadillo newarp SymEigsSolver
 
-  EOMMatFreeOp(const EOMImsrg* e, arma::uword n) : eom(e), n_rows(n) {}
+  EOMMatFreeOp(const EOM_IMSRG* e, arma::uword n) : eom(e), n_rows(n) {}
 
   void perform_op(const double* x_in, double* y_out) const
   {
@@ -1621,7 +1631,7 @@ struct EOMMatFreeOp
 ///
 /// @param nev  Number of algebraically-lowest eigenvalues to converge (≥ 1).
 ///             If nev ≥ N = nph + n2p2h, falls back to the dense EOM2 solve.
-void EOMImsrg::Solve_byIndex_MF(size_t ich_CC, int nev)
+void EOM_IMSRG::Solve_byIndex_MF(size_t ich_CC, int nev)
 {
   current_channel = ich_CC;
 
@@ -1676,7 +1686,7 @@ void EOMImsrg::Solve_byIndex_MF(size_t ich_CC, int nev)
   if (nev <= 0 || (size_t)nev >= N)
   {
     // Degenerate cases: build the explicit matrices and use the dense path.
-    std::cout << "WARNING EOMImsrg::Solve_byIndex_MF: nev=" << nev
+    std::cout << "WARNING EOM_IMSRG::Solve_byIndex_MF: nev=" << nev
               << " out of range for N=" << N
               << "; falling back to dense EOM2 solve in channel " << ich_CC
               << std::endl;
@@ -1699,7 +1709,7 @@ void EOMImsrg::Solve_byIndex_MF(size_t ich_CC, int nev)
 
     if (nconv < (arma::uword)nev)
     {
-      std::cout << "WARNING EOMImsrg::Solve_byIndex_MF: only " << nconv
+      std::cout << "WARNING EOM_IMSRG::Solve_byIndex_MF: only " << nconv
                 << " of " << nev << " eigenvalues converged in channel "
                 << ich_CC << "  " << __FILE__ << ":" << __LINE__ << std::endl;
     }
@@ -1732,7 +1742,7 @@ void EOMImsrg::Solve_byIndex_MF(size_t ich_CC, int nev)
 }
 
 /// Run Solve_byIndex_MF for all ph channels.
-void EOMImsrg::SolveAllChannels_MF(int nev)
+void EOM_IMSRG::SolveAllChannels_MF(int nev)
 {
   BuildPandya();
   size_t nch = modelspace->GetNumberTwoBodyChannels_CC();
@@ -1746,7 +1756,7 @@ void EOMImsrg::SolveAllChannels_MF(int nev)
 }
 
 
-void EOMImsrg::SolveCurrentChannel(std::string mode)
+void EOM_IMSRG::SolveCurrentChannel(std::string mode)
 {
   if (mode == "TDA")
   {
@@ -1817,7 +1827,7 @@ void EOMImsrg::SolveCurrentChannel(std::string mode)
 
       if (nconv < (arma::uword)lanczos_nev)
       {
-        std::cout << "WARNING EOMImsrg Lanczos: only " << nconv
+        std::cout << "WARNING EOM_IMSRG Lanczos: only " << nconv
                   << " of " << lanczos_nev << " eigenvalues converged"
                   << " in channel " << current_channel
                   << "  " << __FILE__ << ":" << __LINE__ << std::endl;
@@ -1869,7 +1879,7 @@ void EOMImsrg::SolveCurrentChannel(std::string mode)
     double norm_imag = arma::norm(arma::imag(cx_eigvals), "fro");
     if (norm_imag > RPA_IMAG_TOL)
     {
-      std::cout << "WARNING EOMImsrg RPA: non-zero imaginary eigenvalues ("
+      std::cout << "WARNING EOM_IMSRG RPA: non-zero imaginary eigenvalues ("
                 << norm_imag << ") in channel " << current_channel
                 << "  " << __FILE__ << ":" << __LINE__ << std::endl;
     }
@@ -1906,7 +1916,7 @@ void EOMImsrg::SolveCurrentChannel(std::string mode)
   }
   else
   {
-    throw std::invalid_argument("EOMImsrg::Solve: unknown mode '" + mode
+    throw std::invalid_argument("EOM_IMSRG::Solve: unknown mode '" + mode
                                 + "'. Use 'TDA', 'EOM', 'RPA', or 'EOM2'.");
   }
 }
@@ -1915,27 +1925,27 @@ void EOMImsrg::SolveCurrentChannel(std::string mode)
 // Accessors
 // ---------------------------------------------------------------------------
 
-arma::vec EOMImsrg::GetExcitationEnergies() const { return Energies; }
+arma::vec EOM_IMSRG::GetExcitationEnergies() const { return Energies; }
 
-arma::vec EOMImsrg::GetAmplitudesX(size_t state_index) const
+arma::vec EOM_IMSRG::GetAmplitudesX(size_t state_index) const
 {
   return X.col(state_index);
 }
 
-arma::vec EOMImsrg::GetAmplitudesY(size_t state_index) const
+arma::vec EOM_IMSRG::GetAmplitudesY(size_t state_index) const
 {
   return Y.col(state_index);
 }
 
-arma::vec EOMImsrg::GetOnePhNorms() const { return OnePhNorms; }
+arma::vec EOM_IMSRG::GetOnePhNorms() const { return OnePhNorms; }
 
-size_t EOMImsrg::GetOnePhCount() const { return one_ph_count; }
+size_t EOM_IMSRG::GetOnePhCount() const { return one_ph_count; }
 
-size_t EOMImsrg::GetTwoPhCount() const { return two_ph_count; }
+size_t EOM_IMSRG::GetTwoPhCount() const { return two_ph_count; }
 
-size_t EOMImsrg::GetLanczosIterations() const { return lanczos_iterations; }
+size_t EOM_IMSRG::GetLanczosIterations() const { return lanczos_iterations; }
 
-void EOMImsrg::PrintSummary() const
+void EOM_IMSRG::PrintSummary() const
 {
   std::streamsize old_prec = std::cout.precision();
   std::ios::fmtflags old_flags = std::cout.flags();
@@ -1974,11 +1984,11 @@ void EOMImsrg::PrintSummary() const
   std::cout.flags(old_flags);
 }
 
-EOMChannel EOMImsrg::GetChannelResults(size_t ich_CC) const
+EOMChannel EOM_IMSRG::GetChannelResults(size_t ich_CC) const
 {
   auto it = ChannelResults.find(ich_CC);
   if (it == ChannelResults.end())
-    throw std::out_of_range("EOMImsrg::GetChannelResults: channel not solved");
+    throw std::out_of_range("EOM_IMSRG::GetChannelResults: channel not solved");
   return it->second;
 }
 
@@ -2009,23 +2019,23 @@ EOMChannel EOMImsrg::GetChannelResults(size_t ich_CC) const
 ///     \Biggr].
 /// \f]
 ///
-double EOMImsrg::ComputeTransitionME(Operator& Op, size_t state_index) const
+double EOM_IMSRG::ComputeTransitionME(Operator& Op, size_t state_index) const
 {
   return ComputeTransitionME_byIndex(current_channel, Op, state_index);
 }
 
-double EOMImsrg::ComputeTransitionME_byIndex(size_t ich_CC,
+double EOM_IMSRG::ComputeTransitionME_byIndex(size_t ich_CC,
                                               Operator& Op,
                                               size_t state_index) const
 {
   auto it = ChannelResults.find(ich_CC);
   if (it == ChannelResults.end())
-    throw std::out_of_range("EOMImsrg::ComputeTransitionME_byIndex: "
+    throw std::out_of_range("EOM_IMSRG::ComputeTransitionME_byIndex: "
                             "channel not solved");
 
   const EOMChannel& ch = it->second;
   if (state_index >= (size_t)ch.X.n_cols)
-    throw std::out_of_range("EOMImsrg::ComputeTransitionME_byIndex: "
+    throw std::out_of_range("EOM_IMSRG::ComputeTransitionME_byIndex: "
                             "state_index out of range");
 
   TwoBodyChannel_CC& tbc_CC = modelspace->GetTwoBodyChannel_CC(ich_CC);

@@ -931,7 +931,7 @@ PYBIND11_MODULE(pyIMSRG, m)
                { std::cout << self.B << std::endl; })
           .def("GetEgs", &RPA::GetEgs);
 
-      // EOMImsrg: Equation-of-Motion IMSRG excited-state solver.
+      // EOM_IMSRG: Equation-of-Motion IMSRG excited-state solver.
       // Takes an IMSRG-evolved Hamiltonian and solves for excitation energies
       // and transition matrix elements in the 1p-1h sector.
 
@@ -1002,93 +1002,93 @@ PYBIND11_MODULE(pyIMSRG, m)
                     std::cout << "  Lanczos iterations = "
                               << self.LanczosIterations << std::endl; });
 
-      // EOMImsrg: main solver class.
-      py::class_<EOMImsrg>(m, "EOMImsrg")
+      // EOM_IMSRG: main solver class.
+      py::class_<EOM_IMSRG>(m, "EOM_IMSRG")
           .def(py::init<Operator &>())
           // ---- matrix construction ----
-          .def("Build_AMatrix", &EOMImsrg::Build_AMatrix,
+          .def("Build_AMatrix", &EOM_IMSRG::Build_AMatrix,
                py::arg("J"), py::arg("parity"), py::arg("Tz"))
-          .def("Build_BMatrix", &EOMImsrg::Build_BMatrix,
+          .def("Build_BMatrix", &EOM_IMSRG::Build_BMatrix,
                py::arg("J"), py::arg("parity"), py::arg("Tz"))
           // index-addressed variants (use TwoBodyChannel_CC index directly)
-          .def("Build_AMatrix_byIndex", &EOMImsrg::Build_AMatrix_byIndex,
+          .def("Build_AMatrix_byIndex", &EOM_IMSRG::Build_AMatrix_byIndex,
                py::arg("ich_CC"))
-          .def("Build_BMatrix_byIndex", &EOMImsrg::Build_BMatrix_byIndex,
+          .def("Build_BMatrix_byIndex", &EOM_IMSRG::Build_BMatrix_byIndex,
                py::arg("ich_CC"))
-          .def("Build_H21_byIndex", &EOMImsrg::Build_H21_byIndex,
+          .def("Build_H21_byIndex", &EOM_IMSRG::Build_H21_byIndex,
                py::arg("ich_CC"),
                "Build 2p2h × 1p1h coupling block H21.  "
                "Must call Build2p2hBasis_byIndex first.")
-          .def("Build_A12_byIndex", &EOMImsrg::Build_A12_byIndex,
+          .def("Build_A12_byIndex", &EOM_IMSRG::Build_A12_byIndex,
                py::arg("ich_CC"),
                "Build 1p1h × 2p2h coupling block A12 = H21^T (explicit matrix).  "
                "Must call Build_H21_byIndex first.")
           // ---- solvers ----
-          .def("Solve", &EOMImsrg::Solve,
+          .def("Solve", &EOM_IMSRG::Solve,
                py::arg("J"), py::arg("parity"), py::arg("Tz"), py::arg("mode") = "TDA",
                "mode: 'TDA'|'EOM'|'RPA'|'EOM2'")
-          .def("Solve_byIndex", &EOMImsrg::Solve_byIndex,
+          .def("Solve_byIndex", &EOM_IMSRG::Solve_byIndex,
                py::arg("ich_CC"), py::arg("mode") = "TDA",
                "mode: 'TDA'|'EOM'|'RPA'|'EOM2'")
-          .def("SolveAllChannels", &EOMImsrg::SolveAllChannels,
+          .def("SolveAllChannels", &EOM_IMSRG::SolveAllChannels,
                py::arg("mode") = "TDA",
                "mode: 'TDA'|'EOM'|'RPA'|'EOM2'")
           // ---- matrix-free Lanczos solvers (EOM2 without building H22/H21) ----
-          .def("Solve_byIndex_MF", &EOMImsrg::Solve_byIndex_MF,
+          .def("Solve_byIndex_MF", &EOM_IMSRG::Solve_byIndex_MF,
                py::arg("ich_CC"), py::arg("nev"),
                "Matrix-free Lanczos EOM2 for one channel. "
                "Builds A and 2p2h basis but never materialises H22 (N2×N2) "
                "or H21 (N2×Nph). nev = number of lowest eigenvalues to converge.")
-          .def("SolveAllChannels_MF", &EOMImsrg::SolveAllChannels_MF,
+          .def("SolveAllChannels_MF", &EOM_IMSRG::SolveAllChannels_MF,
                py::arg("nev"),
                "Run Solve_byIndex_MF for all ph channels.")
           // ---- accessors for current channel ----
-          .def("GetExcitationEnergies", [](EOMImsrg &self)
+          .def("GetExcitationEnergies", [](EOM_IMSRG &self)
                { arma::vec v = self.GetExcitationEnergies();
                  std::vector<double> out; for (auto e : v) out.push_back(e); return out; })
-          .def("GetAmplitudesX", [](EOMImsrg &self, size_t i)
+          .def("GetAmplitudesX", [](EOM_IMSRG &self, size_t i)
                { arma::vec v = self.GetAmplitudesX(i);
                  std::vector<double> out; for (auto x : v) out.push_back(x); return out; })
-          .def("GetAmplitudesY", [](EOMImsrg &self, size_t i)
+          .def("GetAmplitudesY", [](EOM_IMSRG &self, size_t i)
                 { arma::vec v = self.GetAmplitudesY(i);
                   std::vector<double> out; for (auto y : v) out.push_back(y); return out; })
-          .def("GetOnePhNorms", [](EOMImsrg &self)
+          .def("GetOnePhNorms", [](EOM_IMSRG &self)
                { arma::vec v = self.GetOnePhNorms();
                  std::vector<double> out; for (auto x : v) out.push_back(x); return out; })
           // Number of states in the most recently solved channel
-          .def("GetNStates", [](EOMImsrg &self)
+          .def("GetNStates", [](EOM_IMSRG &self)
                 { return (size_t)self.Energies.n_elem; })
-          .def("GetOnePhCount", &EOMImsrg::GetOnePhCount)
-          .def("GetTwoPhCount", &EOMImsrg::GetTwoPhCount)
-          .def("GetLanczosIterations", &EOMImsrg::GetLanczosIterations)
+          .def("GetOnePhCount", &EOM_IMSRG::GetOnePhCount)
+          .def("GetTwoPhCount", &EOM_IMSRG::GetTwoPhCount)
+          .def("GetLanczosIterations", &EOM_IMSRG::GetLanczosIterations)
           // ---- transition matrix elements ----
-          .def("ComputeTransitionME", &EOMImsrg::ComputeTransitionME,
+          .def("ComputeTransitionME", &EOM_IMSRG::ComputeTransitionME,
                py::arg("Op"), py::arg("state_index"))
           // index-addressed variant (allows querying a previously solved channel)
-          .def("ComputeTransitionME_byIndex", &EOMImsrg::ComputeTransitionME_byIndex,
+          .def("ComputeTransitionME_byIndex", &EOM_IMSRG::ComputeTransitionME_byIndex,
                py::arg("ich_CC"), py::arg("Op"), py::arg("state_index"))
           // ---- stored per-channel results ----
-          .def("GetChannelResults", &EOMImsrg::GetChannelResults,
+          .def("GetChannelResults", &EOM_IMSRG::GetChannelResults,
                py::arg("ich_CC"))
           // list of all channel indices that have been solved
-          .def("GetSolvedChannels", [](EOMImsrg &self)
+          .def("GetSolvedChannels", [](EOM_IMSRG &self)
                { std::vector<size_t> keys;
                  for (auto &kv : self.ChannelResults) keys.push_back(kv.first);
                  return keys; })
           // ---- print helpers ----
-          .def("PrintA", [](EOMImsrg &self)
+          .def("PrintA", [](EOM_IMSRG &self)
                 { std::cout << self.A << std::endl; })
-          .def("PrintB", [](EOMImsrg &self)
+          .def("PrintB", [](EOM_IMSRG &self)
                 { std::cout << self.B << std::endl; })
-          .def("PrintH21", [](EOMImsrg &self)
+          .def("PrintH21", [](EOM_IMSRG &self)
                 { std::cout << self.H21 << std::endl; },
                 "Print the 2p2h x 1p1h coupling matrix H21 (A21) to stdout. "
                 "Must call Solve_byIndex with mode='EOM2' first.")
-          .def("PrintH22", [](EOMImsrg &self)
+          .def("PrintH22", [](EOM_IMSRG &self)
                 { std::cout << self.H22 << std::endl; },
                 "Print the 2p2h x 2p2h block matrix H22 (A22) to stdout. "
                 "Must call Solve_byIndex with mode='EOM2' first.")
-          .def("PrintBasis1p1h", [](EOMImsrg &self)
+          .def("PrintBasis1p1h", [](EOM_IMSRG &self)
                 {
                   ModelSpace* ms = self.modelspace;
                   size_t ich_CC = self.current_channel;
@@ -1128,7 +1128,7 @@ PYBIND11_MODULE(pyIMSRG, m)
                 "Shows particle orbit a, hole orbit i, CC-channel storage order, "
                 "and the phase factor applied in Build_AMatrix_byIndex. "
                 "Must call Build_AMatrix_byIndex or Solve_byIndex first.")
-          .def("PrintBasis2p2h", [](EOMImsrg &self)
+          .def("PrintBasis2p2h", [](EOM_IMSRG &self)
                 {
                   ModelSpace* ms = self.modelspace;
                   std::cout << "2p2h basis (" << self.tpth_basis.size() << " states):" << std::endl;
@@ -1155,20 +1155,20 @@ PYBIND11_MODULE(pyIMSRG, m)
                 },
                 "Print the 2p2h basis state labels. "
                 "Must call Solve_byIndex with mode='EOM2' first.")
-          .def("PrintSummary", &EOMImsrg::PrintSummary)
+          .def("PrintSummary", &EOM_IMSRG::PrintSummary)
           // ---- read/write fields ----
-          .def_readwrite("A", &EOMImsrg::A)
-          .def_readwrite("B", &EOMImsrg::B)
-          .def_readwrite("H21", &EOMImsrg::H21)
-          .def_readwrite("A12", &EOMImsrg::A12)
-          .def_readwrite("H22", &EOMImsrg::H22)
+          .def_readwrite("A", &EOM_IMSRG::A)
+          .def_readwrite("B", &EOM_IMSRG::B)
+          .def_readwrite("H21", &EOM_IMSRG::H21)
+          .def_readwrite("A12", &EOM_IMSRG::A12)
+          .def_readwrite("H22", &EOM_IMSRG::H22)
           // Lanczos control: set to n>0 to use IRAM Lanczos for EOM2
           // (computes only n algebraically-lowest eigenvalues; 0 = dense full diag)
-          .def_readwrite("lanczos_nev", &EOMImsrg::lanczos_nev)
+          .def_readwrite("lanczos_nev", &EOM_IMSRG::lanczos_nev)
           // current-channel result vectors (read-only from Python to avoid corruption)
-          .def_property_readonly("Energies", [](EOMImsrg &self)
+          .def_property_readonly("Energies", [](EOM_IMSRG &self)
                { std::vector<double> v; for (auto e : self.Energies) v.push_back(e); return v; })
-          .def_property_readonly("X", [](EOMImsrg &self)
+          .def_property_readonly("X", [](EOM_IMSRG &self)
                { std::vector<std::vector<double>> out;
                  for (size_t r = 0; r < self.X.n_rows; r++) {
                    std::vector<double> row;
@@ -1176,7 +1176,7 @@ PYBIND11_MODULE(pyIMSRG, m)
                    out.push_back(row);
                  }
                  return out; })
-          .def_property_readonly("Y", [](EOMImsrg &self)
+          .def_property_readonly("Y", [](EOM_IMSRG &self)
                 { std::vector<std::vector<double>> out;
                   for (size_t r = 0; r < self.Y.n_rows; r++) {
                     std::vector<double> row;
@@ -1184,7 +1184,7 @@ PYBIND11_MODULE(pyIMSRG, m)
                     out.push_back(row);
                   }
                   return out; })
-          .def_property_readonly("A11_matrix", [](EOMImsrg &self)
+          .def_property_readonly("A11_matrix", [](EOM_IMSRG &self)
                { std::vector<std::vector<double>> out;
                  for (size_t r = 0; r < self.A.n_rows; r++) {
                    std::vector<double> row;
@@ -1194,7 +1194,7 @@ PYBIND11_MODULE(pyIMSRG, m)
                  return out; },
                "A (A11) 1p1h block as a list-of-rows. "
                "Must call Build_AMatrix_byIndex or Solve_byIndex first.")
-          .def_property_readonly("H21_matrix", [](EOMImsrg &self)
+          .def_property_readonly("H21_matrix", [](EOM_IMSRG &self)
                { std::vector<std::vector<double>> out;
                  for (size_t r = 0; r < self.H21.n_rows; r++) {
                    std::vector<double> row;
@@ -1204,7 +1204,7 @@ PYBIND11_MODULE(pyIMSRG, m)
                  return out; },
                "H21 (A21) matrix as a list-of-rows (2p2h x 1p1h). "
                "Must call Solve_byIndex with mode='EOM2' first.")
-          .def_property_readonly("A12_matrix", [](EOMImsrg &self)
+          .def_property_readonly("A12_matrix", [](EOM_IMSRG &self)
                { std::vector<std::vector<double>> out;
                  for (size_t r = 0; r < self.A12.n_rows; r++) {
                    std::vector<double> row;
@@ -1214,7 +1214,7 @@ PYBIND11_MODULE(pyIMSRG, m)
                  return out; },
                "A12 matrix as a list-of-rows (1p1h x 2p2h). "
                "Must call Solve_byIndex with mode='EOM2' first.")
-          .def_property_readonly("H22_matrix", [](EOMImsrg &self)
+          .def_property_readonly("H22_matrix", [](EOM_IMSRG &self)
                { std::vector<std::vector<double>> out;
                  for (size_t r = 0; r < self.H22.n_rows; r++) {
                    std::vector<double> row;
@@ -1224,19 +1224,19 @@ PYBIND11_MODULE(pyIMSRG, m)
                  return out; },
                "H22 (A22) matrix as a list-of-rows (2p2h x 2p2h). "
                "Must call Solve_byIndex with mode='EOM2' first.")
-          .def_property_readonly("one_ph_norms", [](EOMImsrg &self)
+          .def_property_readonly("one_ph_norms", [](EOM_IMSRG &self)
                { std::vector<double> out;
                  for (auto x : self.OnePhNorms) out.push_back(x);
                  return out; })
-          .def_property_readonly("one_ph_count", [](EOMImsrg &self)
+          .def_property_readonly("one_ph_count", [](EOM_IMSRG &self)
                { return self.GetOnePhCount(); })
-          .def_property_readonly("two_ph_count", [](EOMImsrg &self)
+          .def_property_readonly("two_ph_count", [](EOM_IMSRG &self)
                { return self.GetTwoPhCount(); })
-          .def_property_readonly("lanczos_iterations", [](EOMImsrg &self)
+          .def_property_readonly("lanczos_iterations", [](EOM_IMSRG &self)
                { return self.GetLanczosIterations(); })
-          .def_readonly("current_channel", &EOMImsrg::current_channel)
+          .def_readonly("current_channel", &EOM_IMSRG::current_channel)
           // access to the stored Hamiltonian
-          .def_readwrite("H", &EOMImsrg::H);
+          .def_readwrite("H", &EOM_IMSRG::H);
 
       py::class_<UnitTest>(m, "UnitTest")
           //      .def(py::init<>())

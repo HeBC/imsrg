@@ -59,7 +59,7 @@
 ///
 /// Usage example:
 /// \code
-///   EOMImsrg eom( imsrg_solver.GetH_s() );
+///   EOM_IMSRG eom( imsrg_solver.GetH_s() );
 ///   eom.Solve(2, 1, 0, "EOM2");    // full 1p1h+2p2h EOM-IMSRG
 ///   arma::vec E = eom.GetExcitationEnergies();
 ///   double B_E2 = eom.ComputeTransitionME(E2op, 0); // lowest 2+ state
@@ -105,10 +105,10 @@ struct EOMChannel
 };
 
 ///
-/// \class EOMImsrg
+/// \class EOM_IMSRG
 /// \brief EOM-IMSRG excited-state solver (1p-1h and 1p1h+2p2h sectors).
 ///
-class EOMImsrg
+class EOM_IMSRG
 {
  public:
   // -----------------------------------------------------------------------
@@ -153,9 +153,9 @@ class EOMImsrg
   // -----------------------------------------------------------------------
   // Constructors
   // -----------------------------------------------------------------------
-  EOMImsrg();
+  EOM_IMSRG();
   /// Construct from an IMSRG-evolved Hamiltonian (deep copy).
-  explicit EOMImsrg(Operator& H_imsrg);
+  explicit EOM_IMSRG(Operator& H_imsrg);
 
   // -----------------------------------------------------------------------
   // Matrix construction
