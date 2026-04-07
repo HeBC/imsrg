@@ -1282,10 +1282,10 @@ void EOM_IMSRG::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
           int j2_can_h1 = modelspace->GetOrbit(can_h1).j2;
           int j2_can_h2 = modelspace->GetOrbit(can_h2).j2;
 
-          double j1b   = 0.5 * j2_p_ket;
-          double j2b_v = j_spec_p;
-          double j3b   = 0.5 * j2_h_ket;
-          double j4b   = j_spec_h;
+          double j1b = 0.5 * j2_p_ket;
+          double j2b = j_spec_p;
+          double j3b = 0.5 * j2_h_ket;
+          double j4b = j_spec_h;
 
           int Jabp_min = std::abs(j2_can_p1 - j2_can_p2) / 2;
           int Jabp_max = (j2_can_p1 + j2_can_p2) / 2;
@@ -1329,7 +1329,7 @@ void EOM_IMSRG::ApplyH22_matvec(const arma::vec& v, arma::vec& Hv) const
                 double n9j_a = modelspace->GetNineJ(ac.j1, ac.j2, (double)Jab,
                                                     ac.j3, ac.j4, (double)Jij,
                                                     (double)Jph_cur, (double)Jsp, (double)J);
-                double n9j_b = modelspace->GetNineJ(j1b, j2b_v, (double)Jabp,
+                double n9j_b = modelspace->GetNineJ(j1b, j2b, (double)Jabp,
                                                     j3b, j4b, (double)Jijp,
                                                     (double)Jph_cur, (double)Jsp, (double)J);
                 ring_Jsp += (2*Jsp+1) * n9j_a * n9j_b;
