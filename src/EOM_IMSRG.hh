@@ -165,21 +165,21 @@ class EOM_IMSRG
   /// Build the RPA B matrix (de-excitation coupling, for RPA use only).
   void Build_BMatrix(int J, int parity, int Tz);
 
-  /// Build the A matrix by TwoBodyChannel_CC index.
-  void Build_AMatrix_byIndex(size_t ich_CC);
+  /// Build the A (H11) matrix by TwoBodyChannel_CC index.
+  void Build_H11_byIndex(size_t ich_CC);
   /// Build the RPA B matrix by TwoBodyChannel_CC index (for RPA use only).
   void Build_BMatrix_byIndex(size_t ich_CC);
 
   /// Enumerate the 2p2h basis states compatible with EOM channel ich_CC.
-  void Build2p2hBasis_byIndex(size_t ich_CC);
+  void Build_2p2hBasis_byIndex(size_t ich_CC);
   /// Build the 2p2h × 2p2h block H22 (diagonal + pp-pp + hh-hh + ph ring).
-  void BuildH22_byIndex(size_t ich_CC);
+  void Build_H22_byIndex(size_t ich_CC);
   /// Build the 2p2h × 1p1h coupling block H21 from [Γ, Q_ph] → 2p2h.
   void Build_H21_byIndex(size_t ich_CC);
-  /// Build the 1p1h × 2p2h coupling block A12 (= H21^T) for the matrix EOM2 solver.
+  /// Build the 1p1h × 2p2h coupling block H12 (= H21^T) for the matrix EOM2 solver.
   /// Called only by the explicit-matrix path (Solve_byIndex with mode "EOM2").
   /// The matrix-free Lanczos path uses ApplyH21T_matvec instead.
-  void Build_A12_byIndex(size_t ich_CC);
+  void Build_H12_byIndex(size_t ich_CC);
 
   /// Precompute the Pandya-transformed H for ALL CC channels and store in
   /// Hbar_CC / pan_idx.  Idempotent: returns immediately if already built.
@@ -206,7 +206,7 @@ class EOM_IMSRG
 
   /// Matrix-free Lanczos EOM2 solver for channel ich_CC.
   ///
-  /// Reuses Build_AMatrix_byIndex() and Build2p2hBasis_byIndex() but never
+  /// Reuses Build_H11_byIndex() and Build_2p2hBasis_byIndex() but never
   /// materialises the H22 (N2×N2) or H21 (N2×Nph) matrices.  The action of
   /// the full H_EOM2 = [A, H21^T; H21, H22] on a Lanczos vector is computed
   /// on the fly each iteration, reducing peak memory from O(N2²) to O(N2·ncv).
@@ -274,7 +274,7 @@ class EOM_IMSRG
   std::vector<std::vector<std::pair<size_t,bool>>> mf_orbit_to_ph;
   std::vector<index_t> mf_ph_particle; ///< particle orbit (a,b,c,…) of each ph column
   std::vector<index_t> mf_ph_hole;     ///< hole    orbit  (i,j,k,…) of each ph column
-  /// CC-channel ket-ordering phase for each ph column, matching Build_AMatrix_byIndex.
+  /// CC-channel ket-ordering phase for each ph column, matching Build_H11_byIndex.
   /// phase = 1 if ket stored as (particle,hole); -(-1)^{ja+ji-J} if stored as (hole,particle).
   std::vector<int>     mf_ph_phase;
 

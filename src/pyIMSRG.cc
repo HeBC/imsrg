@@ -1011,15 +1011,15 @@ PYBIND11_MODULE(pyIMSRG, m)
           .def("Build_BMatrix", &EOM_IMSRG::Build_BMatrix,
                py::arg("J"), py::arg("parity"), py::arg("Tz"))
           // index-addressed variants (use TwoBodyChannel_CC index directly)
-          .def("Build_AMatrix_byIndex", &EOM_IMSRG::Build_AMatrix_byIndex,
+          .def("Build_H11_byIndex", &EOM_IMSRG::Build_H11_byIndex,
                py::arg("ich_CC"))
           .def("Build_BMatrix_byIndex", &EOM_IMSRG::Build_BMatrix_byIndex,
                py::arg("ich_CC"))
           .def("Build_H21_byIndex", &EOM_IMSRG::Build_H21_byIndex,
                py::arg("ich_CC"),
                "Build 2p2h × 1p1h coupling block H21.  "
-               "Must call Build2p2hBasis_byIndex first.")
-          .def("Build_A12_byIndex", &EOM_IMSRG::Build_A12_byIndex,
+               "Must call Build_2p2hBasis_byIndex first.")
+          .def("Build_H12_byIndex", &EOM_IMSRG::Build_H12_byIndex,
                py::arg("ich_CC"),
                "Build 1p1h × 2p2h coupling block A12 = H21^T (explicit matrix).  "
                "Must call Build_H21_byIndex first.")
@@ -1126,8 +1126,8 @@ PYBIND11_MODULE(pyIMSRG, m)
                 },
                 "Print the 1p1h basis ordering for the A (A11) matrix. "
                 "Shows particle orbit a, hole orbit i, CC-channel storage order, "
-                "and the phase factor applied in Build_AMatrix_byIndex. "
-                "Must call Build_AMatrix_byIndex or Solve_byIndex first.")
+                "and the phase factor applied in Build_H11_byIndex. "
+                "Must call Build_H11_byIndex or Solve_byIndex first.")
           .def("PrintBasis2p2h", [](EOM_IMSRG &self)
                 {
                   ModelSpace* ms = self.modelspace;
@@ -1193,7 +1193,7 @@ PYBIND11_MODULE(pyIMSRG, m)
                  }
                  return out; },
                "A (A11) 1p1h block as a list-of-rows. "
-               "Must call Build_AMatrix_byIndex or Solve_byIndex first.")
+               "Must call Build_H11_byIndex or Solve_byIndex first.")
           .def_property_readonly("H21_matrix", [](EOM_IMSRG &self)
                { std::vector<std::vector<double>> out;
                  for (size_t r = 0; r < self.H21.n_rows; r++) {
