@@ -20,6 +20,7 @@
 
 #include "EOM_IMSRG.hh"
 #include "AngMom.hh"
+#include "TensorCommutators.hh"
 
 #include <cmath>
 #include <iomanip>
@@ -2234,4 +2235,165 @@ double EOM_IMSRG::ComputeTransitionME_byIndex(size_t ich_CC,
   // Overall prefactor from eq. (16): (-1)^{J_ν} / √(2J_ν+1)
   // -------------------------------------------------------------------
   return AngMom::phase(J) / std::sqrt(2.0 * J + 1.0) * T;
+}
+
+// ---------------------------------------------------------------------------
+// Test_H22_ring_via_comm
+// ---------------------------------------------------------------------------
+
+///
+/// Test that the 2p2h block H22 built by Build_H22_byIndex agrees with a
+/// version assembled column-by-column from tensor commutators.
+///
+/// For each basis state α = |ab J_ab; ij J_ij; J⟩ the pure-excitation
+/// 2p2h operator
+///
+///   X_α  =  (1/(N_ab N_ij)) a†_a a†_b a_j a_i   (rank λ = J)
+///
+/// is neither hermitian nor antihermitian, so Commutator::comm222_phst
+/// (which requires one of those symmetries) cannot be called directly.
+/// Instead we write
+///
+///   X_α  =  ½ (T_s + T_a)
+///
+/// where
+///   T_s  =  X_α + X_α†   (hermitian,    rank λ)
+///   T_a  =  X_α − X_α†   (antihermitian, rank λ)
+///
+/// and use linearity of the commutator:
+///
+///   [H, X_α]  =  ½ ([H, T_s] + [H, T_a])
+///
+/// This holds because T_s + T_a = (X_α + X_α†) + (X_α − X_α†) = 2 X_α.
+///
+/// The full H22 matrix is then recovered from:
+///
+///   H22_comm(α, β)
+///     =  ½ (Z_s + Z_a).GetTBME_J(J_ab′, J_ij′, a′, b′, i′, j′)
+///                      / (N_ab′ N_ij′)
+///
+/// where Z_s = [H, T_s] (antihermitian) and Z_a = [H, T_a] (hermitian).
+/// Each Z is accumulated from three tensor-commutator contributions:
+///
+///   Commutator::comm122st         (f × T  → 2-body, the 1-body term)
+///   Commutator::comm222_pp_hhst   (pp-pp and hh-hh ladder terms)
+///   Commutator::comm222_phst      (ph ring term)
+///
+bool EOM_IMSRG::Test_H22_ring_via_comm(size_t ich_CC)
+{
+  // -----------------------------------------------------------------------
+  // 1. Build 2p2h basis and reference H22 via the existing inline code.
+  // -----------------------------------------------------------------------
+  Build_2p2hBasis_byIndex(ich_CC);
+  Build_H22_byIndex(ich_CC);
+  arma::mat H22_ref = H22;  // deep copy before H22 is overwritten
+
+  size_t n2 = tpth_basis.size();
+  if (n2 == 0)
+  {
+    TwoBodyChannel_CC& tbc_CC = modelspace->GetTwoBodyChannel_CC(ich_CC);
+    std::cout << "Test_H22_ring_via_comm: empty 2p2h basis for channel "
+              << ich_CC
+              << " (J=" << tbc_CC.J
+              << " P=" << tbc_CC.parity
+              << " Tz=" << tbc_CC.Tz << "), SKIP" << std::endl;
+    return true;
+  }
+
+  TwoBodyChannel_CC& tbc_CC = modelspace->GetTwoBodyChannel_CC(ich_CC);
+  int    J_EOM   = tbc_CC.J;
+  int    par_EOM = tbc_CC.parity;
+  int    Tz_rank = std::abs(tbc_CC.Tz);
+
+  // Pre-compute recoupling tables (idempotent if already done).
+  modelspace->PreCalculateSixJ();
+  modelspace->PreCalculateNineJ();
+
+  // -----------------------------------------------------------------------
+  // 2. For each α column, assemble H22_comm(α, :) from tensor commutators.
+  // -----------------------------------------------------------------------
+  arma::mat H22_comm(n2, n2, arma::fill::zeros);
+
+  for (size_t alpha = 0; alpha < n2; ++alpha)
+  {
+    const TwoPTwoHState& st = tpth_basis[alpha];
+    double Nab = std::sqrt(1.0 + (st.a == st.b ? 1.0 : 0.0));
+    double Nij = std::sqrt(1.0 + (st.i == st.j ? 1.0 : 0.0));
+    // SetTBME_J stores the raw matrix element; GetTBME_J returns Nab*Nij*raw.
+    // Setting raw = 1/(Nab*Nij) makes GetTBME_J return exactly 1.0, matching
+    // the unit-amplitude excitation operator X_α.
+    double val = 1.0 / (Nab * Nij);
+
+    // ---- T_s (hermitian): excitation ME = 1.0, de-excitation ME = +conj ----
+    Operator T_s(*modelspace, J_EOM, Tz_rank, par_EOM, 2);
+    T_s.SetHermitian();
+    T_s.TwoBody.SetTBME_J(st.Jab, st.Jij, st.a, st.b, st.i, st.j, val);
+
+    // ---- T_a (antihermitian): excitation ME = 1.0, de-excitation ME = -conj --
+    Operator T_a(*modelspace, J_EOM, Tz_rank, par_EOM, 2);
+    T_a.SetAntiHermitian();
+    T_a.TwoBody.SetTBME_J(st.Jab, st.Jij, st.a, st.b, st.i, st.j, val);
+
+    // ---- Z_s = [H, T_s]: H hermitian, T_s hermitian → Z_s antihermitian ---
+    Operator Z_s(*modelspace, J_EOM, Tz_rank, par_EOM, 2);
+    Z_s.SetAntiHermitian();
+
+    // ---- Z_a = [H, T_a]: H hermitian, T_a antihermitian → Z_a hermitian ----
+    Operator Z_a(*modelspace, J_EOM, Tz_rank, par_EOM, 2);
+    Z_a.SetHermitian();
+
+    // ---- Accumulate all three commutator contributions --------------------
+    // 1-body term: [H^{1b}, T^{2b}] → Z^{2b}
+    Commutator::comm122st(H, T_s, Z_s);
+    Commutator::comm122st(H, T_a, Z_a);
+
+    // pp-pp and hh-hh ladder: [H^{2b}, T^{2b}]_{pp/hh} → Z^{2b}
+    Commutator::comm222_pp_hhst(H, T_s, Z_s);
+    Commutator::comm222_pp_hhst(H, T_a, Z_a);
+
+    // ph ring: [H^{2b}, T^{2b}]_{ph} → Z^{2b}
+    Commutator::comm222_phst(H, T_s, Z_s);
+    Commutator::comm222_phst(H, T_a, Z_a);
+
+    // ---- Extract H22_comm(α, β) for every β --------------------------------
+    // [H, X_α] = ½([H, T_s] + [H, T_a]) = ½(Z_s + Z_a)
+    //
+    // H22_comm(α, β)
+    //   = <β| [H, X_α] |0>
+    //   = ½ (Z_s + Z_a).GetTBME_J(J_ab′, J_ij′, a′, b′, i′, j′) / (N_ab′ N_ij′)
+    //
+    // GetTBME_J returns N_ab′ * N_ij′ * (raw stored value), so dividing by
+    // N_ab′ * N_ij′ recovers the EOM matrix element.
+    for (size_t beta = 0; beta < n2; ++beta)
+    {
+      const TwoPTwoHState& sb = tpth_basis[beta];
+      double Nabp = std::sqrt(1.0 + (sb.a == sb.b ? 1.0 : 0.0));
+      double Nijp = std::sqrt(1.0 + (sb.i == sb.j ? 1.0 : 0.0));
+
+      double me_s = Z_s.TwoBody.GetTBME_J(sb.Jab, sb.Jij, sb.a, sb.b, sb.i, sb.j);
+      double me_a = Z_a.TwoBody.GetTBME_J(sb.Jab, sb.Jij, sb.a, sb.b, sb.i, sb.j);
+
+      H22_comm(alpha, beta) = 0.5 * (me_s + me_a) / (Nabp * Nijp);
+    }
+  }  // alpha loop
+
+  // -----------------------------------------------------------------------
+  // 3. Compare H22_comm with H22_ref and report.
+  // -----------------------------------------------------------------------
+  arma::mat diff = H22_ref - H22_comm;
+  double max_diff = arma::max(arma::max(arma::abs(diff)));
+  double ref_norm = arma::norm(H22_ref, "fro");
+
+  const double tol = 1e-6;
+  bool pass = (max_diff < tol);
+
+  std::cout << "Test_H22_ring_via_comm"
+            << "  ch=" << ich_CC
+            << "  J=" << J_EOM << "  P=" << par_EOM << "  Tz=" << tbc_CC.Tz
+            << "  n2=" << n2
+            << "  ||H22_ref||=" << std::scientific << std::setprecision(4) << ref_norm
+            << "  max|diff|="   << std::scientific << std::setprecision(4) << max_diff
+            << "  " << (pass ? "PASS" : "FAIL") << std::endl;
+
+  return pass;
 }

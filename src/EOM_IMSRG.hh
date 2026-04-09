@@ -188,6 +188,27 @@ class EOM_IMSRG
   void ClearPandya();
 
   // -----------------------------------------------------------------------
+  // Testing
+  // -----------------------------------------------------------------------
+  /// Test that the 2p2h matrix H22 computed by Build_H22_byIndex agrees with
+  /// the version assembled from tensor commutators.
+  ///
+  /// The 2p2h excitation operator for basis state α is neither hermitian nor
+  /// antihermitian.  Tensor commutator routines require one of those symmetries,
+  /// so it is decomposed as X = ½(T_s + T_a) where
+  ///   T_s = X + X†  (hermitian),    [H, T_s] is antihermitian,
+  ///   T_a = X − X†  (antihermitian), [H, T_a] is hermitian.
+  ///
+  /// H22 is assembled from three contributions per α column:
+  ///   Commutator::comm122st        (1-body term)
+  ///   Commutator::comm222_pp_hhst  (pp-pp and hh-hh ladder terms)
+  ///   Commutator::comm222_phst     (ph ring term)
+  ///
+  /// Returns true if the maximum absolute element-wise difference between
+  /// H22_comm and H22_ref (from Build_H22_byIndex) is below 1e-6.
+  bool Test_H22_ring_via_comm(size_t ich_CC);
+
+  // -----------------------------------------------------------------------
   // Solvers
   // -----------------------------------------------------------------------
   /// Solve for excitation energies and amplitudes in one (J, parity, Tz) channel.
