@@ -7299,9 +7299,6 @@ namespace ReferenceImplementations
     return;
   }
 
-
-
-
   void comm223_232_BruteForce(const Operator &Eta, const Operator &Gamma, Operator &Z)
   {
     double t_start = omp_get_wtime();
@@ -10316,9 +10313,6 @@ namespace ReferenceImplementations
 
   }
 
-
-  
-
   void comm223_231_f_I(const Operator &Eta, const Operator &Gamma, Operator &Z)
   {
     // determine symmetry
@@ -11076,10 +11070,6 @@ namespace ReferenceImplementations
     Z.profiler.timer[ "ReferenceImplementations::" + std::string(__func__)] += omp_get_wtime() - t_start;
     return;
   }
-
-
-
-
 
   void comm223_232(const Operator &Eta, const Operator &Gamma, Operator &Z)
   {
