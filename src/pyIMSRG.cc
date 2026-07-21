@@ -487,7 +487,7 @@ PYBIND11_MODULE(pyIMSRG, m)
           .def("GetMP3_pp", &HFMBPT::GetMP3_pp)
           .def("GetMP3_hh", &HFMBPT::GetMP3_hh)
           .def("GetMP3_ph", &HFMBPT::GetMP3_ph)
-          // .def("GetMP4_Diagram", &HFMBPT::GetMP4_Diagram, py::arg("id"), py::arg("H") )
+//          .def("GetMP4_Diagram", &HFMBPT::GetMP4_Diagram, py::arg("id"), py::arg("H") )
           .def_readwrite("C_HO2NAT", &HFMBPT::C_HO2NAT) // Unitary transformation
           .def_readwrite("C_HF2NAT", &HFMBPT::C_HF2NAT) // Unitary transformation
           ;
@@ -554,7 +554,8 @@ PYBIND11_MODULE(pyIMSRG, m)
           .def("SetOnly1bEta", [](IMSRGSolverPV &self, bool tf)
                { self.GetGeneratorPV().SetOnly1bEta(tf); })
           .def("Transform", [](IMSRGSolverPV &self, Operator &op, Operator &opPV)
-               { return self.Transform(op, opPV); });
+               { return self.Transform(op, opPV); })
+      ;
 
       py::class_<Generator>(m, "Generator")
           .def(py::init<>())
@@ -562,8 +563,10 @@ PYBIND11_MODULE(pyIMSRG, m)
           .def("SetDenominatorPartitioning", &Generator::SetDenominatorPartitioning, py::arg("Moller_Plessett or Epstein_Nesbet"))
           .def("SetUseIsospinAveraging", &Generator::SetUseIsospinAveraging, py::arg("tf"))
           .def("Update", &Generator::Update, py::arg("H"), py::arg("Eta"))
+          .def("UpdateGeneral", &Generator::UpdateGeneral, py::arg("H"), py::arg("H_denom"), py::arg("Eta"))
           .def("GetHod_SingleRef", &Generator::GetHod_SingleRef, py::arg("H"))
-          .def("GetHod", &Generator::GetHod, py::arg("H"));
+          .def("GetHod", &Generator::GetHod, py::arg("H"))
+      ;
 
       py::class_<GeneratorPV, Generator>(m, "GeneratorPV")
           .def(py::init<>())

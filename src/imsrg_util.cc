@@ -121,7 +121,10 @@ namespace imsrg_util
       else if (opname == "Sigma_p")       theop =  Sigma_Op_pn(modelspace,"proton");
       else if (opname == "Sigma_n")       theop =  Sigma_Op_pn(modelspace,"neutron");
       else if (opname == "L2rel")         theop =  L2rel_Op(modelspace); // Untested...
-      else if (opname == "QdotQ")         theop =  QdotQ_Op(modelspace); // Untested...
+      else if (opname == "QdotQm")        theop =  QdotQ_Op(modelspace,2,1,1); // Untested...
+      else if (opname == "QdotQp")        theop =  QdotQ_Op(modelspace,2,1,0); // Untested...
+      else if (opname == "QdotQn")        theop =  QdotQ_Op(modelspace,2,0,1); // Untested...
+      else if (opname == "QdotQE3")       theop =  QdotQ_Op(modelspace,3,1,0); // Untested...
       else if (opname == "VQQ")           theop =  VQQ_Op(modelspace); 
       else if (opname == "VCoul")         theop =  VCoulomb_Op(modelspace); // Untested...
       else if (opname == "hfsNMS")        theop =  atomic_hfs::NormalMassShift(modelspace, 1);
@@ -1916,6 +1919,7 @@ Operator FourierBesselCoeff(ModelSpace& modelspace, int nu, double R, std::set<i
  Operator TzSquared_Op(ModelSpace& modelspace)
  {
    Operator T2 = Operator(modelspace,0,0,0,2);
+   T2.MakeNotReduced();
    T2.OneBody.diag().fill(0.25);
 
    for (int ch=0; ch<T2.nChannels; ++ch)
@@ -1935,6 +1939,8 @@ Operator FourierBesselCoeff(ModelSpace& modelspace, int nu, double R, std::set<i
   {
     Operator As(modelspace, 1, 0, 1, 2);
     As.SetAntiHermitian();
+    if (not As.IsReduced())
+        As.MakeReduced();
     double bL = pow(HBARC * HBARC / M_NUCLEON / modelspace.GetHbarOmega(), 0.5 * 1); // b^L where b=sqrt(hbar/mw)
     int norbits = modelspace.GetNumberOrbits();
     for (int i=0; i<norbits; ++i)
@@ -1963,6 +1969,8 @@ Operator FourierBesselCoeff(ModelSpace& modelspace, int nu, double R, std::set<i
   Operator MultipoleResponseOp(ModelSpace& modelspace, int rL, int YL, int isospin)
   {
     Operator EL(modelspace, YL,0,YL%2,2);
+    if (not EL.IsReduced())
+       EL.MakeReduced(); // The below expressions give reduced matrix elements, even if YL=0 (scalar). By default, scalars are stored as not reduced, so change the flag.
     double bL = pow( HBARC*HBARC/M_NUCLEON/modelspace.GetHbarOmega(),0.5*rL); // b^L where b=sqrt(hbar/mw)
     int norbits = modelspace.GetNumberOrbits();
     for (int i=0; i<norbits; ++i)
@@ -1989,6 +1997,8 @@ Operator FourierBesselCoeff(ModelSpace& modelspace, int nu, double R, std::set<i
   Operator IVDipoleOp(ModelSpace& modelspace, int rL, int YL)
   {
     Operator EL(modelspace, YL,0,YL%2,2);
+    if (not EL.IsReduced())
+         EL.MakeReduced();
     double bL = pow( HBARC*HBARC/M_NUCLEON/modelspace.GetHbarOmega(),0.5*rL); // b^L where b=sqrt(hbar/mw)
     int norbits = modelspace.GetNumberOrbits();
     for (int i=0; i<norbits; ++i)
@@ -2013,6 +2023,8 @@ Operator FourierBesselCoeff(ModelSpace& modelspace, int nu, double R, std::set<i
   Operator ISDipoleOp(ModelSpace& modelspace, int rL, int YL, double Rms)
   {
     Operator EL(modelspace, YL,0,YL%2,2);
+    if (not EL.IsReduced())
+       EL.MakeReduced();
     double bL = pow( HBARC*HBARC/M_NUCLEON/modelspace.GetHbarOmega(),0.5*rL); // b^L where b=sqrt(hbar/mw)
     double bLp = pow( HBARC*HBARC/M_NUCLEON/modelspace.GetHbarOmega(),0.5*1);
     int norbits = modelspace.GetNumberOrbits();
@@ -2040,6 +2052,8 @@ Operator FourierBesselCoeff(ModelSpace& modelspace, int nu, double R, std::set<i
   Operator SchiffOp(ModelSpace& modelspace, int rL, int YL, double Rms)
   {   
     Operator EL(modelspace, YL,0,YL%2,2);
+    if (not EL.IsReduced())
+       EL.MakeReduced();
     double bL = pow( HBARC*HBARC/M_NUCLEON/modelspace.GetHbarOmega(),0.5*rL); // b^L where b=sqrt(hbar/mw)
     double bLp = pow( HBARC*HBARC/M_NUCLEON/modelspace.GetHbarOmega(),0.5*1);
     // int norbits = modelspace.GetNumberOrbits();
@@ -2070,6 +2084,8 @@ Operator FourierBesselCoeff(ModelSpace& modelspace, int nu, double R, std::set<i
   Operator ElectricMultipoleOp(ModelSpace& modelspace, int L)
   {
     Operator EL(modelspace, L,0,L%2,2);
+    if (not EL.IsReduced())
+       EL.MakeReduced();
     double bL = pow( HBARC*HBARC/M_NUCLEON/modelspace.GetHbarOmega(),0.5*L); // b^L where b=sqrt(hbar/mw)
     for (int i : modelspace.proton_orbits)
     {
@@ -2093,6 +2109,8 @@ Operator FourierBesselCoeff(ModelSpace& modelspace, int nu, double R, std::set<i
   Operator NeutronElectricMultipoleOp(ModelSpace& modelspace, int L)
   {
     Operator EL(modelspace, L,0,L%2,2);
+    if (not EL.IsReduced())
+       EL.MakeReduced();
     double bL = pow( HBARC*HBARC/M_NUCLEON/modelspace.GetHbarOmega(),0.5*L); // b^L where b=sqrt(hbar/mw)
     for (int i : modelspace.neutron_orbits)
     {
@@ -2124,6 +2142,8 @@ Operator FourierBesselCoeff(ModelSpace& modelspace, int nu, double R, std::set<i
   {
     double bL = pow( HBARC*HBARC/M_NUCLEON/modelspace.GetHbarOmega(),0.5*(L-1));
     Operator ML(modelspace, L,0,(L+1)%2,2);
+    if (not ML.IsReduced())
+       ML.MakeReduced();
     if (L<1)
     {
       std::cout << "A magnetic monopole operator??? Setting it to zero..." << std::endl;
@@ -2168,6 +2188,8 @@ Operator FourierBesselCoeff(ModelSpace& modelspace, int nu, double R, std::set<i
   Operator IntrinsicElectricMultipoleOp(ModelSpace& modelspace, int L)
   {
     Operator EL(modelspace, L,0,L%2,2);
+    if (not EL.IsReduced())
+       EL.MakeReduced();
     double bL = pow( HBARC*HBARC/(0.5*M_NUCLEON)/modelspace.GetHbarOmega(),0.5*L); // b^L where b=sqrt(hbar/mw)
 
     int emax = modelspace.GetEmax();
@@ -2490,6 +2512,7 @@ Operator FourierBesselCoeff(ModelSpace& modelspace, int nu, double R, std::set<i
   {
     Operator Fermi(modelspace,0,1,0,2);
     Fermi.SetHermitian();
+    Fermi.MakeReduced();
     int norbits = modelspace.GetNumberOrbits();
     //    for (int i=0; i<norbits; ++i)
     for ( auto i : modelspace.proton_orbits )
@@ -2829,30 +2852,33 @@ Operator UniqueForbidden_ChargeExchange_CS(ModelSpace& modelspace, int K)
 
 
  // < ij J || Q * Q || kl J > where Q is the quadrupole operator (possibly up to overall factors like square roots of pi, etc...)
- // We use equation (A5) of Caurier et al Rev Mod Phys 2005
- // S
- Operator QdotQ_Op(ModelSpace& modelspace)
+// Operator QdotQ_Op(ModelSpace& modelspace)
+ Operator QdotQ_Op(ModelSpace& modelspace, int lambda,  double ep, double en)
  {
     
 //   // temporarily store <i||Q||j> in the one body part.
    Operator QdotQ_op(modelspace,0,0,0,2);
-   Operator E2op = ElectricMultipoleOp(modelspace,2) + NeutronElectricMultipoleOp(modelspace,2);
-   auto& Qmat = E2op.OneBody;
+   Operator Qop = ep*ElectricMultipoleOp(modelspace,lambda) + en*NeutronElectricMultipoleOp(modelspace,lambda);
+   auto& Qmat = Qop.OneBody;
 
-   std::cout << "Oops! This operator is still under construction! " << __FILE__ << "  line " << __LINE__ << std::endl;
+//   std::cout << "Oops! This operator is still under construction! " << __FILE__ << "  line " << __LINE__ << std::endl;
 
-   // The one-body piece should be
-   // < i | Q*Q | j > = sqrt(2*2+1)/(2*ji+1) * sum_k <k||Q||i><k||Q||j>
-//   QdotQ_op.OneBody =  Qmat*Qmat.t() / sqrt(2);
-//   for (auto i : modelspace.all_orbits)
-//   {
-//      Orbit& oi = modelspace.GetOrbit(i);
-//      QdotQ_op.OneBody.row(i) /= oi.j2+1;
-//   }
+   // One-body piece:
+   // < i | Q*Q | j > = sum_a <i||Q||a> <j||Q||a> /(2i+1)
+   for ( auto& i : modelspace.all_orbits )
+   {
+      Orbit& oi = modelspace.GetOrbit(i);
+      for (auto& j : QdotQ_op.OneBodyChannels.at({oi.l,oi.j2,oi.tz2}) )
+      {
+        double QdQ = 0;
+        for (auto& a : Qop.OneBodyChannels.at({oi.l,oi.j2,oi.tz2}) )
+        {
+           QdQ += Qmat(i,a) * Qmat(j,a) / (oi.j2+1);
+        }
+        QdotQ_op.OneBody(i,j) = QdQ ; 
+      }
+   }
 
-//   // We subtract off the one-body piece acting in the two-body space
-//   Embed1BodyIn2Body( QdotQ_op, 2);
-//   QdotQ_op.TwoBody *= -1;
 
    int nchan = modelspace.GetNumberTwoBodyChannels();
 
@@ -2884,17 +2910,21 @@ Operator UniqueForbidden_ChargeExchange_CS(ModelSpace& modelspace, int K)
             double jd = od.j2*0.5 ;
 
             // Suhonen (8.56)
-            double Aabcd = modelspace.phase(ja+jb+J) * modelspace.GetSixJ(ja,jb,J,jd,jc,2) * Qmat(c,a) * Qmat(b,d);
-            double Aabdc = modelspace.phase(ja+jb+J) * modelspace.GetSixJ(ja,jb,J,jc,jd,2) * Qmat(d,a) * Qmat(b,c);
+            double Aabcd = modelspace.phase(ja+jb+J) * modelspace.GetSixJ(ja,jb,J,jd,jc,lambda) * Qmat(c,a) * Qmat(b,d);
+            double Aabdc = modelspace.phase(ja+jb+J) * modelspace.GetSixJ(ja,jb,J,jc,jd,lambda) * Qmat(d,a) * Qmat(b,c);
             // Suhonen (8.55),(8.57),(8.58)
             double QdQ;
             QdQ = Aabcd - modelspace.phase(jc+jd+J)*Aabdc;  // pppp or nnnn
             if (a==b) QdQ /= sqrt(2.0);
             if (c==d) QdQ /= sqrt(2.0);
+            // Now we need an extra factor of 2 compared with Suhonen section 8.2.1, because
+            // this is not a 2b potential. For a 2b potential there arises a factor 1/2 to avoid double counting
+            // the interaction between pairs (see Suhonen 4.26). In the present case, there are two Q operators
+            // and we do not need to correct for any double counting.
+            QdQ *= 2;
 
+            QdotQ_op.TwoBody.SetTBME(ch,ibra,iket,QdQ);
 
-//            QdotQ_op.TwoBody.SetTBME(ch,ibra,iket,QdQ);
-            QdotQ_op.TwoBody.AddToTBME(ch,ibra,iket,QdQ);
          }
 
       }
