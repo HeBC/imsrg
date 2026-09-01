@@ -104,6 +104,7 @@ std::map<std::string,std::string> Parameters::string_par = {
   {"write_HF_ops",              "false"},       // Write the HF operators before doing IMSRG transformation ; Added by Antoine Belley
   {"denominator_partitioning",  "Epstein_Nesbet"}, // Denominators used in IMSRG generators. Can be Moller_Plesset or Epstein_Nesbet.
   {"imcc_generator",            "atan"},       // IM-CC P-X generator: atan, white, imaginary-time, or wegner
+  {"imcc_decoupling",           "both"},       // IM-CC target block: both, xc, or xa
 };
 
 

@@ -187,6 +187,16 @@ void IMSRGSolver::SetDenominatorPartitioning(std::string dp)
   }
 }
 
+void IMSRGSolver::SetIMCCDecoupling(std::string block)
+{
+  generator.SetIMCCDecoupling(block);
+  if (Omega.back().Norm() > 1e-6)
+  {
+    Eta.Erase();
+    NewOmega();
+  }
+}
+
 void IMSRGSolver::SetFlowFile(std::string str)
 {
   flowfile = str;

@@ -36,6 +36,7 @@ class Generator
  public:
 
   std::string generator_type;
+  std::string imcc_decoupling;
 //  ModelSpace* modelspace;
   double denominator_cutoff;
   double denominator_delta;
@@ -59,6 +60,8 @@ class Generator
 
   Generator();
   void SetType(std::string g){generator_type = g;};
+  void SetIMCCDecoupling(std::string block);
+  std::string GetIMCCDecoupling() const { return imcc_decoupling; };
   void SetDenominatorPartitioning(std::string dp); 
   std::string GetType(){return generator_type;};
   void Update(Operator& H_s, Operator& Eta_s);
@@ -78,10 +81,10 @@ class Generator
   void ConstructGenerator_SingleRef(std::function<double (double,double)>& etafunc );
   void ConstructGenerator_SingleRef_3body(std::function<double (double,double)>& etafunc );
   void ConstructGenerator_ShellModel(std::function<double (double,double)>& eta_func);
-  /// Decouple the retained IM-CC orbital space P=C+A from the excluded space X.
-  /// At IMSRG(2), a one-body matrix element is off diagonal when one index is
-  /// in P and the other in X. A two-body matrix element is off diagonal when
-  /// one pair is wholly in P and the other pair contains at least one X orbit.
+  /// Decouple selected IM-CC blocks between the retained space P=C+A and X.
+  /// imcc_decoupling="xc" selects X-C one-body terms and X-containing pairs
+  /// coupled to CC. "xa" selects X-A one-body terms and X-containing pairs
+  /// coupled to CA or AA. "both" (default) is their union.
   void ConstructGenerator_IMCC(std::function<double (double,double)>& eta_func);
   void ConstructGenerator_ShellModel_3body(std::function<double (double,double)>& eta_func);
   void ConstructGenerator_ShellModel_NpNh(std::function<double(double,double)>& eta_func);

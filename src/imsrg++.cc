@@ -68,7 +68,8 @@ void PrintIMCCResidual(const std::string &label, Generator &generator, Operator 
   const auto norms = generator.GetIMCCOffDiagonalNorms(H);
   const double hnorm = H.Norm();
   std::cout << label
-            << " IM-CC P-X residual: ||Hod_1b||=" << norms[0]
+            << " IM-CC " << generator.GetIMCCDecoupling()
+            << " residual: ||Hod_1b||=" << norms[0]
             << "  ||Hod_2b||=" << norms[1]
             << "  ||Hod||=" << norms[2]
             << "  ||Hod||/||H||=" << (hnorm > 0.0 ? norms[2] / hnorm : 0.0)
@@ -108,6 +109,7 @@ int main(int argc, char** argv)
   std::string denominator_partitioning = parameters.s("denominator_partitioning");
   std::string NAT_order = parameters.s("NAT_order");
   std::string imcc_generator = parameters.s("imcc_generator");
+  std::string imcc_decoupling = parameters.s("imcc_decoupling");
 
   bool use_brueckner_bch = parameters.s("use_brueckner_bch") == "true";
   bool nucleon_mass_correction = parameters.s("nucleon_mass_correction") == "true";
@@ -1037,13 +1039,20 @@ int main(int argc, char** argv)
                 << imcc_generator << std::endl;
       return 1;
     }
+    if (imcc_decoupling != "both" and imcc_decoupling != "xc" and
+        imcc_decoupling != "xa")
+    {
+      std::cerr << "ERROR: imcc_decoupling must be both, xc, or xa; got "
+                << imcc_decoupling << std::endl;
+      return 1;
+    }
 
     modelspace_imsrg.SetIMCCPartition(imcc_emax);
     HNO.SetModelSpace(modelspace_imsrg);
     core_generator = "imcc-" + imcc_generator;
     nsteps = 1;
     std::cout << "Using one-step IM-CC downfolding with generator "
-              << core_generator << std::endl;
+              << core_generator << " and block " << imcc_decoupling << std::endl;
   }
 
  // After truncating, get the perturbative energies again to see how much things changed.
@@ -1075,6 +1084,8 @@ int main(int argc, char** argv)
   imsrgsolver.SetReadWrite(rw);
   imsrgsolver.SetMethod(method);
   imsrgsolver.SetDenominatorPartitioning(denominator_partitioning);
+  if (use_imcc)
+    imsrgsolver.SetIMCCDecoupling(imcc_decoupling);
   imsrgsolver.SetEtaCriterion(eta_criterion);
   imsrgsolver.GetGenerator().SetOnly2bEta(only_2b_eta);
   imsrgsolver.max_omega_written = 500;

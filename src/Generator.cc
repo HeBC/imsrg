@@ -19,8 +19,43 @@ std::function<double(double,double)> Generator::imaginarytime_func = [] (double 
 std::function<double(double,double)> Generator::qtransferatan1_func = [](double Hod, double denom){return pow(std::abs(denom)*M_NUCLEON/HBARC/HBARC, 0.5*1) * atan_func(Hod, denom);};
 
 Generator::Generator()
-  : generator_type("white"),/* modelspace(NULL),*/ denominator_cutoff(1e-6)  , denominator_delta(0), denominator_delta_index(-1), denominator_partitioning(Epstein_Nesbet),  only_2b_eta(false), use_isospin_averaging(false), only_1b_eta(false)
+  : generator_type("white"), imcc_decoupling("both"),/* modelspace(NULL),*/ denominator_cutoff(1e-6)  , denominator_delta(0), denominator_delta_index(-1), denominator_partitioning(Epstein_Nesbet),  only_2b_eta(false), use_isospin_averaging(false), only_1b_eta(false)
 {}
+
+
+void Generator::SetIMCCDecoupling(std::string block)
+{
+   if (block != "both" and block != "xc" and block != "xa")
+   {
+      throw std::invalid_argument("IM-CC decoupling must be 'both', 'xc', or 'xa'; got '" + block + "'.");
+   }
+   imcc_decoupling = block;
+}
+
+
+namespace
+{
+bool IMCCDecouplesXC(const std::string &block)
+{
+   return block == "both" or block == "xc";
+}
+
+bool IMCCDecouplesXA(const std::string &block)
+{
+   return block == "both" or block == "xa";
+}
+
+arma::uvec GetIMCCRetainedKetIndices(TwoBodyChannel &channel, const std::string &block)
+{
+   if (block == "xc")
+      return channel.GetKetIndex_cc();
+   if (block == "xa")
+      return VectorUnion(channel.GetKetIndex_vc(), channel.GetKetIndex_vv());
+   return VectorUnion(channel.GetKetIndex_cc(),
+                      channel.GetKetIndex_vc(),
+                      channel.GetKetIndex_vv());
+}
+}
 
 
 
@@ -531,25 +566,39 @@ void Generator::ConstructGenerator_IMCC(std::function<double (double,double)>& e
       throw std::invalid_argument("The IM-CC generator is defined for a scalar Hamiltonian.");
    }
 
-   const auto retained_orbits = VectorUnion(H->modelspace->core, H->modelspace->valence);
+   const bool decouple_xc = IMCCDecouplesXC(imcc_decoupling);
+   const bool decouple_xa = IMCCDecouplesXA(imcc_decoupling);
 
-   // One-body P-X couplings. Keep every C-A and other P-P matrix element.
+   // One-body X-C and X-A blocks can be selected independently. Keep every
+   // C-A and other P-P matrix element.
    for (auto x : H->modelspace->qspace)
    {
-      for (auto p : retained_orbits)
+      if (decouple_xc)
       {
-         const double denominator = Get1bDenominator(x, p);
-         Eta->OneBody(x, p) = etafunc(H->OneBody(x, p), denominator);
-         Eta->OneBody(p, x) = etafunc(H->OneBody(p, x), -denominator);
+         for (auto c : H->modelspace->core)
+         {
+            const double denominator = Get1bDenominator(x, c);
+            Eta->OneBody(x, c) = etafunc(H->OneBody(x, c), denominator);
+            Eta->OneBody(c, x) = etafunc(H->OneBody(c, x), -denominator);
+         }
+      }
+      if (decouple_xa)
+      {
+         for (auto a : H->modelspace->valence)
+         {
+            const double denominator = Get1bDenominator(x, a);
+            Eta->OneBody(x, a) = etafunc(H->OneBody(x, a), denominator);
+            Eta->OneBody(a, x) = etafunc(H->OneBody(a, x), -denominator);
+         }
       }
    }
 
    if (only_1b_eta)
       return;
 
-   // At IMSRG(2), P contains cc, vc, and vv pairs. A Q_X pair contains
-   // one or two excluded orbits: qc, qv, or qq. Only P-Q_X couplings are
-   // placed in eta; Q_X-Q_X and P-P blocks remain untouched.
+   // At IMSRG(2), H_XC couples an X-containing pair to CC, while H_XA
+   // couples an X-containing pair to CA or AA. Their union is the full P-X
+   // mask. Q_X-Q_X and P-P blocks remain untouched.
    for (auto &iter : Eta->TwoBody.MatEl)
    {
       const size_t ch_bra = iter.first[0];
@@ -559,15 +608,11 @@ void Generator::ConstructGenerator_IMCC(std::function<double (double,double)>& e
       arma::mat &ETA2 = iter.second;
       arma::mat &H2 = H->TwoBody.GetMatrix(ch_bra, ch_ket);
 
-      const auto retained_bra = VectorUnion(tbc_bra.GetKetIndex_cc(),
-                                             tbc_bra.GetKetIndex_vc(),
-                                             tbc_bra.GetKetIndex_vv());
+      const auto retained_bra = GetIMCCRetainedKetIndices(tbc_bra, imcc_decoupling);
       const auto excluded_bra = VectorUnion(tbc_bra.GetKetIndex_qc(),
                                              tbc_bra.GetKetIndex_qv(),
                                              tbc_bra.GetKetIndex_qq());
-      const auto retained_ket = VectorUnion(tbc_ket.GetKetIndex_cc(),
-                                             tbc_ket.GetKetIndex_vc(),
-                                             tbc_ket.GetKetIndex_vv());
+      const auto retained_ket = GetIMCCRetainedKetIndices(tbc_ket, imcc_decoupling);
       const auto excluded_ket = VectorUnion(tbc_ket.GetKetIndex_qc(),
                                              tbc_ket.GetKetIndex_qv(),
                                              tbc_ket.GetKetIndex_qq());
@@ -1006,14 +1051,26 @@ Operator Generator::GetHod_ShellModel(Operator& H)
 Operator Generator::GetHod_IMCC(Operator& H)
 {
    Operator Hod = 0.0 * H;
-   const auto retained_orbits = VectorUnion(H.modelspace->core, H.modelspace->valence);
+   const bool decouple_xc = IMCCDecouplesXC(imcc_decoupling);
+   const bool decouple_xa = IMCCDecouplesXA(imcc_decoupling);
 
    for (auto x : H.modelspace->qspace)
    {
-      for (auto p : retained_orbits)
+      if (decouple_xc)
       {
-         Hod.OneBody(x, p) = H.OneBody(x, p);
-         Hod.OneBody(p, x) = H.OneBody(p, x);
+         for (auto c : H.modelspace->core)
+         {
+            Hod.OneBody(x, c) = H.OneBody(x, c);
+            Hod.OneBody(c, x) = H.OneBody(c, x);
+         }
+      }
+      if (decouple_xa)
+      {
+         for (auto a : H.modelspace->valence)
+         {
+            Hod.OneBody(x, a) = H.OneBody(x, a);
+            Hod.OneBody(a, x) = H.OneBody(a, x);
+         }
       }
    }
 
@@ -1026,15 +1083,11 @@ Operator Generator::GetHod_IMCC(Operator& H)
       arma::mat &H2 = iter.second;
       arma::mat &Hod2 = Hod.TwoBody.GetMatrix(ch_bra, ch_ket);
 
-      const auto retained_bra = VectorUnion(tbc_bra.GetKetIndex_cc(),
-                                             tbc_bra.GetKetIndex_vc(),
-                                             tbc_bra.GetKetIndex_vv());
+      const auto retained_bra = GetIMCCRetainedKetIndices(tbc_bra, imcc_decoupling);
       const auto excluded_bra = VectorUnion(tbc_bra.GetKetIndex_qc(),
                                              tbc_bra.GetKetIndex_qv(),
                                              tbc_bra.GetKetIndex_qq());
-      const auto retained_ket = VectorUnion(tbc_ket.GetKetIndex_cc(),
-                                             tbc_ket.GetKetIndex_vc(),
-                                             tbc_ket.GetKetIndex_vv());
+      const auto retained_ket = GetIMCCRetainedKetIndices(tbc_ket, imcc_decoupling);
       const auto excluded_ket = VectorUnion(tbc_ket.GetKetIndex_qc(),
                                              tbc_ket.GetKetIndex_qv(),
                                              tbc_ket.GetKetIndex_qq());
