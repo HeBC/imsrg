@@ -5,6 +5,7 @@
 #include "PhysicalConstants.hh" // for HBARC and M_NUCLEON
 
 #include "omp.h"
+#include <stdexcept>
 #include <string>
 
 using PhysConst::M_NUCLEON;
@@ -71,6 +72,10 @@ void Generator::AddToEta(Operator& H_s, Operator& H_d,  Operator& Eta_s)
    else if (generator_type == "shell-model-atan")             ConstructGenerator_ShellModel(atan_func);
    else if (generator_type == "shell-model-atan-npnh")        ConstructGenerator_ShellModel_NpNh(atan_func);
    else if (generator_type == "shell-model-imaginary-time")   ConstructGenerator_ShellModel(imaginarytime_func);
+   else if (generator_type == "imcc" or generator_type == "imcc-white") ConstructGenerator_IMCC(white_func);
+   else if (generator_type == "imcc-atan")                    ConstructGenerator_IMCC(atan_func);
+   else if (generator_type == "imcc-imaginary-time")          ConstructGenerator_IMCC(imaginarytime_func);
+   else if (generator_type == "imcc-wegner")                  ConstructGenerator_IMCC(wegner_func);
    else if (generator_type == "hartree-fock")                 ConstructGenerator_HartreeFock();
    else if (generator_type == "1PA")                          ConstructGenerator_1PA(atan_func);
    else if (generator_type.find("qtransfer-atan") != std::string::npos )
@@ -98,6 +103,12 @@ Operator Generator::GetHod(Operator& H)
    for (auto sm : {"shell-model-wegner","shell-model","shell-model-atan","shell-model-imaginary-time"})
    {
       if (generator_type == sm )  return GetHod_ShellModel(H);
+   }
+   if (generator_type == "imcc" or generator_type == "imcc-white" or
+       generator_type == "imcc-atan" or generator_type == "imcc-imaginary-time" or
+       generator_type == "imcc-wegner")
+   {
+      return GetHod_IMCC(H);
    }
    std::cout << "GetHod not implemented for generator type " << generator_type << "   so you get zero." << std::endl;
    return 0*H; 
@@ -513,6 +524,82 @@ void Generator::ConstructGenerator_ShellModel(std::function<double (double,doubl
 }
 
 
+void Generator::ConstructGenerator_IMCC(std::function<double (double,double)>& etafunc)
+{
+   if (H->GetJRank() != 0 or H->GetTRank() != 0 or H->GetParity() != 0)
+   {
+      throw std::invalid_argument("The IM-CC generator is defined for a scalar Hamiltonian.");
+   }
+
+   const auto retained_orbits = VectorUnion(H->modelspace->core, H->modelspace->valence);
+
+   // One-body P-X couplings. Keep every C-A and other P-P matrix element.
+   for (auto x : H->modelspace->qspace)
+   {
+      for (auto p : retained_orbits)
+      {
+         const double denominator = Get1bDenominator(x, p);
+         Eta->OneBody(x, p) = etafunc(H->OneBody(x, p), denominator);
+         Eta->OneBody(p, x) = etafunc(H->OneBody(p, x), -denominator);
+      }
+   }
+
+   if (only_1b_eta)
+      return;
+
+   // At IMSRG(2), P contains cc, vc, and vv pairs. A Q_X pair contains
+   // one or two excluded orbits: qc, qv, or qq. Only P-Q_X couplings are
+   // placed in eta; Q_X-Q_X and P-P blocks remain untouched.
+   for (auto &iter : Eta->TwoBody.MatEl)
+   {
+      const size_t ch_bra = iter.first[0];
+      const size_t ch_ket = iter.first[1];
+      TwoBodyChannel &tbc_bra = H->modelspace->GetTwoBodyChannel(ch_bra);
+      TwoBodyChannel &tbc_ket = H->modelspace->GetTwoBodyChannel(ch_ket);
+      arma::mat &ETA2 = iter.second;
+      arma::mat &H2 = H->TwoBody.GetMatrix(ch_bra, ch_ket);
+
+      const auto retained_bra = VectorUnion(tbc_bra.GetKetIndex_cc(),
+                                             tbc_bra.GetKetIndex_vc(),
+                                             tbc_bra.GetKetIndex_vv());
+      const auto excluded_bra = VectorUnion(tbc_bra.GetKetIndex_qc(),
+                                             tbc_bra.GetKetIndex_qv(),
+                                             tbc_bra.GetKetIndex_qq());
+      const auto retained_ket = VectorUnion(tbc_ket.GetKetIndex_cc(),
+                                             tbc_ket.GetKetIndex_vc(),
+                                             tbc_ket.GetKetIndex_vv());
+      const auto excluded_ket = VectorUnion(tbc_ket.GetKetIndex_qc(),
+                                             tbc_ket.GetKetIndex_qv(),
+                                             tbc_ket.GetKetIndex_qq());
+
+      for (auto iket : retained_ket)
+      {
+         for (auto ibra : excluded_bra)
+         {
+            const double denominator = Get2bDenominator(ch_bra, ch_ket, ibra, iket);
+            ETA2(ibra, iket) = etafunc(H2(ibra, iket), denominator);
+            if (ch_bra == ch_ket)
+               ETA2(iket, ibra) = -ETA2(ibra, iket);
+         }
+      }
+
+      // A non-scalar channel block is not expected for H, but retaining this
+      // branch makes the projector mask complete for a general stored block.
+      if (ch_bra != ch_ket)
+      {
+         for (auto iket : excluded_ket)
+         {
+            for (auto ibra : retained_bra)
+            {
+               const double denominator = Get2bDenominator(ch_bra, ch_ket, ibra, iket);
+               ETA2(ibra, iket) = etafunc(H2(ibra, iket), denominator);
+            }
+         }
+      }
+   }
+}
+
+
 
 
 
@@ -914,5 +1001,107 @@ Operator Generator::GetHod_ShellModel(Operator& H)
 
     return Hod;
 }
- 
 
+
+Operator Generator::GetHod_IMCC(Operator& H)
+{
+   Operator Hod = 0.0 * H;
+   const auto retained_orbits = VectorUnion(H.modelspace->core, H.modelspace->valence);
+
+   for (auto x : H.modelspace->qspace)
+   {
+      for (auto p : retained_orbits)
+      {
+         Hod.OneBody(x, p) = H.OneBody(x, p);
+         Hod.OneBody(p, x) = H.OneBody(p, x);
+      }
+   }
+
+   for (auto &iter : H.TwoBody.MatEl)
+   {
+      const size_t ch_bra = iter.first[0];
+      const size_t ch_ket = iter.first[1];
+      TwoBodyChannel &tbc_bra = H.modelspace->GetTwoBodyChannel(ch_bra);
+      TwoBodyChannel &tbc_ket = H.modelspace->GetTwoBodyChannel(ch_ket);
+      arma::mat &H2 = iter.second;
+      arma::mat &Hod2 = Hod.TwoBody.GetMatrix(ch_bra, ch_ket);
+
+      const auto retained_bra = VectorUnion(tbc_bra.GetKetIndex_cc(),
+                                             tbc_bra.GetKetIndex_vc(),
+                                             tbc_bra.GetKetIndex_vv());
+      const auto excluded_bra = VectorUnion(tbc_bra.GetKetIndex_qc(),
+                                             tbc_bra.GetKetIndex_qv(),
+                                             tbc_bra.GetKetIndex_qq());
+      const auto retained_ket = VectorUnion(tbc_ket.GetKetIndex_cc(),
+                                             tbc_ket.GetKetIndex_vc(),
+                                             tbc_ket.GetKetIndex_vv());
+      const auto excluded_ket = VectorUnion(tbc_ket.GetKetIndex_qc(),
+                                             tbc_ket.GetKetIndex_qv(),
+                                             tbc_ket.GetKetIndex_qq());
+
+      for (auto iket : retained_ket)
+      {
+         for (auto ibra : excluded_bra)
+         {
+            Hod2(ibra, iket) = H2(ibra, iket);
+            if (ch_bra == ch_ket)
+               Hod2(iket, ibra) = H2(iket, ibra);
+         }
+      }
+
+      if (ch_bra != ch_ket)
+      {
+         for (auto iket : excluded_ket)
+         {
+            for (auto ibra : retained_bra)
+               Hod2(ibra, iket) = H2(ibra, iket);
+         }
+      }
+   }
+
+   return Hod;
+}
+
+
+Operator Generator::GetIMCCPBlock(Operator& H)
+{
+   Operator HP = 0.0 * H;
+   HP.ZeroBody = H.ZeroBody;
+   const auto retained_orbits = VectorUnion(H.modelspace->core, H.modelspace->valence);
+
+   for (auto p : retained_orbits)
+   {
+      for (auto q : retained_orbits)
+         HP.OneBody(p, q) = H.OneBody(p, q);
+   }
+
+   for (auto &iter : H.TwoBody.MatEl)
+   {
+      const size_t ch_bra = iter.first[0];
+      const size_t ch_ket = iter.first[1];
+      TwoBodyChannel &tbc_bra = H.modelspace->GetTwoBodyChannel(ch_bra);
+      TwoBodyChannel &tbc_ket = H.modelspace->GetTwoBodyChannel(ch_ket);
+      arma::mat &H2 = iter.second;
+      arma::mat &HP2 = HP.TwoBody.GetMatrix(ch_bra, ch_ket);
+      const auto retained_bra = VectorUnion(tbc_bra.GetKetIndex_cc(),
+                                             tbc_bra.GetKetIndex_vc(),
+                                             tbc_bra.GetKetIndex_vv());
+      const auto retained_ket = VectorUnion(tbc_ket.GetKetIndex_cc(),
+                                             tbc_ket.GetKetIndex_vc(),
+                                             tbc_ket.GetKetIndex_vv());
+      for (auto ibra : retained_bra)
+      {
+         for (auto iket : retained_ket)
+            HP2(ibra, iket) = H2(ibra, iket);
+      }
+   }
+
+   return HP;
+}
+
+
+std::array<double,3> Generator::GetIMCCOffDiagonalNorms(Operator& H)
+{
+   Operator Hod = GetHod_IMCC(H);
+   return {Hod.OneBodyNorm(), Hod.TwoBodyNorm(), Hod.Norm()};
+}

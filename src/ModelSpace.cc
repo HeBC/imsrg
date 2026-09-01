@@ -7,6 +7,7 @@
 #include <string>
 #include <cmath>
 #include <sstream>
+#include <stdexcept>
 #include "AngMomCache.hh"
 #include "omp.h"
 #include <cstdlib> // for EXIT_FAILURE
@@ -1458,6 +1459,111 @@ void ModelSpace::SetEmaxUnocc(int e)
   }
 
   Init(holemap, corelist, valencelist);
+}
+
+void ModelSpace::SetIMCCPartition(int emax_cut)
+{
+  if (emax_cut < 0 or emax_cut >= Emax)
+  {
+    std::ostringstream oss;
+    oss << __func__ << ": emax_cut=" << emax_cut
+        << " must satisfy 0 <= emax_cut < parent Emax=" << Emax
+        << " so that the excluded space X is non-empty";
+    throw std::invalid_argument(oss.str());
+  }
+
+  core.clear();
+  valence.clear();
+  qspace.clear();
+
+  bool occupied_above_cut = false;
+  for (auto i : all_orbits)
+  {
+    Orbit &oi = GetOrbit(i);
+    const int ei = 2 * oi.n + oi.l;
+    if (holes.count(i) > 0)
+    {
+      // The coupled-cluster reference must be contained in P even when a
+      // poorly chosen cutoff lies below an occupied orbit.
+      oi.cvq = 0;
+      core.insert(i);
+      occupied_above_cut = occupied_above_cut or (ei > emax_cut);
+    }
+    else if (ei <= emax_cut)
+    {
+      oi.cvq = 1;
+      valence.insert(i);
+    }
+    else
+    {
+      oi.cvq = 2;
+      qspace.insert(i);
+    }
+  }
+
+  if (occupied_above_cut)
+  {
+    std::cout << "WARNING: " << __func__
+              << " found occupied reference orbit(s) above emax_cut=" << emax_cut
+              << ". They remain in C so that the reference is contained in P."
+              << std::endl;
+  }
+
+  // A copied ModelSpace can contain Ket pointers into the source ModelSpace.
+  // Rebind them before rebuilding the cached C/A/X ket classifications.
+  for (Ket &ket : Kets)
+  {
+    ket.op = &GetOrbit(ket.p);
+    ket.oq = &GetOrbit(ket.q);
+  }
+  for (Ket3 &ket : Kets3)
+  {
+    ket.op = &GetOrbit(ket.p);
+    ket.oq = &GetOrbit(ket.q);
+    ket.oR = &GetOrbit(ket.r);
+  }
+
+  KetIndex_cc.clear();
+  KetIndex_vc.clear();
+  KetIndex_qc.clear();
+  KetIndex_vv.clear();
+  KetIndex_qv.clear();
+  KetIndex_qq.clear();
+  for (index_t index = 0; index < Kets.size(); ++index)
+  {
+    Ket &ket = Kets[index];
+    const int cvq_p = GetOrbit(ket.p).cvq;
+    const int cvq_q = GetOrbit(ket.q).cvq;
+    if (cvq_p + cvq_q == 0)
+      KetIndex_cc.push_back(index);
+    if (cvq_p + cvq_q == 1)
+      KetIndex_vc.push_back(index);
+    if (std::abs(cvq_p - cvq_q) == 2)
+      KetIndex_qc.push_back(index);
+    if (cvq_p * cvq_q == 1)
+      KetIndex_vv.push_back(index);
+    if (cvq_p + cvq_q == 3)
+      KetIndex_qv.push_back(index);
+    if (cvq_p + cvq_q == 4)
+      KetIndex_qq.push_back(index);
+  }
+
+  for (TwoBodyChannel &tbc : TwoBodyChannels)
+    tbc.RefreshKetIndexLists();
+  for (TwoBodyChannel_CC &tbc : TwoBodyChannels_CC)
+    tbc.RefreshKetIndexLists();
+  for (ThreeBodyChannel &tbc : ThreeBodyChannels)
+    tbc.modelspace = this;
+
+  Acore = GetAcore();
+  Zcore = GetZcore();
+  PandyaLookup.clear();
+  ResetFirstPass();
+
+  std::cout << "IM-CC C/A/X partition: emax_cut=" << emax_cut
+            << "  C=" << core.size()
+            << "  A=" << valence.size()
+            << "  X=" << qspace.size() << std::endl;
 }
 
 std::map<int, double> ModelSpace::GetEFermi()

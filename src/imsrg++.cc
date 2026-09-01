@@ -63,6 +63,18 @@ struct OpFromFile {
    int j,p,t,r; // J rank, parity, dTz, particle rank
 };
 
+void PrintIMCCResidual(const std::string &label, Generator &generator, Operator &H)
+{
+  const auto norms = generator.GetIMCCOffDiagonalNorms(H);
+  const double hnorm = H.Norm();
+  std::cout << label
+            << " IM-CC P-X residual: ||Hod_1b||=" << norms[0]
+            << "  ||Hod_2b||=" << norms[1]
+            << "  ||Hod||=" << norms[2]
+            << "  ||Hod||/||H||=" << (hnorm > 0.0 ? norms[2] / hnorm : 0.0)
+            << std::endl;
+}
+
 int main(int argc, char** argv)
 {
   // Default parameters, and everything passed by command line args.
@@ -95,6 +107,7 @@ int main(int argc, char** argv)
   std::string physical_system = parameters.s("physical_system");
   std::string denominator_partitioning = parameters.s("denominator_partitioning");
   std::string NAT_order = parameters.s("NAT_order");
+  std::string imcc_generator = parameters.s("imcc_generator");
 
   bool use_brueckner_bch = parameters.s("use_brueckner_bch") == "true";
   bool nucleon_mass_correction = parameters.s("nucleon_mass_correction") == "true";
@@ -138,6 +151,7 @@ int main(int argc, char** argv)
   int e2Max_imsrg = parameters.i("e2max_imsrg");
   int e3Max_imsrg = parameters.i("e3max_imsrg");
   int eMax_3body_imsrg = parameters.i("emax_3body_imsrg");
+  int imcc_emax = parameters.i("imcc_emax");
 //  if ( not ( eMax_imsrg==-1 and e2Max_imsrg==-1 and e3Max_imsrg==-1 ) )
 //  {
 //    if ( eMax_imsrg==-1 ) eMax_imsrg = eMax;
@@ -999,6 +1013,39 @@ int main(int argc, char** argv)
     }
   }
 
+  const bool use_imcc = imcc_emax >= 0;
+  if (use_imcc)
+  {
+    if (IMSRG3)
+    {
+      std::cerr << "ERROR: IM-CC downfolding is currently implemented at IMSRG(2)/NO2B. "
+                << "Use IMSRG3=false." << std::endl;
+      return 1;
+    }
+    if (imcc_emax >= modelspace_imsrg.GetEmax())
+    {
+      std::cerr << "ERROR: imcc_emax=" << imcc_emax
+                << " must be smaller than the parent IMSRG emax="
+                << modelspace_imsrg.GetEmax() << " so that X is non-empty."
+                << std::endl;
+      return 1;
+    }
+    if (imcc_generator != "atan" and imcc_generator != "white" and
+        imcc_generator != "imaginary-time" and imcc_generator != "wegner")
+    {
+      std::cerr << "ERROR: imcc_generator must be atan, white, imaginary-time, or wegner; got "
+                << imcc_generator << std::endl;
+      return 1;
+    }
+
+    modelspace_imsrg.SetIMCCPartition(imcc_emax);
+    HNO.SetModelSpace(modelspace_imsrg);
+    core_generator = "imcc-" + imcc_generator;
+    nsteps = 1;
+    std::cout << "Using one-step IM-CC downfolding with generator "
+              << core_generator << std::endl;
+  }
+
  // After truncating, get the perturbative energies again to see how much things changed.
   if (eMax_imsrg != eMax)
   {
@@ -1078,6 +1125,8 @@ int main(int argc, char** argv)
   }
 
   imsrgsolver.SetGenerator(core_generator);
+  if (use_imcc)
+    PrintIMCCResidual("Initial", imsrgsolver.GetGenerator(), imsrgsolver.GetH_s());
   if (core_generator.find("imaginary")!=std::string::npos or core_generator.find("wegner")!=std::string::npos )
   {
    if (ds_0>1e-2)
@@ -1090,6 +1139,9 @@ int main(int argc, char** argv)
   }
 
   imsrgsolver.Solve();
+
+  if (use_imcc)
+    PrintIMCCResidual("Final", imsrgsolver.GetGenerator(), imsrgsolver.GetH_s());
 
   if (IMSRG3)
   {
@@ -1712,4 +1764,3 @@ int main(int argc, char** argv)
 
   return 0;
 }
-

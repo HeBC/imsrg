@@ -31,6 +31,12 @@ void TwoBodyChannel_base::Initialize()
          NumberKets++;
       }
    }
+   RefreshKetIndexLists();
+}
+
+
+void TwoBodyChannel_base::RefreshKetIndexLists()
+{
    KetIndex_pp = GetKetIndexFromList(modelspace->KetIndex_pp);
    KetIndex_hh = GetKetIndexFromList(modelspace->KetIndex_hh);
    KetIndex_ph = GetKetIndexFromList(modelspace->KetIndex_ph);
@@ -187,6 +193,3 @@ bool TwoBodyChannel_CC::CheckChannel_ket(Orbit* op, Orbit* oq) const
 
    return true;
 }
-
-
-

@@ -150,6 +150,7 @@ struct TwoBodyChannel_base
    TwoBodyChannel_base(int j, int p, int t, ModelSpace* ms);
    TwoBodyChannel_base(int ch, ModelSpace* ms);
    void Initialize();
+   void RefreshKetIndexLists();
 //   void UnpackTwoBodyChannel_Index(int ch, int J,int parity, int Tz); // WHY DOES THIS EXIST???
 
 
@@ -435,6 +436,11 @@ class ModelSpace
    size_t ThreeBodyChannelHash( int twoJ, int parity, int twoTz);
 
    void SetEmaxUnocc(int e);
+   /// Partition the parent space for IM-CC downfolding.
+   /// C contains all occupied reference orbits, A contains unoccupied orbits
+   /// with 2n+l <= emax_cut < Emax, and X contains the remaining orbits. Internally
+   /// these are stored in core, valence, and qspace, respectively.
+   void SetIMCCPartition(int emax_cut);
 
    size_t GetNumberOrbits() const {return norbits;};
    size_t GetNumberKets() const {return Kets.size();};
@@ -556,4 +562,3 @@ class ModelSpace
 
 
 #endif
-

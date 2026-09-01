@@ -9,6 +9,10 @@ http://www.sciencedirect.com/science/article/pii/S0370157315005414
 The IMSRG code in the src directory is copyrighted under the GNU Public License (http://www.gnu.org/licenses/gpl.html).
 This code also uses the Armadillo library, which is covered under the Mozilla Public License (https://www.mozilla.org/en-US/MPL/2.0/), and the BOOST library, which is covered under the BOOST Software License (http://www.boost.org/users/license.html)
 
+The `IMCC` branch also contains an experimental IMSRG(2) downfolding mode for
+reduced-space coupled-cluster calculations. See [doc/IMCC.md](doc/IMCC.md) for
+the projector definition, command-line options, diagnostics, and limitations.
+
 
 ## Credits:
 * Most of this code was written by Ragnar Stroberg, who benefitted greatly from the codes of Koshiroh Tsukiyama, Heiko Hergert, and Nathan Parzuchowski.

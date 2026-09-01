@@ -103,6 +103,7 @@ std::map<std::string,std::string> Parameters::string_par = {
   {"write_HO_ops",              "false"},       // Write the HO operator before doing the HF transormation ;  Added by Antoine Belley
   {"write_HF_ops",              "false"},       // Write the HF operators before doing IMSRG transformation ; Added by Antoine Belley
   {"denominator_partitioning",  "Epstein_Nesbet"}, // Denominators used in IMSRG generators. Can be Moller_Plesset or Epstein_Nesbet.
+  {"imcc_generator",            "atan"},       // IM-CC P-X generator: atan, white, imaginary-time, or wegner
 };
 
 
@@ -144,6 +145,7 @@ std::map<std::string,int> Parameters::int_par = {
   {"e2max_imsrg",       -1}, // e2max for imsrg part. defaults to 2*emax_imsrg
   {"e3max_imsrg",       -1}, // e3max for imsrg part. defaults to min(e3max,3*emax_imsrg)
   {"emax_3body_imsrg",        -1}, // emax truncation for the 3-body operators in the imsrg part (default: emax_imsrg)
+  {"imcc_emax",               -1}, // retained IM-CC cutoff; negative disables IM-CC downfolding
 };
 
 std::map<std::string,std::vector<std::string>> Parameters::vec_par = {

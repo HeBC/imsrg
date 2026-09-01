@@ -78,6 +78,11 @@ class Generator
   void ConstructGenerator_SingleRef(std::function<double (double,double)>& etafunc );
   void ConstructGenerator_SingleRef_3body(std::function<double (double,double)>& etafunc );
   void ConstructGenerator_ShellModel(std::function<double (double,double)>& eta_func);
+  /// Decouple the retained IM-CC orbital space P=C+A from the excluded space X.
+  /// At IMSRG(2), a one-body matrix element is off diagonal when one index is
+  /// in P and the other in X. A two-body matrix element is off diagonal when
+  /// one pair is wholly in P and the other pair contains at least one X orbit.
+  void ConstructGenerator_IMCC(std::function<double (double,double)>& eta_func);
   void ConstructGenerator_ShellModel_3body(std::function<double (double,double)>& eta_func);
   void ConstructGenerator_ShellModel_NpNh(std::function<double(double,double)>& eta_func);
   void ConstructGenerator_HartreeFock();
@@ -92,6 +97,11 @@ class Generator
 
   Operator GetHod_SingleRef( Operator& H );
   Operator GetHod_ShellModel( Operator& H );
+  Operator GetHod_IMCC( Operator& H );
+  /// Return P H P at IMSRG(2), represented in the parent allocation with all
+  /// matrix elements carrying an X index set to zero.
+  Operator GetIMCCPBlock( Operator& H );
+  std::array<double,3> GetIMCCOffDiagonalNorms(Operator& H);
   
 
 };
