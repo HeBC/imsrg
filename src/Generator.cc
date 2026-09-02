@@ -45,15 +45,35 @@ bool IMCCDecouplesXA(const std::string &block)
    return block == "both" or block == "xa";
 }
 
-arma::uvec GetIMCCRetainedKetIndices(TwoBodyChannel &channel, const std::string &block)
+using IMCCKetBlock = std::pair<arma::uvec, arma::uvec>;
+
+std::vector<IMCCKetBlock> GetIMCCTwoBodyBlocks(TwoBodyChannel &excluded_channel,
+                                                TwoBodyChannel &retained_channel,
+                                                const std::string &block)
 {
-   if (block == "xc")
-      return channel.GetKetIndex_cc();
+   const auto excluded_with_c = excluded_channel.GetKetIndex_qc();
+   const auto excluded_without_c = VectorUnion(excluded_channel.GetKetIndex_qv(),
+                                                excluded_channel.GetKetIndex_qq());
+   const auto retained_with_c = VectorUnion(retained_channel.GetKetIndex_cc(),
+                                             retained_channel.GetKetIndex_vc());
+   const auto retained_without_c = retained_channel.GetKetIndex_vv();
+
+   if (block == "both")
+   {
+      return {{VectorUnion(excluded_with_c, excluded_without_c),
+               VectorUnion(retained_with_c, retained_without_c)}};
+   }
+
    if (block == "xa")
-      return VectorUnion(channel.GetKetIndex_vc(), channel.GetKetIndex_vv());
-   return VectorUnion(channel.GetKetIndex_cc(),
-                      channel.GetKetIndex_vc(),
-                      channel.GetKetIndex_vv());
+   {
+      // No C index occurs in H_XA: this is the pure-particle (pppp) block.
+      return {{excluded_without_c, retained_without_c}};
+   }
+
+   // H_XC is the complementary part of the full P-X mask: at least one C
+   // index occurs on either side of the two-body matrix element.
+   return {{VectorUnion(excluded_with_c, excluded_without_c), retained_with_c},
+           {excluded_with_c, retained_without_c}};
 }
 }
 
@@ -596,9 +616,10 @@ void Generator::ConstructGenerator_IMCC(std::function<double (double,double)>& e
    if (only_1b_eta)
       return;
 
-   // At IMSRG(2), H_XC couples an X-containing pair to CC, while H_XA
-   // couples an X-containing pair to CA or AA. Their union is the full P-X
-   // mask. Q_X-Q_X and P-P blocks remain untouched.
+   // At IMSRG(2), H_XA is the core-free pppp block: an X-containing
+   // unoccupied pair (XA or XX) coupled to AA. H_XC is the complementary
+   // part of the full P-X mask, for which at least one two-body index is in C.
+   // Q_X-Q_X and P-P blocks remain untouched.
    for (auto &iter : Eta->TwoBody.MatEl)
    {
       const size_t ch_bra = iter.first[0];
@@ -608,23 +629,19 @@ void Generator::ConstructGenerator_IMCC(std::function<double (double,double)>& e
       arma::mat &ETA2 = iter.second;
       arma::mat &H2 = H->TwoBody.GetMatrix(ch_bra, ch_ket);
 
-      const auto retained_bra = GetIMCCRetainedKetIndices(tbc_bra, imcc_decoupling);
-      const auto excluded_bra = VectorUnion(tbc_bra.GetKetIndex_qc(),
-                                             tbc_bra.GetKetIndex_qv(),
-                                             tbc_bra.GetKetIndex_qq());
-      const auto retained_ket = GetIMCCRetainedKetIndices(tbc_ket, imcc_decoupling);
-      const auto excluded_ket = VectorUnion(tbc_ket.GetKetIndex_qc(),
-                                             tbc_ket.GetKetIndex_qv(),
-                                             tbc_ket.GetKetIndex_qq());
-
-      for (auto iket : retained_ket)
+      const auto forward_blocks = GetIMCCTwoBodyBlocks(tbc_bra, tbc_ket,
+                                                        imcc_decoupling);
+      for (const auto &ket_block : forward_blocks)
       {
-         for (auto ibra : excluded_bra)
+         for (auto ibra : ket_block.first)
          {
-            const double denominator = Get2bDenominator(ch_bra, ch_ket, ibra, iket);
-            ETA2(ibra, iket) = etafunc(H2(ibra, iket), denominator);
-            if (ch_bra == ch_ket)
-               ETA2(iket, ibra) = -ETA2(ibra, iket);
+            for (auto iket : ket_block.second)
+            {
+               const double denominator = Get2bDenominator(ch_bra, ch_ket, ibra, iket);
+               ETA2(ibra, iket) = etafunc(H2(ibra, iket), denominator);
+               if (ch_bra == ch_ket)
+                  ETA2(iket, ibra) = -ETA2(ibra, iket);
+            }
          }
       }
 
@@ -632,12 +649,17 @@ void Generator::ConstructGenerator_IMCC(std::function<double (double,double)>& e
       // branch makes the projector mask complete for a general stored block.
       if (ch_bra != ch_ket)
       {
-         for (auto iket : excluded_ket)
+         const auto reverse_blocks = GetIMCCTwoBodyBlocks(tbc_ket, tbc_bra,
+                                                           imcc_decoupling);
+         for (const auto &ket_block : reverse_blocks)
          {
-            for (auto ibra : retained_bra)
+            for (auto iket : ket_block.first)
             {
-               const double denominator = Get2bDenominator(ch_bra, ch_ket, ibra, iket);
-               ETA2(ibra, iket) = etafunc(H2(ibra, iket), denominator);
+               for (auto ibra : ket_block.second)
+               {
+                  const double denominator = Get2bDenominator(ch_bra, ch_ket, ibra, iket);
+                  ETA2(ibra, iket) = etafunc(H2(ibra, iket), denominator);
+               }
             }
          }
       }
@@ -1083,31 +1105,32 @@ Operator Generator::GetHod_IMCC(Operator& H)
       arma::mat &H2 = iter.second;
       arma::mat &Hod2 = Hod.TwoBody.GetMatrix(ch_bra, ch_ket);
 
-      const auto retained_bra = GetIMCCRetainedKetIndices(tbc_bra, imcc_decoupling);
-      const auto excluded_bra = VectorUnion(tbc_bra.GetKetIndex_qc(),
-                                             tbc_bra.GetKetIndex_qv(),
-                                             tbc_bra.GetKetIndex_qq());
-      const auto retained_ket = GetIMCCRetainedKetIndices(tbc_ket, imcc_decoupling);
-      const auto excluded_ket = VectorUnion(tbc_ket.GetKetIndex_qc(),
-                                             tbc_ket.GetKetIndex_qv(),
-                                             tbc_ket.GetKetIndex_qq());
-
-      for (auto iket : retained_ket)
+      const auto forward_blocks = GetIMCCTwoBodyBlocks(tbc_bra, tbc_ket,
+                                                        imcc_decoupling);
+      for (const auto &ket_block : forward_blocks)
       {
-         for (auto ibra : excluded_bra)
+         for (auto ibra : ket_block.first)
          {
-            Hod2(ibra, iket) = H2(ibra, iket);
-            if (ch_bra == ch_ket)
-               Hod2(iket, ibra) = H2(iket, ibra);
+            for (auto iket : ket_block.second)
+            {
+               Hod2(ibra, iket) = H2(ibra, iket);
+               if (ch_bra == ch_ket)
+                  Hod2(iket, ibra) = H2(iket, ibra);
+            }
          }
       }
 
       if (ch_bra != ch_ket)
       {
-         for (auto iket : excluded_ket)
+         const auto reverse_blocks = GetIMCCTwoBodyBlocks(tbc_ket, tbc_bra,
+                                                           imcc_decoupling);
+         for (const auto &ket_block : reverse_blocks)
          {
-            for (auto ibra : retained_bra)
-               Hod2(ibra, iket) = H2(ibra, iket);
+            for (auto iket : ket_block.first)
+            {
+               for (auto ibra : ket_block.second)
+                  Hod2(ibra, iket) = H2(ibra, iket);
+            }
          }
       }
    }

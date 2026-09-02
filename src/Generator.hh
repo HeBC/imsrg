@@ -82,9 +82,9 @@ class Generator
   void ConstructGenerator_SingleRef_3body(std::function<double (double,double)>& etafunc );
   void ConstructGenerator_ShellModel(std::function<double (double,double)>& eta_func);
   /// Decouple selected IM-CC blocks between the retained space P=C+A and X.
-  /// imcc_decoupling="xc" selects X-C one-body terms and X-containing pairs
-  /// coupled to CC. "xa" selects X-A one-body terms and X-containing pairs
-  /// coupled to CA or AA. "both" (default) is their union.
+  /// imcc_decoupling="xc" selects X-C one-body terms and P-X two-body terms
+  /// containing at least one C index. "xa" selects X-A one-body terms and the
+  /// core-free pppp block (XA/XX pairs coupled to AA). "both" is their union.
   void ConstructGenerator_IMCC(std::function<double (double,double)>& eta_func);
   void ConstructGenerator_ShellModel_3body(std::function<double (double,double)>& eta_func);
   void ConstructGenerator_ShellModel_NpNh(std::function<double(double,double)>& eta_func);

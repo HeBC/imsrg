@@ -34,10 +34,11 @@ elements. Low-energy correlations inside `P` therefore remain available to CC.
 
 For diagnostic calculations, the mask can be split into two disjoint blocks:
 
-- `xc`: one-body `X-C` elements and two-body elements connecting an
-  X-containing pair (`qc`, `qv`, or `qq`) to a `cc` pair;
-- `xa`: one-body `X-A` elements and two-body elements connecting an
-  X-containing pair to a `vc` or `vv` pair;
+- `xc`: one-body `X-C` elements and the part of the two-body P-X mask
+  containing at least one `C` index;
+- `xa`: one-body `X-A` elements and the core-free, pure-particle two-body
+  block, namely an `XA` or `XX` pair (`qv` or `qq` in the legacy cache
+  names) coupled to an `AA` pair (`vv`);
 - `both`: the union of `xc` and `xa`, and the default.
 
 Only `both` represents the complete implemented `P-X` decoupling. The partial
