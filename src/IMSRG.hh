@@ -41,3 +41,5 @@
 #include "PhysicalConstants.hh"
 #include "RPA.hh"
 #include "ReferenceImplementations.hh"
+#include "TwoBodyChargeCurrent.hh"
+

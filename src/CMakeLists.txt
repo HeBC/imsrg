@@ -367,6 +367,7 @@ add_library(
     M0nu.hh M0nu.cc
     DarkMatterNREFT.hh DarkMatterNREFT.cc
     Pwd.hh Pwd.cc
+    TwoBodyChargeCurrent.hh TwoBodyChargeCurrent.cc
 #    Helicity.hh Helicity.cc
 )
 target_link_libraries(
