@@ -561,68 +561,6 @@ namespace imsrg_util
         double rr;
         std::istringstream(opnamesplit[1]) >> rr;
         theop = sqrt(4 * M_PI) * DM_NREFT::M(modelspace, "n", 0, rr);
-      } else if (opnamesplit[0] == "TwoBodyChargeOPE") {
-        // TwoBodyChargeOPE_qMeV[_GEis[_cutoffMeV[_scheme[_n]]]]
-        if (opnamesplit.size() < 2) {
-          throw std::invalid_argument(
-              "TwoBodyChargeOPE requires q in MeV");
-        }
-        double q = 0.0;
-        double ge_isoscalar = 1.0;
-        std::istringstream(opnamesplit[1]) >> q;
-        if (opnamesplit.size() > 2) {
-          std::istringstream(opnamesplit[2]) >> ge_isoscalar;
-        }
-        chiral_charge::TwoBodyChargeOperatorParameters p;
-        if (opnamesplit.size() > 3) {
-          std::istringstream(opnamesplit[3]) >> p.density.cutoff_mev;
-        }
-        if (opnamesplit.size() > 4) {
-          p.density.regulator_scheme =
-              chiral_charge::RegulatorSchemeFromString(opnamesplit[4]);
-        }
-        if (opnamesplit.size() > 5) {
-          std::istringstream(opnamesplit[5])
-              >> p.density.regulator_exponent;
-        }
-        p.include_contact = false;
-        theop = chiral_charge::TwoBodyChargeOperator(
-            modelspace, q, ge_isoscalar, p);
-      } else if (opnamesplit[0] == "TwoBodyChargeContact"
-                 || opnamesplit[0] == "TwoBodyCharge") {
-        // TwoBodyCharge[_Contact]_qMeV_GEis_M1_M2_M3
-        //     [_cutoffMeV[_scheme[_n]]]
-        if (opnamesplit.size() < 6) {
-          throw std::invalid_argument(
-              "TwoBodyCharge requires q, GEis, M1, M2, and M3");
-        }
-        double q = 0.0;
-        double ge_isoscalar = 0.0;
-        double M1 = 0.0;
-        double M2 = 0.0;
-        double M3 = 0.0;
-        std::istringstream(opnamesplit[1]) >> q;
-        std::istringstream(opnamesplit[2]) >> ge_isoscalar;
-        std::istringstream(opnamesplit[3]) >> M1;
-        std::istringstream(opnamesplit[4]) >> M2;
-        std::istringstream(opnamesplit[5]) >> M3;
-        chiral_charge::TwoBodyChargeOperatorParameters p;
-        if (opnamesplit.size() > 6) {
-          std::istringstream(opnamesplit[6]) >> p.density.cutoff_mev;
-        }
-        if (opnamesplit.size() > 7) {
-          p.density.regulator_scheme =
-              chiral_charge::RegulatorSchemeFromString(opnamesplit[7]);
-        }
-        if (opnamesplit.size() > 8) {
-          std::istringstream(opnamesplit[8])
-              >> p.density.regulator_exponent;
-        }
-        p.density.contact = chiral_charge::ContactLECs::FromDimensionlessM(
-            M1, M2, M3, p.density.f_pi_mev, 650.0);
-        p.include_ope = opnamesplit[0] == "TwoBodyCharge";
-        theop = chiral_charge::TwoBodyChargeOperator(
-            modelspace, q, ge_isoscalar, p);
       } else if (opnamesplit[0] == "FPhipp0p") {
         // Phipp form factor for protons
         // momentum transfer q in MeV, e.g. FPhipp0p_200.0

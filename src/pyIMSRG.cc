@@ -266,6 +266,79 @@ PYBIND11_MODULE(pyIMSRG, m)
           //      .def("IsospinProject", &Operator::IsospinProject)
           ;
 
+      // begin two body charge current
+      py::class_<imsrg_util::chiral_charge::ContactLECs>(m, "ContactLECs")
+          .def(py::init<>())
+          .def_readwrite("A", &imsrg_util::chiral_charge::ContactLECs::A)
+          .def_readwrite("B", &imsrg_util::chiral_charge::ContactLECs::B)
+          .def_readwrite("C", &imsrg_util::chiral_charge::ContactLECs::C)
+          .def_static(
+              "FromDimensionlessM",
+              &imsrg_util::chiral_charge::ContactLECs::FromDimensionlessM,
+              py::arg("M1"), py::arg("M2"), py::arg("M3"),
+              py::arg("f_pi_mev") = 92.4,
+              py::arg("breakdown_scale_mev") = 650.0)
+          .def(
+              "ToDimensionlessM",
+              &imsrg_util::chiral_charge::ContactLECs::ToDimensionlessM,
+              py::arg("f_pi_mev") = 92.4,
+              py::arg("breakdown_scale_mev") = 650.0);
+
+      py::enum_<imsrg_util::chiral_charge::RegulatorScheme>(
+          m, "TwoBodyChargeRegulator")
+          .value("SMS", imsrg_util::chiral_charge::RegulatorScheme::SMS)
+          .value("Nonlocal",
+                 imsrg_util::chiral_charge::RegulatorScheme::Nonlocal)
+          .value("Unregulated",
+                 imsrg_util::chiral_charge::RegulatorScheme::Unregulated)
+          .export_values();
+
+      py::class_<imsrg_util::chiral_charge::ChargeDensityParameters>(
+          m, "ChargeDensityParameters")
+          .def(py::init<>())
+          .def_readwrite("g_a", &imsrg_util::chiral_charge::ChargeDensityParameters::g_a)
+          .def_readwrite("f_pi_mev", &imsrg_util::chiral_charge::ChargeDensityParameters::f_pi_mev)
+          .def_readwrite("nucleon_mass_mev", &imsrg_util::chiral_charge::ChargeDensityParameters::nucleon_mass_mev)
+          .def_readwrite("pion_mass_mev", &imsrg_util::chiral_charge::ChargeDensityParameters::pion_mass_mev)
+          .def_readwrite("cutoff_mev", &imsrg_util::chiral_charge::ChargeDensityParameters::cutoff_mev)
+          .def_readwrite("regulator_scheme", &imsrg_util::chiral_charge::ChargeDensityParameters::regulator_scheme)
+          .def_readwrite("regulator_exponent", &imsrg_util::chiral_charge::ChargeDensityParameters::regulator_exponent)
+          .def_readwrite("beta_8", &imsrg_util::chiral_charge::ChargeDensityParameters::beta_8)
+          .def_readwrite("beta_9", &imsrg_util::chiral_charge::ChargeDensityParameters::beta_9)
+          .def_readwrite("electric_charge", &imsrg_util::chiral_charge::ChargeDensityParameters::electric_charge)
+          .def_readwrite("contact", &imsrg_util::chiral_charge::ChargeDensityParameters::contact);
+
+      py::class_<imsrg_util::chiral_charge::ProjectionParameters>(
+          m, "TwoBodyChargeAngularQuadrature")
+          .def(py::init<>())
+          .def_readwrite("polar_order", &imsrg_util::chiral_charge::ProjectionParameters::polar_order)
+          .def_readwrite("azimuthal_order", &imsrg_util::chiral_charge::ProjectionParameters::azimuthal_order);
+
+      py::class_<imsrg_util::chiral_charge::RadialProjectionParameters>(
+          m, "TwoBodyChargeRadialQuadrature")
+          .def(py::init<>())
+          .def_readwrite("radial_order", &imsrg_util::chiral_charge::RadialProjectionParameters::radial_order)
+          .def_readwrite("max_momentum_mev", &imsrg_util::chiral_charge::RadialProjectionParameters::max_momentum_mev);
+
+      py::class_<imsrg_util::chiral_charge::CenterOfMassProjectionParameters>(
+          m, "TwoBodyChargeCMQuadrature")
+          .def(py::init<>())
+          .def_readwrite("radial_order", &imsrg_util::chiral_charge::CenterOfMassProjectionParameters::radial_order)
+          .def_readwrite("max_radius_fm", &imsrg_util::chiral_charge::CenterOfMassProjectionParameters::max_radius_fm);
+
+      py::class_<imsrg_util::chiral_charge::TwoBodyChargeOperatorParameters>(
+          m, "TwoBodyChargeOperatorParameters")
+          .def(py::init<>())
+          .def_readwrite("density", &imsrg_util::chiral_charge::TwoBodyChargeOperatorParameters::density)
+          .def_readwrite("angular_quadrature", &imsrg_util::chiral_charge::TwoBodyChargeOperatorParameters::angular_quadrature)
+          .def_readwrite("relative_radial_quadrature", &imsrg_util::chiral_charge::TwoBodyChargeOperatorParameters::relative_radial_quadrature)
+          .def_readwrite("center_of_mass_quadrature", &imsrg_util::chiral_charge::TwoBodyChargeOperatorParameters::center_of_mass_quadrature)
+          .def_readwrite("include_ope", &imsrg_util::chiral_charge::TwoBodyChargeOperatorParameters::include_ope)
+          .def_readwrite("include_contact", &imsrg_util::chiral_charge::TwoBodyChargeOperatorParameters::include_contact)
+          .def_readwrite("imaginary_tolerance", &imsrg_util::chiral_charge::TwoBodyChargeOperatorParameters::imaginary_tolerance);
+        // end two body charge current
+
+
       py::class_<arma::mat>(m, "ArmaMat")
           .def(py::init<>())
           .def("zeros", [](arma::mat &self, int nrows, int ncols)  { self.zeros(nrows, ncols); },   py::arg("nrows"), py::arg("ncols"))
@@ -938,6 +1011,8 @@ PYBIND11_MODULE(pyIMSRG, m)
       m.def("FirstOrderCorr_1b", imsrg_util::FirstOrderCorr_1b, py::arg("OpIn"), py::arg("H"));
       m.def("FrequencyConversionCoeff", imsrg_util::FrequencyConversionCoeff);
       m.def("OperatorFromString", imsrg_util::OperatorFromString);
+      m.def("TwoBodyChargeOperator", &imsrg_util::chiral_charge::TwoBodyChargeOperator,
+            py::arg("modelspace"), py::arg("momentum_transfer_mev"), py::arg("ge_isoscalar"), py::arg("parameters"));
       m.def("HO_Radial_psi", imsrg_util::HO_Radial_psi, py::arg("n"), py::arg("l"), py::arg("hw"), py::arg("r"));
       m.def("MBPT2_SpectroscopicFactor", imsrg_util::MBPT2_SpectroscopicFactor);
       m.def("SerberTypePotential", imsrg_util::SerberTypePotential, py::arg("modelspace"), py::arg("V0"), py::arg("mu"), py::arg("A"), py::arg("B"), py::arg("C"), py::arg("D"));
