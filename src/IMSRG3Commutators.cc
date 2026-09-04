@@ -100,13 +100,10 @@ namespace Commutator
       size_t ch3ket = bra_ket_channels[ibra_ket][1];
       size_t ibra = bra_ket_channels[ibra_ket][2];
 
-      //    auto& Tbc = Z.modelspace->GetThreeBodyChannel(ch3);
       auto &Tbc_bra = Z.modelspace->GetThreeBodyChannel(ch3bra);
       auto &Tbc_ket = Z.modelspace->GetThreeBodyChannel(ch3ket);
       int twoJ = Tbc_bra.twoJ;
       size_t nkets = Tbc_ket.GetNumberKets();
-      //    for (size_t ibra=0; ibra<nkets; ibra++)
-      //    {
       Ket3 &bra = Tbc_bra.GetKet(ibra);
       int ea = 2 * bra.op->n + bra.op->l;
       int eb = 2 * bra.oq->n + bra.oq->l;
@@ -597,6 +594,7 @@ namespace Commutator
     auto &Y1 = Y.OneBody;
     auto &Y3 = Y.ThreeBody;
     auto &Z2 = Z.TwoBody;
+    if (X.GetParticleRank()<3 and Y.GetParticleRank()<3) return;
     double x3norm = X.ThreeBodyNorm();
     double y3norm = Y.ThreeBodyNorm();
 
@@ -702,16 +700,12 @@ namespace Commutator
               if ( b_loop ==1 and x3norm<1e-12)
                  continue;
               std::set<size_t> blist;
-              //             std::cout << "HERE AT LINE " << __LINE__ <<  " and a is " << oa.l << " " << oa.j2 << " " << oa.tz2 << std::endl;
-              //             for ( auto b : X.OneBodyChannels.at({oa.l,oa.j2,oa.tz2})) blist.insert(b);
               if (b_loop == 0)
                 for (auto b : X.GetOneBodyChannel(oa.l, oa.j2, oa.tz2))
                   blist.insert(b);
-              //             for ( auto b : Y.OneBodyChannels.at({oa.l,oa.j2,oa.tz2})) blist.insert(b);
               if (b_loop == 1)
                 for (auto b : Y.GetOneBodyChannel(oa.l, oa.j2, oa.tz2))
                   blist.insert(b);
-              //             for ( auto b : Z.OneBodyChannels.at({oa.l,oa.j2,oa.tz2}) ) // TODO: We can make this a<=b or a>=b, I think. Just need to mind some factors of 2
               for (auto b : blist)
               {
                 Orbit &ob = Z.modelspace->GetOrbit(b);
@@ -732,15 +726,21 @@ namespace Commutator
                   continue;
                 for (int twoJ = twoJ_min; twoJ <= twoJ_max; twoJ += 2)
                 {
-                  //                 double xijbkla = X3.GetME_pn(J,J,twoJ,i,j,b,k,l,a);
 
                   double xijbkla = 0, yijbkla = 0;
 
                   if (x_channel_diag and y_channel_diag)
                   {
-                    auto xandy = Y3.GetME_pn_TwoOps(J, J, twoJ, i, j, b, k, l, a, X3, Y3);
-                    xijbkla = xandy[0];
-                    yijbkla = xandy[1];
+//		    if (Y3.IsAllocated()) // if X3 is not allocated, then this will return a 0 for xijbkla. But if Y3 isn't allocated, it willcause problems.
+//		    {
+                       auto xandy = Y3.GetME_pn_TwoOps(J, J, twoJ, i, j, b, k, l, a, X3, Y3);
+                       xijbkla = xandy[0];
+                       yijbkla = xandy[1];
+//		    }
+//		    else
+//                    {
+//                       xijbkla = X3.GetME_pn(J,J,twoJ,i,j,b,k,l,a);
+//		    }
                   }
                   else
                   {
@@ -749,7 +749,6 @@ namespace Commutator
                     if (b_loop == 1)
                       xijbkla = X3.GetME_pn(J, J, twoJ, i, j, b, k, l, a);
                   }
-                  //                 double yijbkla = Y3.GetME_pn(J,J,twoJ,i,j,b,k,l,a);
 
                   zijkl += occfactor * (twoJ + 1.) / (2 * J + 1) * (X1(a, b) * yijbkla - Y1(a, b) * xijbkla);
                 }
@@ -3370,6 +3369,16 @@ namespace Commutator
     if (not(x3_allocated and y3_allocated))
       return;
 
+    if ( X.GetTRank() != 0 or Y.GetTRank() !=0 or X.GetParity() !=0 or Y.GetParity() !=0 )
+    {
+      Operator Yred = Y;
+      Yred.MakeReduced();
+      Z.MakeReduced();
+      comm332_ppph_hhhpst(X,Yred,Z);
+      Z.MakeNotReduced();
+      return;
+    }
+
     int hX = X.IsHermitian() ? 1 : -1;
     int hY = Y.IsHermitian() ? 1 : -1;
     std::map<int, double> e_fermi = Z.modelspace->GetEFermi();
@@ -3632,6 +3641,16 @@ namespace Commutator
     bool y3_allocated = Y3.IsAllocated();
     if (not(x3_allocated and y3_allocated))
       return;
+
+    if ( X.GetTRank() != 0 or Y.GetTRank() !=0 or X.GetParity() !=0 or Y.GetParity() !=0 )
+    {
+      Operator Yred = Y;
+      Yred.MakeReduced();
+      Z.MakeReduced();
+      comm332_pphhst(X,Yred,Z);
+      Z.MakeNotReduced();
+      return;
+    }
 
     size_t nch = Z.modelspace->GetNumberTwoBodyChannels();
     size_t nch_CC = Z.modelspace->TwoBodyChannels_CC.size();
@@ -4490,15 +4509,15 @@ namespace Commutator
     std::vector<std::array<size_t, 4>> bra_ket_channels;
     for (auto &it : Z.ThreeBody.Get_ch_start())
     {
-      // By default, assume X is channell diagonal, so the internal channel matches the outer channel for X.
+      // By default, assume X is channel diagonal, so the internal channel matches the outer channel for X.
       size_t ch_internal_xy = it.first.ch_bra;
       size_t ch_internal_yx = it.first.ch_ket;
       if (not x_channel_diag) // if X is not channel-diagonal, check if Y is.
       {
         if (y_channel_diag)
         {
-          size_t ch_internal_xy = it.first.ch_ket;
-          size_t ch_internal_yx = it.first.ch_bra;
+          ch_internal_xy = it.first.ch_ket; // bugfix Sept 2026. These were redefined in this scope, which then had no effect.
+          ch_internal_yx = it.first.ch_bra;
         }
         else
         {
@@ -5093,7 +5112,6 @@ namespace Commutator
 
         for (int perm_ijk = 0; perm_ijk < 3; perm_ijk++)
         {
-
           size_t I1, I2, I3;
           Z3.Permute(index_perms[perm_ijk], i, j, k, I1, I2, I3);
           Orbit &o1 = Z.modelspace->GetOrbit(I1);
@@ -6885,6 +6903,17 @@ namespace Commutator
     if (not(x3_allocated and y3_allocated))
       return;
 
+    if ( X.GetTRank() != 0 or Y.GetTRank() !=0 or X.GetParity() !=0 or Y.GetParity() !=0 )
+    {
+      Operator Yred = Y;
+      Yred.MakeReduced();
+      Z.MakeReduced();
+      comm333_ppp_hhhst(X,Yred,Z);
+      Z.MakeNotReduced();
+      return;
+    }
+
+
     size_t nch3 = Z.modelspace->GetNumberThreeBodyChannels();
 #pragma omp parallel for schedule(dynamic, 1)
     for (size_t ch3 = 0; ch3 < nch3; ch3++)
@@ -7012,6 +7041,16 @@ namespace Commutator
     bool y3_allocated = Y3.IsAllocated();
     if (not(x3_allocated and y3_allocated))
       return;
+
+    if ( X.GetTRank() != 0 or Y.GetTRank() !=0 or X.GetParity() !=0 or Y.GetParity() !=0 )
+    {
+      Operator Yred = Y;
+      Yred.MakeReduced();
+      Z.MakeReduced();
+      comm333_pph_hhpst(X,Yred,Z);
+      Z.MakeNotReduced();
+      return;
+    }
 
     size_t nch2 = Z.modelspace->GetNumberTwoBodyChannels();
     size_t nch3 = Z.modelspace->GetNumberThreeBodyChannels();
