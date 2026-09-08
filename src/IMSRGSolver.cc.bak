@@ -641,7 +641,7 @@ void IMSRGSolver::Solve_magnus_euler()
     // to numerical precision details when evaluating the inequality and behavior becomes machine dependent. So we add 1e-5 to the omega_norm_max
     // option to ensure that we're definitely on one side of the inequality.
     if (magnus_adaptive)
-      ds = std::min( { norm_domega / norm_eta,   norm_domega / norm_eta / (norm_omega + 1.0e-9),    (use_two_gatherers && hunter_norm_max == 0.0 ? norm_domega : EffectiveHunterNormMax()+1e-5) / norm_eta, ds_max   });
+      ds = std::min( { norm_domega / norm_eta,   norm_domega / norm_eta / (norm_omega + 1.0e-9),    (omega_norm_max+1e-5) / norm_eta, ds_max   });
     ds = std::min(ds, smax - s);
 
     s += ds;

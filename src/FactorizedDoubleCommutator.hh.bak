@@ -41,8 +41,8 @@ namespace Commutator
     extern bool use_TypeII_2b;
     extern bool use_TypeIII_2b;
 
-    extern bool use_GT_TypeI_2b;
-    extern bool use_GT_TypeIV_2b;
+    extern bool use__GT_TypeI_2b;
+    extern bool use__GT_TypeIV_2b;
 
 
     void SetUse_GooseTank_1b(bool tf);
@@ -67,34 +67,11 @@ namespace Commutator
     void comm223_231(const Operator &Eta, const Operator &Gamma, Operator &Z);
     void comm223_232(const Operator &Eta, const Operator &Gamma, Operator &Z);
 
-    // Ordered [[Gamma_2, EtaInner_2]_3, EtaOuter_2]_{1,2}.
-    // Gamma and Z are Hermitian scalars; both Etas are anti-Hermitian scalars.
-    // Only the indicated output sector is accumulated. No three-body storage.
-    void comm223_231(const Operator &EtaOuter, const Operator &EtaInner, const Operator &Gamma, Operator &Z);
-    void comm223_232(const Operator &EtaOuter, const Operator &EtaInner, const Operator &Gamma, Operator &Z);
-
-    // Factorized kernels: non-reduced, scalar inputs; use the public overloads
-    // above for validation, representation conversion, and output aliasing.
-    void comm223_231_chi1b_distinct(const Operator &EtaOuter, const Operator &EtaInner, const Operator &Gamma, Operator &Z);
-    void comm223_231_chi2b_distinct(const Operator &EtaOuter, const Operator &EtaInner, const Operator &Gamma, Operator &Z);
-    void comm223_232_chi1b_distinct(const Operator &EtaOuter, const Operator &EtaInner, const Operator &Gamma, Operator &Z);
-    void comm223_232_chi2b_distinct(const Operator &EtaOuter, const Operator &EtaInner, const Operator &Gamma, Operator &Z);
-
     void comm223_231_chi1b(const Operator &Eta, const Operator &Gamma, Operator &Z);
     void comm223_231_chi2b(const Operator &Eta, const Operator &Gamma, Operator &Z);
     void comm223_232_chi1b(const Operator &Eta, const Operator &Gamma, Operator &Z);
     void comm223_232_chi2b(const Operator &Eta, const Operator &Gamma, Operator &Z);
 
-
-    // Internal direct-reference contraction; implemented in this module's .cc.
-    // Optimized production kernels do not call this helper.
-    namespace detail
-    {
-      double Contract223(const Operator &X, const Operator &Y,
-                         int Jab, int Jde, int twoJ,
-                         size_t a, size_t b, size_t c,
-                         size_t d, size_t e, size_t f);
-    }
 
  } //namespace FactorizedDoubleCommutator
 } //namespace Commutator

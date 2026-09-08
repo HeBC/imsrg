@@ -609,6 +609,16 @@ PYBIND11_MODULE(pyIMSRG, m)
           .def("SetMagnusAdaptive", &IMSRGSolver::SetMagnusAdaptive)
           .def("SetReadWrite", &IMSRGSolver::SetReadWrite)
           .def("SetHunterGatherer", &IMSRGSolver::SetHunterGatherer)
+          .def("SetUseTwoOmegaBCH", &IMSRGSolver::SetUseTwoOmegaBCH, py::arg("enabled")=true)
+          .def("GetUseTwoOmegaBCH", &IMSRGSolver::GetUseTwoOmegaBCH)
+          .def("SetUseTwoGatherers", &IMSRGSolver::SetUseTwoGatherers, py::arg("enabled")=true)
+          .def("GetUseTwoGatherers", &IMSRGSolver::GetUseTwoGatherers)
+          .def("SetHunterNormMax", &IMSRGSolver::SetHunterNormMax, py::arg("limit"))
+          .def("GetHunterNormMax", &IMSRGSolver::GetHunterNormMax)
+          .def("GatherOmega", &IMSRGSolver::GatherOmega)
+          .def("UpdateH", &IMSRGSolver::UpdateH)
+          .def("Transform_Partial", [](IMSRGSolver &self, Operator &op, int n) { return self.Transform_Partial(op, n); },
+               py::arg("Op"), py::arg("first_omega"))
           .def("CalculatePerturbativeTriples", py::overload_cast<>(&IMSRGSolver::CalculatePerturbativeTriples))
           .def("CalculatePerturbativeTriples", py::overload_cast<Operator &>(&IMSRGSolver::CalculatePerturbativeTriples))
           .def("AddOperator", &IMSRGSolver::AddOperator)
@@ -751,8 +761,18 @@ PYBIND11_MODULE(pyIMSRG, m)
 
 
        py::module FactorizedDoubleCommutator = Commutator.def_submodule("FactorizedDoubleCommutator", "FactorizedDoubleCommutator namespace");
-        FactorizedDoubleCommutator.def("comm223_231",      &Commutator::FactorizedDoubleCommutator::comm223_231);
-        FactorizedDoubleCommutator.def("comm223_232",      &Commutator::FactorizedDoubleCommutator::comm223_232);
+        FactorizedDoubleCommutator.def("comm223_231",
+            static_cast<void (*)(const Operator &, const Operator &, Operator &)>(&Commutator::FactorizedDoubleCommutator::comm223_231));
+        FactorizedDoubleCommutator.def("comm223_231",
+            static_cast<void (*)(const Operator &, const Operator &, const Operator &, Operator &)>(&Commutator::FactorizedDoubleCommutator::comm223_231),
+            py::arg("OmegaOuter"), py::arg("OmegaInner"), py::arg("Gamma"), py::arg("Z"),
+            "Accumulate [[Gamma_2,OmegaInner_2]_3,OmegaOuter_2]_1 with factorized one-/two-body intermediates.");
+        FactorizedDoubleCommutator.def("comm223_232",
+            static_cast<void (*)(const Operator &, const Operator &, Operator &)>(&Commutator::FactorizedDoubleCommutator::comm223_232));
+        FactorizedDoubleCommutator.def("comm223_232",
+            static_cast<void (*)(const Operator &, const Operator &, const Operator &, Operator &)>(&Commutator::FactorizedDoubleCommutator::comm223_232),
+            py::arg("OmegaOuter"), py::arg("OmegaInner"), py::arg("Gamma"), py::arg("Z"),
+            "Accumulate [[Gamma_2,OmegaInner_2]_3,OmegaOuter_2]_2 with factorized one-/two-body intermediates.");
 
         FactorizedDoubleCommutator.def("comm223_231_chi2b",        &Commutator::FactorizedDoubleCommutator::comm223_231_chi2b);
         FactorizedDoubleCommutator.def("comm223_231_chi1b",        &Commutator::FactorizedDoubleCommutator::comm223_231_chi1b);
@@ -775,7 +795,21 @@ PYBIND11_MODULE(pyIMSRG, m)
 
 
       py::module BCH = m.def_submodule("BCH", "BCH namespace");
-       BCH.def("BCH_Transform", &BCH::BCH_Transform);
+       BCH.def("BCH_Transform", py::overload_cast<const Operator &, const Operator &>(&BCH::BCH_Transform),
+               py::arg("Op"), py::arg("Omega"));
+       BCH.def("BCH_Transform", py::overload_cast<const Operator &, const Operator &, const Operator &>(&BCH::BCH_Transform),
+               py::arg("Op"), py::arg("OmegaOuter"), py::arg("OmegaInner"));
+       BCH.def("BCH_Transform", py::overload_cast<const Operator &, const Operator &, const Operator &, const Operator &>(&BCH::BCH_Transform),
+               py::arg("Op"), py::arg("OmegaOuter"), py::arg("OmegaMiddle"), py::arg("OmegaInner"));
+       BCH.def("BCH_TransformWithSource", py::overload_cast<const Operator &, const Operator &>(&BCH::BCH_TransformWithSource),
+               py::arg("Op"), py::arg("Omega"));
+       BCH.def("BCH_TransformWithSource", py::overload_cast<const Operator &, const Operator &, const Operator &, const Operator &>(&BCH::BCH_TransformWithSource),
+               py::arg("Op"), py::arg("Omega"), py::arg("OmegaInner"), py::arg("Source"));
+       BCH.def("BCH_TransformFromSource", &BCH::BCH_TransformFromSource,
+               py::arg("Transformed"), py::arg("OmegaOuter"), py::arg("OmegaInner"), py::arg("Source"));
+       BCH.def("BCH_TransformFromSources", &BCH::BCH_TransformFromSources,
+               py::arg("Transformed"), py::arg("OmegaOuter"), py::arg("OmegaInner1"), py::arg("Source1"),
+               py::arg("OmegaInner2"), py::arg("Source2"));
        BCH.def("BCH_Product", &BCH::BCH_Product);
        BCH.def("SetUseFactorizedCorrection", &BCH::SetUseFactorizedCorrection);
        BCH.def("SetUseFactorizedCorrectionBCH_product", &BCH::SetUseFactorizedCorrectionBCH_product);
@@ -835,8 +869,18 @@ PYBIND11_MODULE(pyIMSRG, m)
        ReferenceImplementations.def("diagram_DIVa", &ReferenceImplementations::diagram_DIVa);
        ReferenceImplementations.def("diagram_DIVb", &ReferenceImplementations::diagram_DIVb);
        ReferenceImplementations.def("diagram_DIVb_intermediate", &ReferenceImplementations::diagram_DIVb_intermediate);
-       ReferenceImplementations.def("comm223_231_BruteForce", &ReferenceImplementations::comm223_231_BruteForce);
-       ReferenceImplementations.def("comm223_232_BruteForce", &ReferenceImplementations::comm223_232_BruteForce);
+       ReferenceImplementations.def("comm223_231_BruteForce",
+           static_cast<void (*)(const Operator &, const Operator &, Operator &)>(&ReferenceImplementations::comm223_231_BruteForce));
+       ReferenceImplementations.def("comm223_231_BruteForce",
+           static_cast<void (*)(const Operator &, const Operator &, const Operator &, Operator &)>(&ReferenceImplementations::comm223_231_BruteForce),
+           py::arg("EtaOuter"), py::arg("EtaInner"), py::arg("Gamma"), py::arg("Z"),
+           "Add [[Gamma, EtaInner]_3, EtaOuter] through direct two-body products, without three-body storage.");
+       ReferenceImplementations.def("comm223_232_BruteForce",
+           static_cast<void (*)(const Operator &, const Operator &, Operator &)>(&ReferenceImplementations::comm223_232_BruteForce));
+       ReferenceImplementations.def("comm223_232_BruteForce",
+           static_cast<void (*)(const Operator &, const Operator &, const Operator &, Operator &)>(&ReferenceImplementations::comm223_232_BruteForce),
+           py::arg("EtaOuter"), py::arg("EtaInner"), py::arg("Gamma"), py::arg("Z"),
+           "Add [[Gamma, EtaInner]_3, EtaOuter] through direct two-body products, without three-body storage.");
        ReferenceImplementations.def("comm223_231", &ReferenceImplementations::comm223_231);
        ReferenceImplementations.def("comm223_232", &ReferenceImplementations::comm223_232);
        ReferenceImplementations.def("comm223_231_f_I", &ReferenceImplementations::comm223_231_f_I);

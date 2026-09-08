@@ -100,22 +100,6 @@ namespace ReferenceImplementations
   void comm223_231_BruteForce(const Operator &Eta, const Operator &Gamma, Operator &Z);
   void comm223_232_BruteForce(const Operator &Eta, const Operator &Gamma, Operator &Z);
 
-  /// Direct contractions for [[Gamma_2,EtaInner_2]_3,EtaOuter_2]_{1,2}.
-  /// Only two-body input matrix elements enter. No three-body operator, storage,
-  /// or six-index cache is constructed; the 223 products are substituted directly.
-  /// This is a brute-force reference for the later optimized factorization.
-  /// All operators share a ModelSpace, have Jrank=Trank=parity=0, conserve
-  /// particle number, and have particle rank >= 2. Both Etas are anti-Hermitian;
-  /// Gamma is a Hermitian Hamiltonian and Z is Hermitian.
-  /// Reduced and non-reduced inputs are accepted; Z keeps its convention.
-  /// Only the named output sector changes. Inputs may alias each other or Z.
-  /// Invalid arguments throw std::invalid_argument. Three-body storage cutoffs
-  /// do not affect this expression; full IMSRG(3) is used only for benchmarking.
-  void comm223_231_BruteForce(const Operator &EtaOuter, const Operator &EtaInner,
-                            const Operator &Gamma, Operator &Z);
-  void comm223_232_BruteForce(const Operator &EtaOuter, const Operator &EtaInner,
-                            const Operator &Gamma, Operator &Z);
-
   void comm223_231(const Operator &Eta, const Operator &Gamma, Operator &Z);
   void comm223_232(const Operator &Eta, const Operator &Gamma, Operator &Z);
 

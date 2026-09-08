@@ -64,30 +64,6 @@ class IMSRGSolver
   bool hunter_gatherer;
   bool perturbative_triples;
 
-  // Opt-in: cache rank-two sources for returns across exponential boundaries.
-  // The original option retains one gatherer plus hunter; two gatherers is separate.
-  bool use_two_omega_bch = false;
-  // Two large gatherers plus the small hunter: [G1,h] -> [G1,G2,h].
-  // G1 is capped by omega_norm_max and freezes when G2 is first created.
-  bool use_two_gatherers = false;
-  double hunter_norm_max = 0.1;
-  bool first_gatherer_source_valid = false;
-  Operator first_gatherer_saved;
-  Operator first_gatherer_source;
-  bool gatherer_source_valid = false;
-  Operator gatherer_source;
-  std::vector<double> gatherer_source_settings;
-  void UpdateGathererCache();
-  void SetUseTwoOmegaBCH(bool b=true);
-  bool GetUseTwoOmegaBCH() const { return use_two_omega_bch; }
-  void SetUseTwoGatherers(bool b=true);
-  bool GetUseTwoGatherers() const { return use_two_gatherers; }
-  void SetHunterNormMax(double x); // Two-gatherer mode only; zero gathers every step.
-  double GetHunterNormMax() const { return hunter_norm_max; }
-  double EffectiveHunterNormMax() const { return use_two_gatherers ? hunter_norm_max : omega_norm_max; }
-  void InvalidateGathererCache(bool first=true);
-  void ValidateGathererState() const;
-
   double Elast;
   double cumulative_error;
 //  double pert_triples_this_omega;
@@ -130,7 +106,7 @@ class IMSRGSolver
   Operator Transform(Operator&& OpIn);
   Operator InverseTransform(Operator& OpIn);
   Operator GetOmega(int i){return Omega[i];};
-  std::deque<Operator>& GetOmega() { InvalidateGathererCache(); return Omega; }
+  std::deque<Operator>& GetOmega() { return Omega;}
   void SetOmega(size_t i, Operator& om);
   size_t GetOmegaSize(){return Omega.size();};
   int GetNOmegaWritten(){return n_omega_written;};
@@ -144,11 +120,11 @@ class IMSRGSolver
   void SetSmax(double d){smax = d;};
   void SetGenerator(std::string g);
   void SetDenominatorPartitioning(std::string dp);
-  void SetOmegaNormMax(double x);
+  void SetOmegaNormMax(double x){omega_norm_max = x;};
   void SetODETolerance(float x){ode_e_abs=x;ode_e_rel=x;};
   void SetEtaCriterion(float x){eta_criterion = x;};
   void SetMagnusAdaptive(bool b=true){magnus_adaptive = b;};
-  void SetHunterGatherer(bool b=true);
+  void SetHunterGatherer(bool b=true){hunter_gatherer = b;};
   void SetPerturbativeTriples(bool b=true){perturbative_triples = b;};
 
   int GetSystemDimension();
