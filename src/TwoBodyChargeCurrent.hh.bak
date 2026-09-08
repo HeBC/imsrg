@@ -298,8 +298,7 @@ struct TwoBodyChargeOperatorParameters
 Operator TwoBodyChargeOperator(
     ModelSpace& modelspace, double momentum_transfer_mev,
     double ge_isoscalar,
-    const TwoBodyChargeOperatorParameters& parameters);
-
+    const TwoBodyChargeOperatorParameters& parameter
 /// Return true when the library was configured with -DIMSRG_ENABLE_MPI=ON.
 bool TwoBodyChargeMPIAvailable();
 
