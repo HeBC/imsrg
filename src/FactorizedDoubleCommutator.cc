@@ -424,7 +424,8 @@ namespace Commutator
               {
                 double etaME = (2 * J1 + 1) * Eta.TwoBody.GetTBME_J(J1, J1, e, p, d, q);
                 zij_a += Chi_221_b(d, e) * etaME;
-                zij_b += hZ * Chi_221_b(e, d) * etaME;
+                // Transposing the mixed contraction also transposes one Eta.
+                zij_b -= hEta * hZ * Chi_221_b(e, d) * etaME;
               }
             }
           }
@@ -1745,7 +1746,7 @@ namespace Commutator
                 norm *= bra.Phase(tbc_bra.J);
               zpqrs += norm * CHI_I(p, b) * Gamma.TwoBody.GetTBME_norm(ch_bra, ch_ket, ibra_bq, iket);
               if (Z_is_scalar)
-                zpqrs += norm * hZ * CHI_II(b, p) * Eta.TwoBody.GetTBME_norm(ch_bra, ch_ket, ibra_bq, iket);
+                zpqrs -= norm * hEta * hZ * CHI_II(b, p) * Eta.TwoBody.GetTBME_norm(ch_bra, ch_ket, ibra_bq, iket);
               // zpqrs += CHI_I(p, b) * Gamma.TwoBody.GetTBME_J(J, J, b, q, r, s);
               // zpqrs += hZ * CHI_II(b, p) * Eta.TwoBody.GetTBME_J(J, J, b, q, r, s);
             }
@@ -1759,7 +1760,7 @@ namespace Commutator
                 norm *= bra.Phase(tbc_bra.J);
               zpqrs += norm * CHI_I(q, b) * Gamma.TwoBody.GetTBME_norm(ch_bra, ch_ket, ibra_pb, iket);
               if (Z_is_scalar)
-                zpqrs += norm * hZ * CHI_II(b, q) * Eta.TwoBody.GetTBME_norm(ch_bra, ch_ket, ibra_pb, iket);
+                zpqrs -= norm * hEta * hZ * CHI_II(b, q) * Eta.TwoBody.GetTBME_norm(ch_bra, ch_ket, ibra_pb, iket);
               // zpqrs += CHI_I(q, b) *     Gamma.TwoBody.GetTBME_J(J, J, p, b, r, s);
               // zpqrs += hZ * CHI_II(b, q) * Eta.TwoBody.GetTBME_J(J, J, p, b, r, s);
             }
