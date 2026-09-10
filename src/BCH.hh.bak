@@ -26,16 +26,13 @@ namespace BCH
     Operator BCH_Transform(const Operator &Op, const Operator &Omega);
     // Ordered exp(OmegaOuter) exp(OmegaInner) transformation, including the
     // factorized 223->23{1,2} return across the boundary between exponentials.
-    // With factorized corrections disabled, the ordered/source overloads
-    // delegate to ordinary single-Omega transforms in the selected mode.
-    // Incoming sources are then ignored and returned sources are zero.
     Operator BCH_Transform(const Operator &Op, const Operator &OmegaOuter, const Operator &OmegaInner);
     // Three stages: inner G1, middle G2, outer small hunter.
     Operator BCH_Transform(const Operator &Op, const Operator &OmegaOuter,
                            const Operator &OmegaMiddle, const Operator &OmegaInner);
     // Cache the inner transform and its TWO-BODY source S=sum_k N_k/(k+1)!.
-    // With factorization enabled, [OmegaInner,S]_3 represents the discarded
-    // three-body component without constructing three-body matrix elements.
+    // [OmegaInner,S]_3 represents the discarded three-body component; no
+    // three-body matrix elements are constructed by these routines.
     std::pair<Operator, Operator> BCH_TransformWithSource(const Operator &Op, const Operator &Omega);
     // Transform with an incoming virtual source; returns ONLY the new source
     // for Omega. The caller must retain the incoming (OmegaInner, Source) pair.

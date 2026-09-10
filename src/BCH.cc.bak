@@ -2,7 +2,6 @@
 #include "BCH.hh"
 #include "Commutator.hh"
 #include <cmath>
-#include <initializer_list>
 #include <stdexcept>
 #include <utility>
 
@@ -287,6 +286,51 @@ namespace BCH
   /// by employing the [Baker-Campbell-Hausdorff formula](http://en.wikipedia.org/wiki/Baker-Campbell-Hausdorff_formula)
   /// \f[ Z = X + Y + \frac{1}{2}[X,Y] + \frac{1}{12}([X,[X,Y]]+[Y,[Y,X]]) + \ldots \f]
   //*****************************************************************************************
+  constexpr size_t n_bernoulli_max = 20;  // B_0 through B_max
+
+  const std::vector<double>& BCH_Bernoulli_Coefficients()
+  {
+    static const std::vector<double> bernoulli_over_factorial = []()
+    {
+      std::vector<double> bernoulli_work_array(n_bernoulli_max + 1, 0.0);
+      std::vector<double> bernoulli_coefficients(n_bernoulli_max + 1, 0.0);
+
+      double factorial_n = 1.0;
+
+      for (size_t n = 0; n <= n_bernoulli_max; ++n)
+      {
+        if (n > 0)
+          factorial_n *= static_cast<double>(n);
+
+        bernoulli_work_array[n] = 1.0 / static_cast<double>(n + 1);
+
+        for (size_t j = n; j > 0; --j)
+        {
+          bernoulli_work_array[j - 1] =
+              static_cast<double>(j) *
+              (bernoulli_work_array[j - 1] - bernoulli_work_array[j]);
+        }
+
+        double bernoulli_number = bernoulli_work_array[0];
+
+        // Akiyama-Tanigawa gives B_1 = +1/2.
+        // BCH/Magnus uses x/(exp(x)-1), so B_1 = -1/2.
+        if (n == 1)
+          bernoulli_number = -bernoulli_number;
+
+        // Odd Bernoulli numbers above B_1 vanish exactly.
+        if (n > 1 && (n % 2 == 1))
+          bernoulli_number = 0.0;
+
+        bernoulli_coefficients[n] = bernoulli_number / factorial_n;
+      }
+
+      return bernoulli_coefficients;
+    }();
+
+    return bernoulli_over_factorial;
+  }
+
   Operator BCH_Product(Operator &X, Operator &Y)
   {
     double tstart = omp_get_wtime();
@@ -294,54 +338,7 @@ namespace BCH
     double ny = Y.Norm();
     // std::vector<double> bernoulli = {1.0, -0.5, 1. / 6, 0.0, -1. / 30, 0.0, 1. / 42, 0., -1. / 30, 0.0, 5. / 66, 0.0, -691/2730, 0.0,  7/6};
     // std::vector<double> factorial = {1.0, 1.0, 2.0, 6.0, 24., 120., 720., 5040., 40320., 362880., 3628800., 39916800., 479001600., 6227020800., 87178291200.};
-    std::vector<double> bernoulli = {
-        1.0,
-        -1.0 / 2.0,
-        1.0 / 6.0,
-        0.0,
-        -1.0 / 30.0,
-        0.0,
-        1.0 / 42.0,
-        0.0,
-        -1.0 / 30.0,
-        0.0,
-        5.0 / 66.0,
-        0.0,
-        -691.0 / 2730.0,
-        0.0,
-        7.0 / 6.0,
-        0.0,
-        -3617.0 / 510.0,
-        0.0,
-        43867.0 / 798.0,
-        0.0,
-        -174611.0 / 330.0
-    };
-
-    std::vector<double> factorial = {
-        1.0,
-        1.0,
-        2.0,
-        6.0,
-        24.0,
-        120.0,
-        720.0,
-        5040.0,
-        40320.0,
-        362880.0,
-        3628800.0,
-        39916800.0,
-        479001600.0,
-        6227020800.0,
-        87178291200.0,
-        1307674368000.0,
-        20922789888000.0,
-        355687428096000.0,
-        6402373705728000.0,
-        121645100408832000.0,
-        2432902008176640000.0
-    };
-
+    const auto& bch_coeff = BCH_Bernoulli_Coefficients();
 
     Operator Z = X + Y;
   
@@ -384,18 +381,24 @@ namespace BCH
     {
       if ((k < 2) or (k % 2 == 0))
       {
-        Z += (bernoulli[k] / factorial[k]) * Nested;
+        // Z += (bernoulli[k] / factorial[k]) * Nested;
+        Z += bch_coeff[k] * Nested;
       }
 
       k++;
-      if (k >= bernoulli.size())
+      // if (k >= bernoulli.size())
+      if (k >= bch_coeff.size())
       {
-        std::cout << "Warning: BCH_Product didn't coverge after " << bernoulli.size() << " nested commutators" << std::endl;
+        // std::cout << "Warning: BCH_Product didn't converge after " << bernoulli.size() << " nested commutators" << std::endl;
+        std::cout << "Warning: BCH_Product didn't converge after "<< bch_coeff.size() << " nested commutators" << std::endl;
         break; // don't evaluate the commutator if we're not going to use it
       }
       if (2 * ny * nxy < bch_product_threshold)
         break;
 
+      if ( ( k % 2 == 0 ) and  (2 * ny * nxy * bch_coeff[k] < bch_product_threshold * 1.e-2 ) )
+        break;
+      
       if (use_factorized_correction_BCH_Product)
       {
         chi2 = chi;   // keep nested commutator from two steps ago
@@ -733,27 +736,17 @@ void ReturnFromThreeBody(const Operator &outer, const Operator &inner,
     Commutator::FactorizedDoubleCommutator::comm223_232(outer, inner, source, result);
 }
 
-// Each earlier stage contributes Q_omega(source). Keep the generator paired
-// with its weighted two-body source; the stage only borrows these operators.
-struct IncomingSource
-{
-  const Operator &omega;
-  const Operator &two_body;
-};
-
 // This is the existing immediate-three-body-return approximation extended to
 // a nonzero initial high-rank component. It omits propagation 3->3, just as
 // the original single-Omega factorized recurrence does.
 std::pair<Operator, Operator> Transform(const Operator &input, const Operator &omega,
-                                     std::initializer_list<IncomingSource> incoming,
-                                     bool collect_source)
+                                     const Operator *inner, const Operator *source,
+                                     bool collect_source, const Operator *inner2 = nullptr,
+                                     const Operator *source2 = nullptr)
 {
   Validate(input, omega);
-  for (const auto &source : incoming)
-  {
-    Validate(input, source.omega);
-    Validate(source.two_body, omega);
-  }
+  if (inner) { Validate(input, *inner); Validate(*source, omega); }
+  if (inner2) { Validate(input, *inner2); Validate(*source2, omega); }
   Operator a = Canonical(omega);
   Operator term = Canonical(input);
   Operator result = term;
@@ -782,10 +775,10 @@ std::pair<Operator, Operator> Transform(const Operator &input, const Operator &o
     Operator next = Commutator::Commutator(a, term);
     next /= double(n);
     correction.Erase();
-    if (n == 1 && has_two_body_omega)
+    if (n == 1 && inner)
     {
-      for (const auto &source : incoming)
-        ReturnFromThreeBody(a, source.omega, source.two_body, correction);
+      ReturnFromThreeBody(a, *inner, *source, correction);
+      if (inner2) ReturnFromThreeBody(a, *inner2, *source2, correction);
     }
     else if (n >= 2 && has_two_body_omega)
     {
@@ -817,30 +810,33 @@ std::pair<Operator, Operator> Transform(const Operator &input, const Operator &o
 
 std::pair<Operator, Operator> BCH_TransformWithSource(const Operator &op, const Operator &omega)
 {
+  Validate(op, omega);
   if (!use_factorized_correction)
   {
-    // No retained high-rank source in the ordinary transform. Preserve the
-    // input's quantum numbers and representation, including tensor/IMSRG(3).
-    Operator source = op;
+    Operator source = Canonical(op);
     source.Erase();
+    if (op.IsReduced()) source.MakeReduced();
     return {BCH_Transform(op, omega), std::move(source)};
   }
-  return Transform(op, omega, {}, true);
+  return Transform(op, omega, nullptr, nullptr, true);
 }
 
 Operator BCH_TransformFromSource(const Operator &transformed, const Operator &outer,
                                 const Operator &inner, const Operator &source)
 {
+  Validate(transformed, outer);
+  Validate(transformed, inner);
+  Validate(source, outer);
   if (!use_factorized_correction) return BCH_Transform(transformed, outer);
-  return Transform(transformed, outer, {{inner, source}}, false).first;
+  return Transform(transformed, outer, &inner, &source, false).first;
 }
 
 Operator BCH_Transform(const Operator &op, const Operator &outer, const Operator &inner)
 {
-  if (!use_factorized_correction)
-    return BCH_Transform(BCH_Transform(op, inner), outer);
   Validate(op, outer);
   Validate(op, inner);
+  if (!use_factorized_correction)
+    return BCH_Transform(BCH_Transform(op, inner), outer);
   auto prepared = BCH_TransformWithSource(op, inner);
   return BCH_TransformFromSource(prepared.first, outer, inner, prepared.second);
 }
@@ -848,26 +844,34 @@ Operator BCH_Transform(const Operator &op, const Operator &outer, const Operator
 std::pair<Operator, Operator> BCH_TransformWithSource(const Operator &op, const Operator &omega,
                                                    const Operator &inner, const Operator &source)
 {
+  Validate(op, omega);
+  Validate(op, inner);
+  Validate(source, omega);
   if (!use_factorized_correction) return BCH_TransformWithSource(op, omega);
-  return Transform(op, omega, {{inner, source}}, true);
+  return Transform(op, omega, &inner, &source, true);
 }
 
 Operator BCH_TransformFromSources(const Operator &op, const Operator &outer,
                                  const Operator &inner1, const Operator &source1,
                                  const Operator &inner2, const Operator &source2)
 {
+  Validate(op, outer);
+  Validate(op, inner1);
+  Validate(op, inner2);
+  Validate(source1, outer);
+  Validate(source2, outer);
   if (!use_factorized_correction) return BCH_Transform(op, outer);
-  return Transform(op, outer, {{inner1, source1}, {inner2, source2}}, false).first;
+  return Transform(op, outer, &inner1, &source1, false, &inner2, &source2).first;
 }
 
 Operator BCH_Transform(const Operator &op, const Operator &outer,
                        const Operator &middle, const Operator &inner)
 {
-  if (!use_factorized_correction)
-    return BCH_Transform(BCH_Transform(BCH_Transform(op, inner), middle), outer);
   Validate(op, outer);
   Validate(op, middle);
   Validate(op, inner);
+  if (!use_factorized_correction)
+    return BCH_Transform(BCH_Transform(BCH_Transform(op, inner), middle), outer);
   auto first = BCH_TransformWithSource(op, inner);
   auto second = BCH_TransformWithSource(first.first, middle, inner, first.second);
   return BCH_TransformFromSources(second.first, outer, inner, first.second, middle, second.second);
