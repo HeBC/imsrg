@@ -951,7 +951,8 @@ std::vector<std::complex<double>> ProjectAxialKernelGrid(
     const ProjectionParameters& quadrature,
     const AngularStateFunction& state_function,
     const MatrixKernel& kernel,
-    std::size_t matrix_dimension)
+    std::size_t matrix_dimension,
+    std::vector<TwoSpinMatrix>* pointwise_cache = nullptr)
 {
   const std::vector<AngularPoint> polar_mesh = MakePolarMesh(quadrature);
   const double phi_weight = 2.0 * kPi / quadrature.azimuthal_order;
@@ -1013,6 +1014,18 @@ std::vector<std::complex<double>> ProjectAxialKernelGrid(
 
   const std::size_t number_bra_momenta = pprime_mev.size();
   const std::size_t number_ket_momenta = p_mev.size();
+  // Diagnostic prototype: the evaluator owns this cache for one immutable
+  // operator construction and a fixed radial/angular mesh, separately for T.
+  const std::size_t point_count = number_bra_momenta * number_ket_momenta
+      * bra_angles.size() * polar_mesh.size();
+  // Bound storage to 256 MiB per isospin channel; larger meshes use the
+  // original evaluation path. No quadrature nodes are removed.
+  if (point_count > (256ull * 1024 * 1024) / sizeof(TwoSpinMatrix))
+    pointwise_cache = nullptr;
+  const bool populate_cache = pointwise_cache && pointwise_cache->empty();
+  if (populate_cache) pointwise_cache->resize(point_count);
+  if (pointwise_cache && pointwise_cache->size() != point_count)
+    throw std::runtime_error("Diagnostic pointwise cache mesh mismatch");
 #pragma omp parallel for collapse(2) schedule(dynamic)
   for (std::size_t ipprime = 0; ipprime < number_bra_momenta; ++ipprime)
   {
@@ -1023,9 +1036,14 @@ std::vector<std::complex<double>> ProjectAxialKernelGrid(
       {
         for (std::size_t iket = 0; iket < polar_mesh.size(); ++iket)
         {
-          const auto value = kernel(
-              ket_momentum_grid[ip][iket],
-              bra_momentum_grid[ipprime][ibra], k);
+          const std::size_t cache_index =
+              ((ipprime * number_ket_momenta + ip) * bra_angles.size() + ibra)
+              * polar_mesh.size() + iket;
+          const auto value = pointwise_cache && !populate_cache
+              ? (*pointwise_cache)[cache_index]
+              : kernel(ket_momentum_grid[ip][iket],
+                       bra_momentum_grid[ipprime][ibra], k);
+          if (populate_cache) (*pointwise_cache)[cache_index] = value;
           if (value.n_rows != matrix_dimension
               || value.n_cols != matrix_dimension || !value.is_finite())
           {
@@ -1807,11 +1825,16 @@ class MatrixElementEvaluator
     ket_channel.M = ket.mrelative;
     ket_channel.T = T;
     ket_channel.MT = MT;
-    relative_grid_cache_[key] = ProjectChargeKernelGrid(
+    relative_grid_cache_[key] = ProjectAxialKernelGrid(
         bra_channel, ket_channel, radial_momenta_, radial_momenta_,
-        momentum_transfer_mev_, ge_isoscalar_, parameters_.density,
-        parameters_.angular_quadrature,
-        parameters_.include_ope, parameters_.include_contact);
+        momentum_transfer_mev_, parameters_.angular_quadrature,
+        CoupledAngularSpinState,
+        [&](const Vec3& p, const Vec3& pprime, const Vec3& k) {
+          return TwoBodyChargeSpinMatrix(
+              p, pprime, k, T, ge_isoscalar_, parameters_.density,
+              parameters_.include_ope, parameters_.include_contact);
+        },
+        4, &pointwise_cache_[T]);
     return relative_grid_cache_.at(key);
   }
 
@@ -1843,6 +1866,7 @@ class MatrixElementEvaluator
   double hbar_omega_mev_;
   std::vector<double> radial_momenta_;
   std::vector<double> radial_weights_;
+  std::map<int, std::vector<TwoSpinMatrix>> pointwise_cache_;
   std::map<RelativeKey, std::complex<double>> relative_cache_;
   std::map<RelativeGridKey, std::vector<std::complex<double>>>
       relative_grid_cache_;
@@ -2246,3 +2270,4 @@ Operator TwoBodyChargeOperatorMPI(
 
 } // namespace chiral_charge
 } // namespace imsrg_util
+
