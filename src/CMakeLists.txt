@@ -5,7 +5,7 @@ set(INSTDIR $ENV{HOME})
 # BLAS/LAPACK selection
 # -----------------------------------------------------------------------------
 # Default to OpenBLAS to avoid Intel MKL runtime-symbol/OpenMP conflicts on
-# heterogeneous clusters.  You can still override this at configure time, e.g.
+# heterogeneous clusters. You can still override this at configure time, e.g.
 #
 #   cmake .. -DIMSRG_BLAS_VENDOR=Intel10_64lp_seq
 #
@@ -26,26 +26,21 @@ set(CMAKE_CURRENT_BINARY_DIR "../build")
 
 option(IMSRG_BUILD_PYTHON_BINDINGS "Build Python bindings" ON)
 
-# Place to put any settings for quirks of your specific environment
-# e.g. maybe you want a different BLAS, or maybe you need to
-# explicitly set some additional variables for whatever reason
+# Place to put any settings for quirks of your specific environment.
 include(local_settings.cmake OPTIONAL)
 
-# Determine if imsrg++ is built as a subproject (using add_subdirectory)
-# or if it is the main project.
+# Determine if imsrg++ is built as a subproject or is the main project.
 if(NOT DEFINED IMSRGPLUSPLUS_MAIN_PROJECT)
-  set(IMSRGPLUSPLUS_MAIN_PROJECT OFF)
-  if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
-    set(IMSRGPLUSPLUS_MAIN_PROJECT ON)
-    message(STATUS "CMake version: ${CMAKE_VERSION}")
-  endif()
+    set(IMSRGPLUSPLUS_MAIN_PROJECT OFF)
+    if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
+        set(IMSRGPLUSPLUS_MAIN_PROJECT ON)
+        message(STATUS "CMake version: ${CMAKE_VERSION}")
+    endif()
 endif()
 
-# Set the default CMAKE_BUILD_TYPE to Release.
-# This should be done before the project command since the latter can set
-# CMAKE_BUILD_TYPE itself (it does so for nmake).
+# Set the default build type before project().
 if(IMSRGPLUSPLUS_MAIN_PROJECT AND NOT CMAKE_BUILD_TYPE)
-  set(CMAKE_BUILD_TYPE Release)
+    set(CMAKE_BUILD_TYPE Release)
 endif()
 
 project(imsrg++ VERSION 0.1.0)
@@ -63,22 +58,19 @@ find_package(ZLIB REQUIRED)
 # find_package(Armadillo REQUIRED)
 # include_directories(${ARMADILLO_INCLUDE_DIRS})
 
-
 add_compile_options(-frounding-math)
 set(CMAKE_CXX_STANDARD 14)
-set(CMAKE_CXX_STANDARD_REQUIRED True)
+set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 
 set(IMSRGPLUSPLUS_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
 if(IMSRG_BUILD_PYTHON_BINDINGS)
     # We only need this for the Python bindings.
-    # In principle, everything should be faster if we could avoid this.
     set(CMAKE_POSITION_INDEPENDENT_CODE TRUE)
 endif()
 
 add_subdirectory(extern/armadillo)
 add_subdirectory(extern/half)
-
 add_subdirectory(extern/boost_src)
 
 add_subdirectory(Commutator)
@@ -87,7 +79,6 @@ add_subdirectory(ThreeBodyME)
 add_subdirectory(imsrg_util)
 
 # add_subdirectory(profiling)
-
 
 if(IMSRG_BUILD_PYTHON_BINDINGS)
     set(PYBIND11_FINDPYTHON ON)
@@ -98,18 +89,17 @@ if(IMSRG_BUILD_PYTHON_BINDINGS)
     add_subdirectory(extern/pybind11)
 endif()
 
-# Add a custom command that produces version.cpp, plus
-# a dummy output that's not actually produced, in order
-# to force version.cmake to always be re-run before the build
-ADD_CUSTOM_COMMAND(
-    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/version.cc
-           ${CMAKE_CURRENT_BINARY_DIR}/_version.cc
-    COMMAND ${CMAKE_COMMAND} -P
-            ${CMAKE_CURRENT_SOURCE_DIR}/git_version.cmake)
-
+# Produce version.cc and a dummy output to force version.cmake to run.
+add_custom_command(
+    OUTPUT
+        ${CMAKE_CURRENT_BINARY_DIR}/version.cc
+        ${CMAKE_CURRENT_BINARY_DIR}/_version.cc
+    COMMAND
+        ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/git_version.cmake
+)
 
 add_library(
-    AngMom  OBJECT
+    AngMom OBJECT
     AngMom.hh AngMom.cc
     AngMomCache.hh AngMomCache.cc
 )
@@ -118,7 +108,6 @@ target_link_libraries(
     PRIVATE
     GSL::gsl
 )
-
 
 add_library(
     IMSRGProfiler OBJECT
@@ -131,7 +120,7 @@ target_link_libraries(
 )
 
 add_library(
-    ModelSpace  OBJECT
+    ModelSpace OBJECT
     ModelSpace.hh ModelSpace.cc
     TwoBodyChannel.cc
     ThreeBodyChannel.cc
@@ -153,7 +142,7 @@ add_library(
 )
 
 add_library(
-    TwoBodyME  OBJECT
+    TwoBodyME OBJECT
     TwoBodyME.hh TwoBodyME.cc
 )
 target_link_libraries(
@@ -179,33 +168,32 @@ target_link_libraries(
     PhysicalConstants
 )
 
-
-#add_library(
-#    ThreeBodyME OBJECT
-#    ThreeBodyME.hh                           ThreeBodyME_dir/ThreeBodyME.cc
-#    ThreeBodyStorage.hh      ThreeBodyME_dir/ThreeBodyStorage.cc
-#    ThreeBodyME_dir/ThreeBodyStorage_pn.hh   ThreeBodyME_dir/ThreeBodyStorage_pn.cc
-#    ThreeBodyME_dir/ThreeBodyStorage_no2b.hh ThreeBodyME_dir/ThreeBodyStorage_no2b.cc
-#    ThreeBodyME_dir/ThreeBodyStorage_mono.hh ThreeBodyME_dir/ThreeBodyStorage_mono.cc
-#    ThreeBodyME_dir/ThreeBodyStorage_iso.hh  ThreeBodyME_dir/ThreeBodyStorage_iso.cc
-#)
-#target_include_directories(
-#    ThreeBodyME
-#    PRIVATE
-#    ${CMAKE_CURRENT_SOURCE_DIR}
-#    ${CMAKE_CURRENT_SOURCE_DIR}/ThreeBodyME_dir
-#)
-#target_link_libraries(
-#    ThreeBodyME
-#    PUBLIC
-#    ModelSpace
-#    IMSRGBoostZip
-#    HalfPrecision
-#    PRIVATE
-#    IMSRGProfiler
-#    AngMom
-#    OpenMP::OpenMP_CXX
-#)
+# add_library(
+#     ThreeBodyME OBJECT
+#     ThreeBodyME.hh                           ThreeBodyME_dir/ThreeBodyME.cc
+#     ThreeBodyStorage.hh                      ThreeBodyME_dir/ThreeBodyStorage.cc
+#     ThreeBodyME_dir/ThreeBodyStorage_pn.hh   ThreeBodyME_dir/ThreeBodyStorage_pn.cc
+#     ThreeBodyME_dir/ThreeBodyStorage_no2b.hh ThreeBodyME_dir/ThreeBodyStorage_no2b.cc
+#     ThreeBodyME_dir/ThreeBodyStorage_mono.hh ThreeBodyME_dir/ThreeBodyStorage_mono.cc
+#     ThreeBodyME_dir/ThreeBodyStorage_iso.hh  ThreeBodyME_dir/ThreeBodyStorage_iso.cc
+# )
+# target_include_directories(
+#     ThreeBodyME
+#     PRIVATE
+#     ${CMAKE_CURRENT_SOURCE_DIR}
+#     ${CMAKE_CURRENT_SOURCE_DIR}/ThreeBodyME_dir
+# )
+# target_link_libraries(
+#     ThreeBodyME
+#     PUBLIC
+#     ModelSpace
+#     IMSRGBoostZip
+#     HalfPrecision
+#     PRIVATE
+#     IMSRGProfiler
+#     AngMom
+#     OpenMP::OpenMP_CXX
+# )
 
 add_library(
     Parameters
@@ -213,7 +201,7 @@ add_library(
 )
 
 add_library(
-    Operator  OBJECT
+    Operator OBJECT
     Operator.hh Operator.cc
 )
 target_include_directories(
@@ -238,7 +226,7 @@ target_link_libraries(
 )
 
 add_library(
-    Version  OBJECT
+    Version OBJECT
     version.hh
     ${CMAKE_CURRENT_BINARY_DIR}/version.cc
 )
@@ -249,7 +237,7 @@ target_include_directories(
 )
 
 add_library(
-    ReadWrite  OBJECT
+    ReadWrite OBJECT
     ReadWrite.hh ReadWrite.cc
 )
 target_compile_definitions(
@@ -273,7 +261,7 @@ target_link_libraries(
 )
 
 add_library(
-    BCH  OBJECT
+    BCH OBJECT
     BCH.hh BCH.cc
 )
 target_link_libraries(
@@ -286,7 +274,7 @@ target_link_libraries(
 )
 
 add_library(
-    IMSRGSolver  OBJECT
+    IMSRGSolver OBJECT
     IMSRGSolver.hh IMSRGSolver.cc
     IMSRGSolverPV.hh IMSRGSolverPV.cc
 )
@@ -302,42 +290,6 @@ target_link_libraries(
     Commutator
     Boost::boost
 )
-
-#add_library(
-#    IMSRGSolverPV  OBJECT
-#    IMSRGSolverPV.hh IMSRGSolverPV.cc
-#)
-#target_link_libraries(
-#    IMSRGSolverPV
-#    PUBLIC
-#    IMSRGSolver
-#    GeneratorPV
-#    PRIVATE
-#    Commutator
-#)
-
-#add_library(
-#    Commutator   OBJECT
-#    Commutator.hh Commutator.cc
-#    DaggerCommutators.hh DaggerCommutators.cc
-#    TensorCommutators.hh TensorCommutators.cc
-#    IMSRG3Commutators.hh IMSRG3Commutators.cc
-#    FactorizedDoubleCommutator.hh FactorizedDoubleCommutator.cc
-#)
-#target_link_libraries(
-#    Commutator
-#    PUBLIC
-#    armadillo
-#    Operator
-#    TwoBodyME
-#    ThreeLegME
-#    PRIVATE
-#    OpenMP::OpenMP_CXX
-#    # ${ARMADILLO_LIBRARIES}
-#    PhysicalConstants
-#    AngMom
-#)
-
 
 add_library(
     Jacobi3BME OBJECT
@@ -373,30 +325,8 @@ target_link_libraries(
     PhysicalConstants
 )
 
-
-
-
-add_library(
-    imsrg_util OBJECT
-    imsrg_util.hh imsrg_util.cc
-    GaussLaguerre.hh
-    M0nu.hh M0nu.cc
-    DarkMatterNREFT.hh DarkMatterNREFT.cc
-    Pwd.hh Pwd.cc
-    TwoBodyChargeCurrent.hh TwoBodyChargeCurrent.cc
-#    Helicity.hh Helicity.cc
-)
-target_link_libraries(
-    imsrg_util
-    PUBLIC
-    ModelSpace
-    Operator
-    HartreeFock
-    PhysicalConstants
-    GSL::gsl
-    PRIVATE
-    OpenMP::OpenMP_CXX
-)
+# imsrg_util is defined in imsrg_util/CMakeLists.txt via
+# add_subdirectory(imsrg_util). Do not define it again here.
 
 add_library(
     Generator OBJECT
@@ -412,7 +342,7 @@ target_link_libraries(
     GSL::gsl
     imsrg_util
     AngMom
-#    Commutator
+    # Commutator
     PhysicalConstants
     OpenMP::OpenMP_CXX
 )
@@ -432,8 +362,6 @@ target_link_libraries(
     Commutator
 )
 
-
-
 add_library(
     RPA OBJECT
     RPA.hh RPA.cc
@@ -449,35 +377,8 @@ target_link_libraries(
     AngMom
 )
 
-#add_library(
-#    ReferenceImplementations  OBJECT
-#    ReferenceImplementations.hh 
-#    ReferenceImplementations.cc
-#    HFMBPT4.cc
-#    IMSRG2Commutators.cc
-#    IMSRG3Commutators.cc
-#    IMSRG2TensorCommutators.cc
-#    IMSRG3TensorCommutators.cc
-#    FactorizedNestedCommutators.cc
-#)
-#
-#target_link_libraries(
-#    ReferenceImplementations
-#    PUBLIC
-#    ModelSpace
-#    Operator
-##    Commutator
-#    PRIVATE
-#    armadillo
-#    PhysicalConstants
-#    Version
-#    imsrg_util
-#    AngMom
-#    OpenMP::OpenMP_CXX
-#)
-
 add_library(
-    UnitTest  OBJECT
+    UnitTest OBJECT
     UnitTest.hh UnitTest.cc
 )
 target_link_libraries(
@@ -502,7 +403,7 @@ add_library(
 )
 target_link_libraries(
     IMSRG
-#    INTERFACE
+    # INTERFACE
     Version
     ReadWrite
     ModelSpace
@@ -514,16 +415,16 @@ target_link_libraries(
     Commutator
     BCH
     IMSRGSolver
-#    IMSRGSolverPV
+    # IMSRGSolverPV
     Generator
-#    GeneratorPV
+    # GeneratorPV
     imsrg_util
-#    M0nu
-#    Pwd
+    # M0nu
+    # Pwd
     AngMom
     IMSRGProfiler
     Jacobi3BME
-#    DarkMatterNREFT
+    # DarkMatterNREFT
     HFMBPT
     UnitTest
     ReferenceImplementations
@@ -534,7 +435,6 @@ target_link_libraries(
 )
 set_target_properties(IMSRG PROPERTIES SUFFIX ".so")
 set_target_properties(IMSRG PROPERTIES LINKER_LANGUAGE CXX)
-
 
 add_executable(
     imsrg++
@@ -550,16 +450,15 @@ target_link_libraries(
     OpenMP::OpenMP_CXX
 )
 
-
-#target_link_libraries(
-#    UnitTest
-#    PUBLIC
-#    IMSRG
-#    Parameters
-#    PhysicalConstants
-#    Version
-#    OpenMP::OpenMP_CXX
-#)
+# target_link_libraries(
+#     UnitTest
+#     PUBLIC
+#     IMSRG
+#     Parameters
+#     PhysicalConstants
+#     Version
+#     OpenMP::OpenMP_CXX
+# )
 
 if(IMSRG_BUILD_PYTHON_BINDINGS)
     pybind11_add_module(pyIMSRG pyIMSRG.cc)
@@ -571,40 +470,59 @@ if(IMSRG_BUILD_PYTHON_BINDINGS)
     )
     set_target_properties(pyIMSRG PROPERTIES SUFFIX ".so")
     set_target_properties(pyIMSRG PROPERTIES POSITION_INDEPENDENT_CODE ON)
-    add_custom_command(TARGET pyIMSRG PRE_LINK
-		       COMMAND ${CMAKE_COMMAND} -E remove -f $<TARGET_FILE:pyIMSRG>
-                       COMMENT "Unlinking old shared library to prevent SIGBUS on running jobs" )
+    add_custom_command(
+        TARGET pyIMSRG PRE_LINK
+        COMMAND ${CMAKE_COMMAND} -E remove -f $<TARGET_FILE:pyIMSRG>
+        COMMENT "Unlinking old shared library to prevent SIGBUS on running jobs"
+    )
 endif()
 
-# Install imsrg executable
-install(TARGETS imsrg++ 
-        DESTINATION ${INSTDIR}/bin 
-        PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ  GROUP_EXECUTE WORLD_READ WORLD_EXECUTE) 
+# Install imsrg executable.
+install(
+    TARGETS imsrg++
+    DESTINATION ${INSTDIR}/bin
+    PERMISSIONS
+        OWNER_READ OWNER_WRITE OWNER_EXECUTE
+        GROUP_READ GROUP_EXECUTE
+        WORLD_READ WORLD_EXECUTE
+)
 
-# Install library
-install(TARGETS IMSRG  
-        DESTINATION ${INSTDIR}/lib 
-        PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ  GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+# Install library.
+install(
+    TARGETS IMSRG
+    DESTINATION ${INSTDIR}/lib
+    PERMISSIONS
+        OWNER_READ OWNER_WRITE OWNER_EXECUTE
+        GROUP_READ GROUP_EXECUTE
+        WORLD_READ WORLD_EXECUTE
+)
 
-# Install the header files
+# Install header files.
 file(GLOB HEADERS *.hh)
-install(FILES ${HEADERS} 
-        DESTINATION ${INSTDIR}/include
-        PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ  GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+install(
+    FILES ${HEADERS}
+    DESTINATION ${INSTDIR}/include
+    PERMISSIONS
+        OWNER_READ OWNER_WRITE OWNER_EXECUTE
+        GROUP_READ GROUP_EXECUTE
+        WORLD_READ WORLD_EXECUTE
+)
 
 include(CTest)
 list(APPEND CMAKE_CTEST_ARGUMENTS "--verbose")
-# Unit Tests
+
+# Unit tests.
 add_test(NAME Commutators2 COMMAND ${Python3_EXECUTABLE} ../test/UnitTestCommutators2.py)
 add_test(NAME Commutators3 COMMAND ${Python3_EXECUTABLE} ../test/UnitTestCommutators3.py)
-add_test(NAME Factorized   COMMAND ${Python3_EXECUTABLE} ../test/UnitTestFactorized.py)
-add_test(NAME Triples      COMMAND ${Python3_EXECUTABLE} ../test/UnitTestTriples.py)
-add_test(NAME Tensor       COMMAND ${Python3_EXECUTABLE} ../test/UnitTestTensor.py)
+add_test(NAME Factorized COMMAND ${Python3_EXECUTABLE} ../test/UnitTestFactorized.py)
+add_test(NAME Triples COMMAND ${Python3_EXECUTABLE} ../test/UnitTestTriples.py)
+add_test(NAME Tensor COMMAND ${Python3_EXECUTABLE} ../test/UnitTestTensor.py)
 add_test(NAME NormalOrdering COMMAND ${Python3_EXECUTABLE} ../test/UnitTestNormalOrdering.py)
+
 option(IMSRG_ENABLE_MPI "Enable MPI for two-body charge generation" OFF)
 if(IMSRG_ENABLE_MPI)
     find_package(MPI REQUIRED COMPONENTS CXX)
     target_compile_definitions(imsrg_util PRIVATE IMSRG_ENABLE_MPI=1)
     target_link_libraries(imsrg_util PRIVATE MPI::MPI_CXX)
-    target_link_libraries(IMSRG MPI::MPI_CXX)
+    target_link_libraries(IMSRG PRIVATE MPI::MPI_CXX)
 endif()

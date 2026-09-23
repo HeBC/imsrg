@@ -1943,7 +1943,7 @@ arma::vec Operator::GetMP2_Impacts() const
 */
 
 
-#include "Commutator.hh"
+#include "Commutator/Commutator.hh"
 using namespace Commutator;
 
 //********************************************

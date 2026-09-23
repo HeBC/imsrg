@@ -11,6 +11,8 @@ add_library(
     Pwd.hh
     Pwd.cc
     Atomic.cc
+    TwoBodyChargeCurrent.hh
+    TwoBodyChargeCurrent.cc
 #    Helicity.hh Helicity.cc
 )
 target_include_directories(

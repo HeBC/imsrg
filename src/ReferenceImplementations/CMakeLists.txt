@@ -23,7 +23,7 @@ target_link_libraries(
     PUBLIC
     ModelSpace
     Operator
-#    Commutator
+    Commutator
     PRIVATE
     armadillo
     PhysicalConstants
