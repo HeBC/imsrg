@@ -1,1528 +1,19 @@
-#include <iomanip>
-#include "HFMBPT.hh"
-#include "HartreeFock.hh"
+
+#include "ReferenceImplementations.hh"
+#include "ModelSpace.hh"
 #include "PhysicalConstants.hh"
 #include "AngMom.hh"
-#include "Commutator.hh"
-#include "UnitTest.hh" // for debugging purposes to use Mscheme
+#include <deque>
 
-#include <omp.h>
 
-HFMBPT::~HFMBPT()
-{}
-
-HFMBPT::HFMBPT(Operator& hbare)
-  : HartreeFock(hbare),
-    C_HO2NAT(modelspace->GetNumberOrbits(),modelspace->GetNumberOrbits(),arma::fill::eye),
-    C_HF2NAT(modelspace->GetNumberOrbits(),modelspace->GetNumberOrbits(),arma::fill::eye),
-    use_NAT_occupations(false), NAT_order("occupation"),vv_approx("imsrg2")
-{
-   vv_gen.SetType("white");
-   vv_gen.SetDenominatorPartitioning("Moller_Plesset");
-}
-
-//*********************************************************************
-// post Hartree-Fock method
-// This method assumes that we've already performed a Hartree-Fock calculation, so that the matrix C maps
-// the HO basis to the HF basis. The first step is to compute the 1b density matrix rho up to the MBPT2 level,
-// using the NO2B Hamiltonian in the HF basis. The second step is to diagonalize the density matrix.
-// An optional third step is to change the occupations to match the eigenvalues of the density matrix.
-// This requires some thinking, since if all orbits are fractionally occupied, then count as both hole and particle
-// states, and routines that benefit from only acting on hh or ph blocks now act on all orbits, and things slow down.
-// As a compromise, we place a threshold on the occupations, and all orbits with occupations below that threshold
-// (which will be most of them) are set to zero and labeled as "particle". To maintain the right particle number,
-// we "back-fill" the hole states using a somewhat arbitrary but not totally outlandish procedure.
-//*********************************************************************
-void HFMBPT::GetNaturalOrbitals()
+/// Straightforward implementation of J-coupled commutator expressions
+/// without optimizations. This should be benchmarked against the
+/// mscheme implementation and then left untouched.
+namespace ReferenceImplementations
 {
 
-  int norbits = HartreeFock::modelspace->GetNumberOrbits();
-  int A = HartreeFock::modelspace->GetTargetMass();
-  Occ      = arma::vec(norbits,arma::fill::zeros);  // Occupations are the eigenvalues of the density matrix
-  GetDensityMatrix();  // Include 2nd order MBPT corrections to rho
-  DiagonalizeRho();  // Find the 1b transformation that diagonalizes rho, but don't apply it to anything yet.
 
-  double AfromTr = 0.0;
-  for(int i=0; i< norbits; ++i)
-  {
-    Orbit& oi = HartreeFock::modelspace->GetOrbit(i);
-    AfromTr += rho(i,i) * (oi.j2+1);
-  }
-
-  if(std::abs(AfromTr - A) > 1e-8)
-  {
-    std::cout << "Warning: Mass != Tr(rho)   " << A << " != " << AfromTr <<  std::endl;
-    exit(0);
-  }
-  C_HO2NAT = C * C_HF2NAT;
-
-  // set the occ_nat values
-  for ( auto i : modelspace->all_orbits)
-  {
-    Orbit& oi = modelspace->GetOrbit(i);
-    oi.occ_nat = std::abs(Occ(i));  // it's possible that Occ(i) is negative, and for occ_nat, we don't want that.
-  }
-
-  if (use_NAT_occupations) // use fractional occupation
-  {
-
-    double keep_occ_threshold = 0.02; // anything with occupation less than keep_occ_threshold gets set to zero, otherwise everything is a hole.
-
-    double NfromTr=0;
-    double ZfromTr=0;
-    std::cout << "Switching to occupation numbers obtained from 2nd order 1b density matrix." << std::endl;
-    std::vector<index_t> holeorbs_tmp;
-    std::vector<double> hole_occ_tmp;
-    // Figure out how many particles are living in orbits with occupations above our threshold.
-    // We do this separately for protons and neutrons.
-    for(auto& i : modelspace->all_orbits)
-    {
-      Orbit& oi = HartreeFock::modelspace->GetOrbit(i);
-      if (Occ(i) > keep_occ_threshold)
-      {
-        holeorbs_tmp.push_back(i);
-        hole_occ_tmp.push_back(Occ(i));
-        NfromTr += (1+oi.tz2)/2 * Occ(i) * (oi.j2+1);
-        ZfromTr += (1-oi.tz2)/2 * Occ(i) * (oi.j2+1);
-      }
-    }
-
-    // Now do the back-filling.
-    int Z = modelspace->GetZref();
-    int N = A-Z;
-    double aloquot = 0.005; // This is how much we increase an occupation in each back-filling pass.
-
-   // Back-fill the protons
-    while ( (Z-ZfromTr) > ModelSpace::OCC_CUT )
-    {
-      for (size_t i=0; i<holeorbs_tmp.size(); i++)
-      {
-        Orbit& oi = HartreeFock::modelspace->GetOrbit(holeorbs_tmp[i]);
-        if ( oi.tz2 >0 ) continue;
-        double occ_increase = std::min( { aloquot, (Z-ZfromTr)/(oi.j2+1.), 1.0-hole_occ_tmp[i] } );
-        hole_occ_tmp[i] += occ_increase;
-        ZfromTr += occ_increase * (oi.j2+1);
-        if ( (Z-ZfromTr) < ModelSpace::OCC_CUT ) break;
-      }
-    }
-
-   // Back-fill the neutrons
-    while ( (N-NfromTr) > ModelSpace::OCC_CUT )
-    {
-      for (size_t i=0; i<holeorbs_tmp.size(); i++)
-      {
-        Orbit& oi = HartreeFock::modelspace->GetOrbit(holeorbs_tmp[i]);
-        if ( oi.tz2 <0 ) continue;
-        double occ_increase = std::min( { aloquot, (N-NfromTr)/(oi.j2+1.), 1.0-hole_occ_tmp[i] } );
-        hole_occ_tmp[i] += occ_increase;
-        NfromTr += occ_increase * (oi.j2+1);
-        if ( (N-NfromTr) < ModelSpace::OCC_CUT ) break;
-      }
-    }
-
-    holeorbs = arma::uvec( holeorbs_tmp );
-    hole_occ = arma::rowvec( hole_occ_tmp );
-
-    // Now we tell modelspace about the new occupations, and any needed reclassification of 'holes' and 'particles'
-    UpdateReference();
-
-   // Calling UpdateReference screws up the occ_nat values, so we need to set them again here.
-    for ( auto i : HartreeFock::modelspace->all_orbits )
-    {
-      auto& oi = HartreeFock::modelspace->GetOrbit(i);
-      oi.occ_nat = std::abs(Occ(i));  // it's possible that Occ(i) is negative, and for occ_nat, we don't want that.
-    }
-
-  } // if use_NAT_occupations
-
-  // In principle, this could be iterated until self-consistency. But I don't do that for now. This would only have an impact
-  // if the energy ordering of occupied and unoccupied levels gets flipped, which would be a fairly pathological case.
-  arma::mat tmp = C_HO2NAT.cols(holeorbs);
-  rho = (tmp.each_row() % hole_occ) * tmp.t(); // now rho is in the HO basis, with our prescribed occupations in the NAT basis
-  UpdateF();  // Now F is in the HO basis, but with rho from filling in the NAT basis.
-
-  ReorderHFMBPTCoefficients();
-  C_HO2NAT = C * C_HF2NAT; // bug fix suggested by Emily Love
-}
-
-//*********************************************************************
-// Diagonalize the 1b density matrix
-//*********************************************************************
-void HFMBPT::DiagonalizeRho()
-{
-  for (auto& it : Hbare.OneBodyChannels)
-  {
-    //    arma::uvec orbvec(it.second);
-    arma::uvec orbvec(std::vector<index_t>(it.second.begin(),it.second.end()));
-    //    arma::uvec orbvec_d = arma::sort(orbvec, "descend");
-    //    arma::uvec orbvec_d = sort(orbvec, "descend");
-    arma::mat rho_ch = rho.submat(orbvec, orbvec);
-    arma::mat vec;
-    arma::vec eig;
-    bool success = false;
-    success = arma::eig_sym(eig, vec, rho_ch); // eigenvalues of rho (i.e. occupations) are in ascending order
-    if(not success)
-    {
-      std::cout << "Error in diagonalization of density matrix" << std::endl;
-      std::cout << "Density Matrix:" << std::endl;
-      rho_ch.print();
-      exit(0);
-    }
-    //    Occ(orbvec_d) = eig; // assigning with descending indexes produces NAT orbits ordered by descending occupation.
-    //    C_HF2NAT.submat(orbvec, orbvec_d) = vec; // NAT orbits ordered by descending occupation
-
-    Occ(orbvec) = arma::reverse(eig); // reverse so NAT orbits ordered by descending occupation.
-    C_HF2NAT.submat(orbvec, orbvec) = arma::reverse(vec, 1); // "1" means reverse elements in each row
-    //    std::cout << "1-body channel ";
-    //    for ( auto x : it.first ) std::cout << x << " ";
-    //    std::cout << "  : " << std::endl << Occ(orbvec) << std::endl;
-    //    std::cout << " C submat: " << std::endl << C_HF2NAT.submat(orbvec, orbvec ) << std::endl;
-  }
- // Choose ordering and phases so that C_HF2NAT looks as close to the identity as possible
- // NB: Rather than C_HF2NAT being close to the identity, we really want the orbits for a given (l,j,tz) ordered
- // according to decreasing occupation, so that a later emax_imsrg truncation is reasonable. -SRS Jan 2021.
- //  ReorderHFMBPTCoefficients();
- //  std::cout << " line " << __LINE__ << "   Occ = " << std::endl << Occ << std::endl;
-}
-
-//*********************************************************************
-// Transform some operator from the HF basis to the NAT basis
-//*********************************************************************
-Operator HFMBPT::TransformHFToNATBasis( Operator& OpHF)
-{
-  Operator OpNAT(OpHF);
-  OpNAT.OneBody = C_HF2NAT.t() * OpHF.OneBody * C_HF2NAT;
-
-  for (auto& it : OpHF.TwoBody.MatEl )
-  {
-    int ch_bra = it.first[0];
-    int ch_ket = it.first[1];
-    TwoBodyChannel& tbc_bra = OpNAT.modelspace->GetTwoBodyChannel(ch_bra);
-    TwoBodyChannel& tbc_ket = OpNAT.modelspace->GetTwoBodyChannel(ch_ket);
-    int nbras = it.second.n_rows;
-    int nkets = it.second.n_cols;
-    arma::mat Dbra(nbras,nbras);
-    arma::mat Dket(nkets,nkets);
-
-    for (int i = 0; i<nkets; ++i)
-    {
-      Ket & ket_hf = tbc_ket.GetKet(i);
-      for (int j=0; j<nkets; ++j)
-      {
-        Ket & ket_nat = tbc_ket.GetKet(j);
-        Dket(i,j) = C_HF2NAT(ket_hf.p,ket_nat.p) * C_HF2NAT(ket_hf.q,ket_nat.q);
-        if(ket_hf.p != ket_hf.q)
-        {
-          Dket(i,j) += C_HF2NAT(ket_hf.q, ket_nat.p) * C_HF2NAT(ket_hf.p, ket_nat.q) *
-            ket_hf.Phase(tbc_ket.J);
-        }
-        if (ket_hf.p==ket_hf.q)    Dket(i,j) *= PhysConst::SQRT2;
-        if (ket_nat.p==ket_nat.q)  Dket(i,j) /= PhysConst::SQRT2;
-      }
-    }
-    if (ch_bra == ch_ket) {
-      Dbra = Dket.t();
-    }
-    else
-    {
-      for (int i=0; i<nbras; ++i)
-      {
-        Ket & bra_nat = tbc_bra.GetKet(i);
-        for (int j=0; j<nbras; ++j)
-        {
-          Ket & bra_hf = tbc_bra.GetKet(j);
-          Dbra(i,j) = C_HF2NAT(bra_hf.p,bra_nat.p) * C_HF2NAT(bra_hf.q,bra_nat.q);
-          if (bra_hf.p!=bra_hf.q)
-          {
-            Dbra(i,j) += C_HF2NAT(bra_hf.q, bra_nat.p) * C_HF2NAT(bra_hf.p, bra_nat.q)
-              * bra_hf.Phase(tbc_bra.J);
-          }
-          if (bra_hf.p==bra_hf.q)    Dbra(i,j) *= PhysConst::SQRT2;
-          if (bra_nat.p==bra_nat.q)  Dbra(i,j) /= PhysConst::SQRT2;
-        }
-      }
-    }
-    auto& IN  =  it.second;
-    auto& OUT =  OpNAT.TwoBody.GetMatrix(ch_bra,ch_ket);
-    OUT  =    Dbra * IN * Dket;
-  }
-  return OpNAT;
-}
-
-//*********************************************************************
-// Transfrom some operator from the HO basis to the NAT basis
-//*********************************************************************
-Operator HFMBPT::TransformHOToNATBasis( Operator& OpHO)
-{
-  Operator OpNAT(OpHO);
-  OpNAT.OneBody = C_HO2NAT.t() * OpHO.OneBody * C_HO2NAT;
-
-  for (auto& it : OpHO.TwoBody.MatEl )
-  {
-    int ch_bra = it.first[0];
-    int ch_ket = it.first[1];
-    TwoBodyChannel& tbc_bra = OpNAT.modelspace->GetTwoBodyChannel(ch_bra);
-    TwoBodyChannel& tbc_ket = OpNAT.modelspace->GetTwoBodyChannel(ch_ket);
-    int nbras = it.second.n_rows;
-    int nkets = it.second.n_cols;
-    arma::mat Dbra(nbras,nbras);
-    arma::mat Dket(nkets,nkets);
-
-    for (int i = 0; i<nkets; ++i)
-    {
-      Ket & ket_ho = tbc_ket.GetKet(i);
-      for (int j=0; j<nkets; ++j)
-      {
-        Ket & ket_nat = tbc_ket.GetKet(j);
-        Dket(i,j) = C_HO2NAT(ket_ho.p,ket_nat.p) * C_HO2NAT(ket_ho.q,ket_nat.q);
-        if(ket_ho.p != ket_ho.q)
-        {
-          Dket(i,j) += C_HO2NAT(ket_ho.q, ket_nat.p) * C_HO2NAT(ket_ho.p, ket_nat.q) *
-            ket_ho.Phase(tbc_ket.J);
-
-        }
-        if (ket_ho.p==ket_ho.q)    Dket(i,j) *= PhysConst::SQRT2;
-        if (ket_nat.p==ket_nat.q)  Dket(i,j) /= PhysConst::SQRT2;
-      }
-    }
-    if (ch_bra == ch_ket) {
-      Dbra = Dket.t();
-    }
-    else
-    {
-      for (int i=0; i<nbras; ++i)
-      {
-        Ket & bra_nat = tbc_bra.GetKet(i);
-        for (int j=0; j<nbras; ++j)
-        {
-          Ket & bra_ho = tbc_bra.GetKet(j);
-          Dbra(i,j) = C_HO2NAT(bra_ho.p,bra_nat.p) * C_HO2NAT(bra_ho.q,bra_nat.q);
-          if (bra_ho.p!=bra_ho.q)
-          {
-            Dbra(i,j) += C_HO2NAT(bra_ho.q,bra_nat.p) * C_HO2NAT(bra_ho.p,bra_nat.q) *
-              bra_ho.Phase(tbc_bra.J);
-          }
-          if (bra_ho.p==bra_ho.q)    Dbra(i,j) *= PhysConst::SQRT2;
-          if (bra_nat.p==bra_nat.q)  Dbra(i,j) /= PhysConst::SQRT2;
-        }
-      }
-    }
-
-    auto& IN  =  it.second;
-    auto& OUT =  OpNAT.TwoBody.GetMatrix(ch_bra,ch_ket);
-    OUT  =    Dbra * IN * Dket;
-   }
-   return OpNAT;
-}
-
-//*********************************************************************
-// Get the normal ordered Hamiltonian in the NAT basis (with residual 3N
-// discarded). The methods UpdateF() and CalcEHF() use the density matrix
-// rho which, if we're using the naive-filling occupations, is different
-// from the 1b density matrix obtained from MBPT2. So we temporarily
-// store rho in rho_swap and make rho correspond to the desired occupations
-// in the NAT basis.
-//*********************************************************************
-//Operator HFMBPT::GetNormalOrderedHNAT()
-Operator HFMBPT::GetNormalOrderedHNAT(int particle_rank)
-{
-  double start_time = omp_get_wtime();
-  std::cout << "Getting normal-ordered H in NAT basis" << std::endl;
-//  arma::mat rho_swap = rho;
-//  arma::mat tmp = C_HO2NAT.cols(holeorbs);
-//  rho = (tmp.each_row() % hole_occ) * tmp.t();
-
-//  UpdateF();  // Now F is in the HO basis, but with rho from filling in the NAT basis.
-  CalcEHF();
-  std::cout << std::fixed <<  std::setprecision(7);
-  std::cout << "e1Nat = " << e1hf << std::endl;
-  std::cout << "e2Nat = " << e2hf << std::endl;
-  std::cout << "e3Nat = " << e3hf << std::endl;
-  std::cout << "E_Nat = "  << EHF  << std::endl;
-
-//  Operator HNO = Operator(*HartreeFock::modelspace,0,0,0,2);
-  Operator HNO = Operator(*HartreeFock::modelspace,0,0,0,particle_rank);
-  HNO.ZeroBody = EHF;
-  HNO.OneBody = C_HO2NAT.t() * F * C_HO2NAT;
-
-  int nchan = modelspace->GetNumberTwoBodyChannels();
-
-
-
-    for (int ch=0;ch<nchan;++ch)
-    {
-      TwoBodyChannel& tbc = modelspace->GetTwoBodyChannel(ch);
-      int J = tbc.J;
-      int npq = tbc.GetNumberKets();
-
-      arma::mat D(npq,npq,arma::fill::zeros);  // <ij|ab> = <ji|ba>
-      arma::mat V3NO(npq,npq,arma::fill::zeros);  // <ij|ab> = <ji|ba>
-#pragma omp parallel for schedule(dynamic,1)
-      for (int i=0; i<npq; ++i)
-      {
-        Ket & bra = tbc.GetKet(i);
-        int e2bra = 2*bra.op->n + bra.op->l + 2*bra.oq->n + bra.oq->l;
-        for (int j=0; j<npq; ++j)
-        {
-          Ket & ket = tbc.GetKet(j);
-          int e2ket = 2*ket.op->n + ket.op->l + 2*ket.oq->n + ket.oq->l;
-          D(i,j) = C_HO2NAT(bra.p,ket.p) * C_HO2NAT(bra.q,ket.q);
-          if (bra.p!=bra.q)
-          {
-            D(i,j) += C_HO2NAT(bra.q,ket.p) * C_HO2NAT(bra.p,ket.q) * bra.Phase(J);
-          }
-          if (bra.p==bra.q)    D(i,j) *= PhysConst::SQRT2;
-          if (ket.p==ket.q)    D(i,j) /= PhysConst::SQRT2;
-
-          // Now generate the NO2B part of the 3N interaction
-          if (Hbare.GetParticleRank()<3) continue;
-          if (i>j) continue;
-          for ( auto a : modelspace->all_orbits )
-          {
-            Orbit & oa = modelspace->GetOrbit(a);
-            if ( 2*oa.n+oa.l+e2bra > modelspace->GetE3max() ) continue;
-            for (int b : Hbare.OneBodyChannels.at({oa.l,oa.j2,oa.tz2}))
-            {
-              if ( std::abs(rho(a,b)) < 1e-8 ) continue; // Turns out this helps a bit (factor of 5 speed up in tests)
-              Orbit & ob = modelspace->GetOrbit(b);
-              if ( 2*ob.n+ob.l+e2ket > modelspace->GetE3max() ) continue;
-//              V3NO(i,j) += rho(a,b) * GetVNO2B(bra.p, bra.q, a, ket.p, ket.q, b, J);
-              V3NO(i,j) += rho(a,b) * Hbare.ThreeBody.GetME_pn_no2b(bra.p,bra.q,a,ket.p,ket.q,b,J);
-            }
-          }
-          V3NO(i,j) /= (2*J+1);
-          if (bra.p==bra.q)  V3NO(i,j) /= PhysConst::SQRT2;
-          if (ket.p==ket.q)  V3NO(i,j) /= PhysConst::SQRT2;
-          V3NO(j,i) = V3NO(i,j);
-        }
-      }
-
-      auto& V2  =  Hbare.TwoBody.GetMatrix(ch);
-      auto& OUT =  HNO.TwoBody.GetMatrix(ch);
-      OUT  =    D.t() * (V2 + V3NO) * D;
-    }
-
-
-  if (particle_rank>2)
-  {
-//    HNO.ThreeBody = GetTransformed3B();
-//    HNO.ThreeBody = GetTransformed3B( Hbare );
-    HNO.ThreeBody = GetTransformed3B( Hbare, C_HO2NAT );
-  }
-
-//  rho = rho_swap;
-  profiler.timer["HFMBT_GetNormalOrderedHNO"] += omp_get_wtime() - start_time;
-  return HNO;
-}
-
-//*********************************************************************
-// Compute the MBPT2 corrections to the 1b density matrix.
-//*********************************************************************
-void HFMBPT::GetDensityMatrix()
-{
-  Operator Hhf = HartreeFock::GetNormalOrderedH();
-  Operator& H(Hhf);
-  double t_start = omp_get_wtime();
-
-  // After the HF step, rho is the density of harmonic oscillator states for a filled HF reference
-  //  i.e. <a|rho|b> = sum_i <a|i> <b|i>  where i is an occupied HF state and a and b are HO basis states.
-  // Now we switch to the HF basis, so rho should be diagonal before adding in the perturbative corrections.
-  rho.zeros(); // This and the following line fixes bug found by Baishan Dec 2020.
-  for (auto& i : HartreeFock::modelspace->holes)  rho(i,i) = HartreeFock::modelspace->GetOrbit(i).occ; // Set hole occupations to 1.
-
-//  std::cout << std::endl << "before perturbative correction, rho is" << std::endl << rho << std::endl;
-  // compute second order corrections to the density matrix
-  DensityMatrixPP(H);
-  DensityMatrixHH(H);
-  DensityMatrixPH(H);
-//  std::cout << std::endl << "after perturbative correction, rho is" << std::endl << rho << std::endl;
-  profiler.timer["HFMBPT DensityMatrix"] += omp_get_wtime() - t_start;
-}
-
-//*********************************************************************
-// Pretty self explanatory. Print the quantum numbers and occupations
-// of all orbits, except that the occupation is the eigenvalue of the
-// density matrix, not the value set in modelspace.
-//*********************************************************************
-void HFMBPT::PrintOccupation()
-{
-
-//  for (int i=0; i<HartreeFock::modelspace->GetNumberOrbits(); ++i)
-  for (auto& i : modelspace->all_orbits)
-  {
-    Orbit& oi = HartreeFock::modelspace->GetOrbit(i);
-    std::cout << std::fixed << std::setw(4) << oi.n << std::setw(4) << oi.l <<
-      std::setw(4) << oi.j2 << std::setw(4) << oi.tz2 << "   " <<
-      std::setw(8) << Occ(i) << std::endl;
-  }
-}
-
-//*********************************************************************
-// Compute the MBPT2 contribution to rho due to < 1| rho |1 > where
-//  |1> is the 1st order correction to the HF ground state.
-// Here we treat the contribution to the particle-particle block.
-//
-//        *~~~~~~~*      <a|rho|b> = 1/2 sum_{cijJ} (2J+1)/(2j_a+1) <ac|V|ij><ij|V|bc> / Delta
-// R0--- / \     / \a
-//     c(  i)  j(  (RHO)      with Delta = (ea+ec -ei-ej)(eb+ec-ei-ej)
-// R0--- \ /     \ /b
-//        *~~~~~~~*        R0---  indicates the MBPT resolvent lines.
-//                         ijk are holes, abc are particles
-//
-// In the case that a hole and particle level are very closely spaced in energy,
-// the denominator can get small, and perturbation theory breaks down.
-// In this case, the second order correction can produce a diagonal
-// element larger than 1 (or less than zero for the hole orbits).
-// To deal with this, we replace the V*V/Delta by the result of two
-// level mixing
-//   V*V / (e_acij*e_bcij) -> 1/2 * [sqrt( V*V + E*E) - E] / sqrt( V*V + E*E)
-// where E*E = 1/4 (e_acij * e_bcij)
-// In the limit V*V << E*E, this coincides with the perturbative expression,
-// so we can make the replacement even if the levels aren't closely spaced.
-//
-// When using fraction occupations, including the factor (1-na)(1-nb) [ni nj(1-nc)]^2
-// and an equivalent one in the HH term produces a density matrix with the correct
-// particle number, encoded in the 2j+1 weighted trace of rho.
-//*********************************************************************
-void HFMBPT::DensityMatrixPP(Operator& H)
-{
-  arma::mat rho_pp2 = arma::zeros( arma::size(rho) );
-//  for (auto& a : HartreeFock::modelspace->all_orbits)
-  for (auto& a : HartreeFock::modelspace->particles)
-  {
-    double ea = H.OneBody(a,a);
-    Orbit& oa = HartreeFock::modelspace->GetOrbit(a);
-    if ( (1-oa.occ)<ModelSpace::OCC_CUT) continue;
-
-    for (auto& b : modelspace->OneBodyChannels.at({oa.l,oa.j2,oa.tz2}))
-    {
-      if(b > a) continue;
-      double eb = H.OneBody(b,b);
-      Orbit& ob = HartreeFock::modelspace->GetOrbit(b);
-      if((1-ob.occ) <ModelSpace::OCC_CUT) continue;
-
-      double r = 0.0;
-      for(auto& c : HartreeFock::modelspace->particles)
-//      for(auto& c : HartreeFock::modelspace->all_orbits)
-      {
-        double ec = H.OneBody(c,c);
-        Orbit& oc = HartreeFock::modelspace->GetOrbit(c);
-        if ( (1-oc.occ)<ModelSpace::OCC_CUT) continue;
-
-        for(auto& i : HartreeFock::modelspace->holes)
-        {
-          double ei = H.OneBody(i,i);
-          Orbit& oi = HartreeFock::modelspace->GetOrbit(i);
-          if ( oi.occ < ModelSpace::OCC_CUT ) continue;
-
-          for(auto& j : HartreeFock::modelspace->holes){
-            double ej = H.OneBody(j,j);
-            Orbit& oj = HartreeFock::modelspace->GetOrbit(j);
-            if ( oj.occ < ModelSpace::OCC_CUT ) continue;
-
-            double e_acij = ea + ec - ei - ej;
-            double e_bcij = eb + ec - ei - ej;
-            if(std::abs(e_acij*e_bcij) < 1.e-8) continue;
-            int Jmin = std::max(std::abs(oa.j2-oc.j2), std::max(std::abs(oi.j2-oj.j2), std::abs(ob.j2-oc.j2)))/2;
-            int Jmax = std::min(         oa.j2+oc.j2,  std::min(         oi.j2+oj.j2,           ob.j2+oc.j2))/2;
-
-            double tbme = 0.0;
-            for(int J = Jmin; J <= Jmax; ++J){
-              tbme +=  (2*J+1) * H.TwoBody.GetTBME_J(J,a,c,i,j)
-                               * H.TwoBody.GetTBME_J(J,i,j,b,c);
-            }
-            tbme *=  (1-oa.occ) * (1-ob.occ) *  (1-oc.occ)*(1-oc.occ) * oi.occ*oi.occ * oj.occ*oj.occ ;
-            double epsilon = 0.5*sqrt(std::abs(e_acij * e_bcij));
-            r += 0.5* ( sqrt(tbme + epsilon*epsilon) - epsilon ) / sqrt(tbme + epsilon*epsilon);
-          }
-        }
-      }
-      rho_pp2(a,b) = r * 0.5 / (oa.j2+1);
-      rho_pp2(b,a) = r * 0.5 / (oa.j2+1);
-    }
-  }
-  rho += rho_pp2;
-}
-
-
-//*********************************************************************
-// Compute the MBPT2 contribution to rho due to < 1| rho |1 > where
-//  |1> is the 1st order correction to the HF ground state.
-// Here we treat the contribution to the hole-hole block.
-//
-//        *~~~~~~~*      <i|rho|j> = -1/2 sum_{abkJ} (2J+1)/(2j_i+1) <ab|V|ik><jk|V|ab> / Delta
-// R0--- / \     / \j
-//     a(  k)  b(  (RHO)      with Delta = (ea+eb -ei-ek)(ea+eb-ej-ek)
-// R0--- \ /     \ /i
-//        *~~~~~~~*        R0---  indicates the MBPT resolvent lines.
-//                         ijk are holes, abc are particles
-//
-// See discussion above HFMBPT::DensityMatrixPP for more details.
-//*********************************************************************
-void HFMBPT::DensityMatrixHH(Operator& H)
-{
-  arma::mat rho_hh2 = arma::zeros( arma::size(rho) );
-  for (auto& i : HartreeFock::modelspace->holes)
-  {
-    double ei = H.OneBody(i,i);
-    Orbit& oi = HartreeFock::modelspace->GetOrbit(i);
-    if ( oi.occ < ModelSpace::OCC_CUT) continue;
-
-    for (auto& j : HartreeFock::modelspace->OneBodyChannels.at({oi.l,oi.j2,oi.tz2}))
-    {
-      if(j > i) continue;
-      double ej = H.OneBody(j,j);
-      Orbit& oj = HartreeFock::modelspace->GetOrbit(j);
-      if ( oj.occ<ModelSpace::OCC_CUT) continue;
-
-      double r = 0.0;
-      for(auto& a : HartreeFock::modelspace->particles)
-//      for(auto& a : HartreeFock::modelspace->all_orbits)
-      {
-        double ea = H.OneBody(a,a);
-        Orbit& oa = HartreeFock::modelspace->GetOrbit(a);
-        if ( (1-oa.occ)<ModelSpace::OCC_CUT) continue;
-
-        for(auto& b : HartreeFock::modelspace->particles)
-//        for(auto& b : HartreeFock::modelspace->all_orbits)
-        {
-          double eb = H.OneBody(b,b);
-          Orbit& ob = HartreeFock::modelspace->GetOrbit(b);
-          if ( (1-ob.occ)<ModelSpace::OCC_CUT) continue;
-
-          for(auto& k : HartreeFock::modelspace->holes)
-          {
-            double ek = H.OneBody(k,k);
-            Orbit& ok = HartreeFock::modelspace->GetOrbit(k);
-            if ( ok.occ<ModelSpace::OCC_CUT) continue;
-
-            double e_abik = ea + eb - ei - ek;
-            double e_abjk = ea + eb - ek - ej;
-            if( std::abs(e_abik*e_abjk) < 1.e-8) continue;
-            int Jmin = std::max(std::abs(oa.j2-ob.j2), std::max(std::abs(oi.j2-ok.j2), std::abs(oj.j2-ok.j2)))/2;
-            int Jmax = std::min(         oa.j2+ob.j2,  std::min(         oi.j2+ok.j2,           oj.j2+ok.j2))/2;
-
-            double tbme = 0.0;
-            for(int J = Jmin; J <= Jmax; ++J)
-            {
-              tbme += (2*J+1) * H.TwoBody.GetTBME_J(J,a,b,i,k)
-                              * H.TwoBody.GetTBME_J(J,j,k,a,b);
-            }
-
-            tbme *=  (1-oa.occ)*(1-oa.occ) * (1-ob.occ)*(1-ob.occ) * ok.occ*ok.occ   *  oi.occ * oj.occ ;
-            if (true)
-            {
-              double epsilon = 0.5*sqrt(std::abs(e_abik * e_abjk));
-              r += 0.5* ( sqrt(tbme + epsilon*epsilon) - epsilon ) / sqrt(tbme + epsilon*epsilon) ;
-            }
-            else // the MBPT expression. We don't actually use this.
-            {
-              r += tbme / (e_abik * e_abjk);
-            }
-          }
-        }
-      }
-      rho_hh2(i,j) = - r * 0.5 / (oi.j2+1);
-      rho_hh2(j,i) = - r * 0.5 / (oi.j2+1);
-    }
-  }
-  rho += rho_hh2;
-}
-
-//*********************************************************************
-// Compute the MBPT2 contribution to rho due to <0|rho|2> + <2|rho|0>
-//  where |0> is the HF ground state and |2> is the 2nd order correction.
-//
-//      (RHO)           <i|rho|a> = 1/2 sum_{bcjJ} (2J+1)/(2j_i+1) <aj|V|bc><bc|V|ij> / Delta
-// R0--- / \a
-//     i(   )~~~~*       with Delta = (ea-ei)(eb+ec-ei-ej)
-// R0--- \ /b  j( )c
-//        *~~~~~~*        R0---  indicates the MBPT resolvent lines.
-//                         ijk are holes, abc are particles
-// and
-//
-
-//      (RHO)           <i|rho|a> = -1/2 sum_{bkjJ} (2J+1)/(2j_i+1) <kj|V|ib><ab|V|kj> / Delta
-// R0--- / \i
-//     a(   )~~~~*       with Delta = (ea-ei)(ea+eb-ej-ek)
-// R0--- \ /j  b( )k
-//        *~~~~~~*
-//
-// Equivalent diagrams can be drawn with rho on the bottom, corresponding to <2|rho|0>,
-// and the formulas are the same.
-// In (limited) tests, a small gap between particle and hole levels did not appear
-// to be a problem for these diagrams, so the MBPT2 expression is used directly.
-// This may need to be revisited.
-//*********************************************************************
-void HFMBPT::DensityMatrixPH(Operator& H)
-{
-
-  arma::mat rho_ph2 = arma::zeros( arma::size(rho) );
-  for (auto& i : HartreeFock::modelspace->holes)
-  {
-    double ei = H.OneBody(i,i);
-    Orbit& oi = HartreeFock::modelspace->GetOrbit(i);
-    if ( oi.occ < ModelSpace::OCC_CUT) continue;
-
-    for (auto& a : HartreeFock::modelspace->OneBodyChannels.at({oi.l,oi.j2,oi.tz2}))
-    {
-      double ea = H.OneBody(a,a);
-      Orbit& oa = HartreeFock::modelspace->GetOrbit(a);
-      if ( (1-oa.occ)<ModelSpace::OCC_CUT) continue;
-
-      double r = 0.0;
-      for(auto& b : HartreeFock::modelspace->particles)
-      {
-        double eb = H.OneBody(b,b);
-        Orbit& ob = HartreeFock::modelspace->GetOrbit(b);
-        if ( (1-ob.occ)<ModelSpace::OCC_CUT) continue;
-
-        for(auto& c : HartreeFock::modelspace->particles)
-        {
-          double ec = H.OneBody(c,c);
-          Orbit& oc = HartreeFock::modelspace->GetOrbit(c);
-          if ( (1-oc.occ)<ModelSpace::OCC_CUT) continue;
-
-          for(auto& j : HartreeFock::modelspace->holes)
-          {
-            double ej = H.OneBody(j,j);
-            Orbit& oj = HartreeFock::modelspace->GetOrbit(j);
-            if ( oj.occ < ModelSpace::OCC_CUT) continue;
-
-            double e_ai = ea - ei;
-            double e_bcij = eb + ec - ei - ej;
-            if(e_ai*e_bcij < 1.e-8) continue;
-            int Jmin = std::max(std::abs(oa.j2-oj.j2), std::max(std::abs(ob.j2-oc.j2), std::abs(oi.j2-oj.j2)))/2;
-            int Jmax = std::min(         oa.j2+oj.j2,  std::min(         ob.j2+oc.j2,           oi.j2+oj.j2))/2;
-
-            double tbme = 0.0;
-            for(int J = Jmin; J <= Jmax; ++J)
-            {
-              tbme += (2*J+1) * H.TwoBody.GetTBME_J(J,a,j,b,c)
-                              * H.TwoBody.GetTBME_J(J,b,c,i,j);
-            }
-
-            tbme *= (1-oa.occ) * (1-ob.occ) * (1-oc.occ) * oi.occ * oj.occ ;
-            r += tbme / (e_ai * e_bcij);
-          }
-        }
-      }
-      rho_ph2(a,i) += r * 0.5 / (oa.j2+1);
-      rho_ph2(i,a) += r * 0.5 / (oa.j2+1);
-    }
-  }
-
-
-
-  for (auto& i : HartreeFock::modelspace->holes)
-  {
-      double ei = H.OneBody(i,i);
-      Orbit& oi = HartreeFock::modelspace->GetOrbit(i);
-
-    for (auto& a : HartreeFock::modelspace->OneBodyChannels.at({oi.l,oi.j2,oi.tz2}))
-    {
-      double ea = H.OneBody(a,a);
-      Orbit& oa = HartreeFock::modelspace->GetOrbit(a);
-      if ( (1-oa.occ)<ModelSpace::OCC_CUT) continue;
-
-
-      double r = 0.0;
-      for(auto& b : HartreeFock::modelspace->particles)
-      {
-        double eb = H.OneBody(b,b);
-        Orbit& ob = HartreeFock::modelspace->GetOrbit(b);
-        if ( (1-ob.occ)<ModelSpace::OCC_CUT) continue;
-
-        for(auto& j : HartreeFock::modelspace->holes)
-        {
-          double ej = H.OneBody(j,j);
-          Orbit& oj = HartreeFock::modelspace->GetOrbit(j);
-
-          for(auto& k : HartreeFock::modelspace->holes)
-          {
-            double ek = H.OneBody(k,k);
-            Orbit& ok = HartreeFock::modelspace->GetOrbit(k);
-
-            double e_ai = ea - ei;
-            double e_abkj = ea + eb - ek - ej;
-            if(e_ai*e_abkj < 1.e-8) continue;
-            int Jmin = std::max(std::abs(ok.j2-oj.j2), std::max(std::abs(oi.j2-ob.j2), std::abs(oa.j2-ob.j2)))/2;
-            int Jmax = std::min(         ok.j2+oj.j2,  std::min(         oi.j2+ob.j2,           oa.j2+ob.j2))/2;
-
-            double tbme = 0.0;
-            for(int J = Jmin; J <= Jmax; ++J)
-            {
-              tbme += (2*J+1) * H.TwoBody.GetTBME_J(J,k,j,i,b)
-                              * H.TwoBody.GetTBME_J(J,a,b,k,j);
-            }
-            tbme *= (1-oa.occ) * oi.occ * oj.occ * ok.occ * (1-ob.occ);
-            r += tbme / (e_ai * e_abkj);
-          }
-        }
-      }
-      rho_ph2(a,i) -= r * 0.5 / (oa.j2+1);
-      rho_ph2(i,a) -= r * 0.5 / (oa.j2+1);
-    }
-  }
-  rho += rho_ph2;
-}
-
-
-
-
-//*********************************************************************
-// Specialization of the HartreeFock version. This is because we want
-// to print out the wave functions in terms of the HO components,
-// and so we need to use C_HO2NAT rather than C.
-// If no transformation to the NAT basis has been performed, then C_HF2NAT
-// is just the identity and we get the Hartree-Fock wave functions.
-//*********************************************************************
-void HFMBPT::PrintSPEandWF()
-{
-  C_HO2NAT = C * C_HF2NAT;
-  arma::mat F_natbasis = C_HO2NAT.t() * F * C_HO2NAT;
-
-
-   
-  std::cout << std::fixed << std::setw(3) << "i" << ": " << std::setw(3) << "n" << " " << std::setw(3) << "l" << " "
-       << std::setw(3) << "2j" << " " << std::setw(3) << "2tz" << "   " << std::setw(12) << "SPE" << " " << std::setw(12) << "occ."
-       << " " << std::setw(12) << "occNAT" << "   |   " << " overlaps" << std::endl;
-  for ( auto i : modelspace->all_orbits )
-  {
-    Orbit& oi = modelspace->GetOrbit(i);
-    std::cout << std::fixed << std::setw(3) << i << ": " << std::setw(3) << oi.n << " " << std::setw(3) << oi.l << " "
-         << std::setw(3) << oi.j2 << " " << std::setw(3) << oi.tz2 << "   " << std::setw(12) << std::setprecision(6) << F_natbasis(i,i) << " " << std::setw(12) << oi.occ << " " << std::setw(12) << oi.occ_nat << "   | ";
-    for (int j : Hbare.OneBodyChannels.at({oi.l,oi.j2,oi.tz2}) ) // j runs over HO states
-    {
-      std::cout << std::setw(9) << C_HO2NAT(j,i) << "  ";  // C is <HO|NAT>
-    }
-    std::cout << std::endl;
-  }
-}
-
-
-
-
-//*********************************************************************
-// The reordering business probably isn't necessary because it should
-// be taken care of in the DiagonalizeRho() step. However, there may
-// be some unsightly minus signs. While they have no impact on any observables,
-// it will occasionally make our lives easier to get rid of those.
-//*********************************************************************
-void HFMBPT::ReorderHFMBPTCoefficients()
-{
-   for (index_t i=0;i<C_HF2NAT.n_rows;++i) // loop through original basis states
-   {
-      if (C_HF2NAT(i,i) < 0)  C_HF2NAT.col(i) *= -1;
-   }
-
-  // would enums and switch/case be prettier here?
-  if (NAT_order == "energy")
-  {
-    // note that we do this in just one pass, and that in the unlikely case that one of the occupied orbits
-    // gets swapped with an unoccupied orbit, we would in principle need to recompute the energies and orderings
-    // but let's just hope that this doesn't happen.
-    std::cout << "Ordering NAT orbits according to increasing energy..." << std::endl;
-    for (auto& it : Hbare.OneBodyChannels)
-    {
-      arma::uvec orbvec(std::vector<index_t>(it.second.begin(),it.second.end()));
-      arma::mat CNAT_chan = C_HF2NAT.submat(orbvec, orbvec);
-      arma::mat CHF_chan = C.submat(orbvec, orbvec);
-      arma::mat fHO_chan = F.submat(orbvec,orbvec);
-      arma::mat fNAT_chan = CNAT_chan.t() * CHF_chan.t() * fHO_chan * CHF_chan * CNAT_chan;
-      arma::vec spe_NAT = fNAT_chan.diag();
-      arma::uvec sorted_indices = arma::sort_index( spe_NAT, "ascend");
-      arma::uvec orbvec_sorted = orbvec(sorted_indices);
-      C_HF2NAT.submat(orbvec, orbvec) = C_HF2NAT( orbvec, orbvec_sorted); // sort the column indices, <row|col> = <HF|NAT>
-      Occ(orbvec) = Occ(orbvec_sorted); 
-    }
-    for ( auto i : HartreeFock::modelspace->all_orbits )
-    {
-      auto& oi = HartreeFock::modelspace->GetOrbit(i);
-      oi.occ_nat = std::abs(Occ(i));  // it's possible that Occ(i) is negative, and for occ_nat, we don't want that.
-    }
-  }
-  else if (NAT_order == "mp2")
-  {
-    std::cout << "Ordering NAT orbits according to second order energy impact..." << std::endl;
-    Operator H_temp = GetNormalOrderedHNAT(2); // particle rank 2 - we don't care about threebody here
-//    arma::vec impacts = H_temp.GetMP2_Impacts();
-    arma::vec impacts = GetMP2_Impacts(H_temp);
-
-    for (auto& it : Hbare.OneBodyChannels)
-    {
-      arma::uvec orbvec(std::vector<index_t>(it.second.begin(),it.second.end()));
-      arma::vec impacts_chan = impacts(orbvec);
-      arma::uvec sorted_indices = arma::sort_index( impacts_chan, "ascend");
-      arma::uvec orbvec_sorted = orbvec(sorted_indices);
-      C_HF2NAT.submat(orbvec, orbvec) = C_HF2NAT( orbvec, orbvec_sorted); // sort the column indices, <row|col> = <HF|NAT>
-      Occ(orbvec) = Occ(orbvec_sorted); 
-    }
-    for ( auto i : HartreeFock::modelspace->all_orbits )
-    {
-      auto& oi = HartreeFock::modelspace->GetOrbit(i);
-      oi.occ_nat = std::abs(Occ(i));  // it's possible that Occ(i) is negative, and for occ_nat, we don't want that.
-    }
-  }
-}
-
-
-
-
-
-
-
-// Get a single 3-body matrix element in the HartreeFock basis.
-// This is the straightforward but inefficient way to do it.
-//double HartreeFock::GetHF3bme( int Jab, int Jde, int J2,  size_t a, size_t b, size_t c, size_t d, size_t e, size_t f)
-//double HFMBPT::GetTransformed3bme( int Jab, int Jde, int J2,  size_t a, size_t b, size_t c, size_t d, size_t e, size_t f)
-double HFMBPT::GetTransformed3bme( Operator& OpIn, int Jab, int Jde, int J2,  size_t a, size_t b, size_t c, size_t d, size_t e, size_t f)
-{
-  double V_nat = 0.;
-  Orbit& oa = modelspace->GetOrbit(a);
-  Orbit& ob = modelspace->GetOrbit(b);
-  Orbit& oc = modelspace->GetOrbit(c);
-  Orbit& od = modelspace->GetOrbit(d);
-  Orbit& oe = modelspace->GetOrbit(e);
-  Orbit& of = modelspace->GetOrbit(f);
-
-  for (auto alpha : OpIn.OneBodyChannels.at({oa.l,oa.j2,oa.tz2}) )
-  {
-   if ( std::abs(C_HO2NAT(alpha,a)) < 1e-8 ) continue;
-   for (auto beta : OpIn.OneBodyChannels.at({ob.l,ob.j2,ob.tz2}) )
-   {
-    if ( std::abs(C_HO2NAT(beta,b)) < 1e-8 ) continue;
-    for (auto gamma : OpIn.OneBodyChannels.at({oc.l,oc.j2,oc.tz2}) )
-    {
-     if ( std::abs(C_HO2NAT(gamma,c)) < 1e-8 ) continue;
-     for (auto delta : OpIn.OneBodyChannels.at({od.l,od.j2,od.tz2}) )
-     {
-      if ( std::abs(C_HO2NAT(delta,d)) < 1e-8 ) continue;
-      for (auto epsilon : OpIn.OneBodyChannels.at({oe.l,oe.j2,oe.tz2}) )
-      {
-       if ( std::abs(C_HO2NAT(epsilon,e)) < 1e-8 ) continue;
-       for (auto phi : OpIn.OneBodyChannels.at({of.l,of.j2,of.tz2}) )
-       {
-         double V_ho = OpIn.ThreeBody.GetME_pn( Jab,  Jde,  J2,  alpha,  beta,  gamma,  delta,  epsilon,  phi);
-//         double V_ho = OpIn.ThreeBody.GetME( Jab,  Jde,  J2,  tab,  tde,  T2,  alpha,  beta,  gamma,  delta,  epsilon,  phi);
-         V_nat += V_ho * C_HO2NAT(alpha,a) * C_HO2NAT(beta,b) * C_HO2NAT(gamma,c) * C_HO2NAT(delta,d) * C_HO2NAT(epsilon,e) * C_HO2NAT(phi,f);
-       } // for phi
-      } // for epsilon
-     } // for delta
-    } // for gamma
-   } // for beta
-  } // for alpha
-  return V_nat;
-}
-
-
-
-
-// Modified version of GetMP2_Energy. Determines each orbital's impact on the total MP2 energy 
-// (i.e., by how much would EMP2 change if this single orbital were removed)
-arma::vec HFMBPT::GetMP2_Impacts(Operator& OpIn) const
-{
-//   std::cout << "  a    b    i    j    J    na     nb    tbme    denom     dE" << std::endl;
-   double t_start = omp_get_wtime();
-   double de = 0;
-
-   int nparticles = OpIn.modelspace->particles.size();
-   arma::vec orbit_impacts(OpIn.modelspace->all_orbits.size(), arma::fill::zeros);
-
-   std::vector<index_t> particles_vec(OpIn.modelspace->particles.begin(),OpIn.modelspace->particles.end()); // convert set to vector for OMP looping
-//   for ( auto& i : modelspace->particles)
-//   #pragma omp parallel for reduction(+:Emp2)
-   for ( int ii=0;ii<nparticles;++ii)
-   {
-//     index_t i = modelspace->particles[ii];
-     index_t i = particles_vec[ii];
-     //  std::cout << " i = " << i << std::endl;
-
-     double ei = OpIn.OneBody(i,i);
-     Orbit& oi = OpIn.modelspace->GetOrbit(i);
-     for (auto& a : OpIn.modelspace->holes)
-     {
-       Orbit& oa = OpIn.modelspace->GetOrbit(a);
-       double ea = OpIn.OneBody(a,a);
-       double fia = OpIn.OneBody(i,a);
-//       if (abs(fia)>1e-6)
-        de = (oa.j2+1) * oa.occ * fia*fia/(ea-ei);
-        orbit_impacts(a) += de;
-        orbit_impacts(i) += de;
-
-       for (index_t j : OpIn.modelspace->particles)
-       {
-         if (j<i) continue;
-         double ej = OpIn.OneBody(j,j);
-         Orbit& oj = OpIn.modelspace->GetOrbit(j);
-         for ( auto& b: OpIn.modelspace->holes)
-         {
-           if (b<a) continue;
-           Orbit& ob = OpIn.modelspace->GetOrbit(b);
-           if ( (oi.l+oj.l+oa.l+ob.l)%2 >0) continue;
-           if ( (oi.tz2 + oj.tz2) != (oa.tz2 +ob.tz2) ) continue;
-           double eb = OpIn.OneBody(b,b);
-           double denom = ea+eb-ei-ej;
-           int Jmin = std::max(std::abs(oi.j2-oj.j2),std::abs(oa.j2-ob.j2))/2;
-           int Jmax = std::min(oi.j2+oj.j2,oa.j2+ob.j2)/2;
-           int dJ = 1;
-           if (a==b or i==j)
-           {
-             Jmin += Jmin%2;
-             dJ=2;
-           }
-           for (int J=Jmin; J<=Jmax; J+=dJ)
-           {
-             double tbme = OpIn.TwoBody.GetTBME_J_norm(J,a,b,i,j);
-             if (std::abs(tbme)>1e-6)
-             {
-              de = (2*J+1)* oa.occ * ob.occ * tbme*tbme/denom; // no factor 1/4 because of the restricted sum
-
-              orbit_impacts(a) += de;
-              if (a!=b) orbit_impacts(b) += de;
-
-              orbit_impacts(i) += de;
-              if (i!=j) orbit_impacts(j) += de;
-
-              }
-           }
-         }
-       }
-     }
-   }
-   IMSRGProfiler::timer[__func__] += omp_get_wtime() - t_start;
-   return orbit_impacts;
-}
-
-
-
-/// Calculate the second-order perturbation theory correction to the energy
-/// \f[
-/// E^{(2)} = \sum_{ia} (2 j_a +1) \frac{|f_{ia}|^2}{f_{aa}-f_{ii}}
-/// +  \sum_{\substack{i\leq j // a\leq b}}\sum_{J} (2J+1)\frac{|\Gamma_{ijab}^{J}|^2}{f_{aa}+f_{bb}-f_{ii}-f_{jj}}
-/// \f]
-///
-double HFMBPT::GetMP2_Energy(const Operator& H) const
-{
-  double t_start = omp_get_wtime();
-  double Emp2 = 0;
-  int nparticles = H.modelspace->particles.size();
-  std::vector<index_t> particles_vec(H.modelspace->particles.begin(), H.modelspace->particles.end()); // convert set to vector for OMP looping
-  #pragma omp parallel for reduction(+:Emp2)
-  for (int ii = 0; ii < nparticles; ++ii)
-  {
-    index_t i = particles_vec[ii];
-    double ei = H.OneBody(i, i);
-    Orbit &oi = H.modelspace->GetOrbit(i);
-    for (auto &a : H.modelspace->holes)
-    {
-      Orbit &oa = H.modelspace->GetOrbit(a);
-      double ea = H.OneBody(a, a);
-      if (abs(H.OneBody(i, a)) > 1e-9)
-        Emp2 += (oa.j2 + 1) * oa.occ * H.OneBody(i, a) * H.OneBody(a, i) / (ea-ei) ;
-      for (index_t j : H.modelspace->particles)
-      {
-        if (j < i)
-          continue;
-        double ej = H.OneBody(j, j);
-        Orbit &oj = H.modelspace->GetOrbit(j);
-        for (auto &b : H.modelspace->holes)
-        {
-          if (b < a)
-            continue;
-          Orbit &ob = H.modelspace->GetOrbit(b);
-          if ((oi.l + oj.l + oa.l + ob.l) % 2 > 0)
-            continue;
-          if ((oi.tz2 + oj.tz2) != (oa.tz2 + ob.tz2))
-            continue;
-          double eb = H.OneBody(b, b);
-          double denom = ea + eb - ei - ej;
-//          int Jmin = std::max(std::abs(oi.j2 - oj.j2), std::abs(oa.j2 - ob.j2)) / 2;
-//          int Jmax = std::min(oi.j2 + oj.j2, oa.j2 + ob.j2) / 2;
-          int Jmin = AngMom::Jmin({ {oi.j2,oj.j2}, {oa.j2,ob.j2} }) /2;
-          int Jmax = AngMom::Jmax({ {oi.j2,oj.j2}, {oa.j2,ob.j2} }) /2;
-          int dJ = 1;
-          if (a == b or i == j)
-          {
-            Jmin += Jmin % 2;
-            dJ = 2;
-          }
-          for (int J = Jmin; J <= Jmax; J += dJ)
-          {
-            double tbme = H.TwoBody.GetTBME_J_norm(J, a, b, i, j);
-            if (std::abs(tbme) > 1e-9)
-            {
-              Emp2 += (2 * J + 1) * oa.occ * ob.occ * tbme * tbme / denom; // no factor 1/4 because of the restricted sum
-            }
-          }
-        }
-      }
-    }
-  }
-  IMSRGProfiler::timer[__func__] += omp_get_wtime() - t_start;
-  return Emp2;
-}
-
-double HFMBPT::GetMP3_pp(const Operator& H) const
-{
-  double t_start = omp_get_wtime();
-  double Epp = 0;
-  // This can certainly be optimized, but I'll wait until this is the bottleneck.
-  int nch = modelspace->GetNumberTwoBodyChannels();
-
-  //   #pragma omp parallel for  schedule(dynamic,1) reduction(+:Emp3)
-#pragma omp parallel for schedule(dynamic, 1) reduction(+ : Epp)
-  for (int ich = 0; ich < nch; ++ich)
-  {
-    TwoBodyChannel &tbc = H.modelspace->GetTwoBodyChannel(ich);
-    auto &Mat = H.TwoBody.GetMatrix(ich, ich);
-
-    size_t n_pp = tbc.GetKetIndex_pp().size();
-    size_t n_hh = tbc.GetKetIndex_hh().size();
-    arma::mat M_hhpp(n_hh, n_pp, arma::fill::zeros);
-    arma::mat M_pppp(n_pp, n_pp, arma::fill::zeros);
-
-    size_t I_hh = 0;
-    for (auto iket_ij : tbc.GetKetIndex_hh())
-    {
-      Ket &ket_ij = tbc.GetKet(iket_ij);
-      index_t i = ket_ij.p;
-      index_t j = ket_ij.q;
-
-      size_t II_pp = 0;
-      for (auto iket_ab : tbc.GetKetIndex_pp())
-      {
-        Ket &ket_ab = tbc.GetKet(iket_ab);
-        index_t a = ket_ab.p;
-        index_t b = ket_ab.q;
-        double Delta_ijab = H.OneBody(i, i) + H.OneBody(j, j) - H.OneBody(a, a) - H.OneBody(b, b);
-        M_hhpp(I_hh, II_pp) = Mat(iket_ij, iket_ab) / Delta_ijab;
-        II_pp++;
-      }
-      I_hh++;
-    }
-
-    size_t I_pp = 0;
-    for (auto iket_ab : tbc.GetKetIndex_pp())
-    {
-      size_t II_pp = 0;
-      for (auto iket_cd : tbc.GetKetIndex_pp())
-      {
-        M_pppp(I_pp, II_pp) = Mat(iket_ab, iket_cd);
-        II_pp++;
-      }
-      I_pp++;
-    }
-
-    int J = tbc.J;
-    Epp += (2 * J + 1) * arma::trace(M_hhpp * M_pppp * M_hhpp.t());
-
-  } // for ich
-
-  
-  IMSRGProfiler::timer[__func__] += omp_get_wtime() - t_start;
-  return Epp;
-
-}
-
-
-double HFMBPT::GetMP3_hh(const Operator& H) const
-{
-  double t_start = omp_get_wtime();
-  double Ehh = 0;
-  int nch = modelspace->GetNumberTwoBodyChannels();
-
-#pragma omp parallel for schedule(dynamic, 1) reduction(+ : Ehh)
-  for (int ich = 0; ich < nch; ++ich)
-  {
-    TwoBodyChannel &tbc = H.modelspace->GetTwoBodyChannel(ich);
-    auto &Mat = H.TwoBody.GetMatrix(ich, ich);
-
-    size_t n_hh = tbc.GetKetIndex_hh().size();
-    size_t n_pp = tbc.GetKetIndex_pp().size();
-    arma::mat M_hhpp(n_hh, n_pp, arma::fill::zeros);
-    arma::mat M_hhhh(n_hh, n_hh, arma::fill::zeros);
-
-    size_t I_hh = 0;
-    for (auto iket_ij : tbc.GetKetIndex_hh())
-    {
-      Ket &ket_ij = tbc.GetKet(iket_ij);
-      index_t i = ket_ij.p;
-      index_t j = ket_ij.q;
-
-      size_t II_pp = 0;
-      for (auto iket_ab : tbc.GetKetIndex_pp())
-      {
-        Ket &ket_ab = tbc.GetKet(iket_ab);
-        index_t a = ket_ab.p;
-        index_t b = ket_ab.q;
-        double Delta_ijab = H.OneBody(i, i) + H.OneBody(j, j) - H.OneBody(a, a) - H.OneBody(b, b);
-        M_hhpp(I_hh, II_pp) = Mat(iket_ij, iket_ab) / Delta_ijab;
-        II_pp++;
-      }
-      size_t II_hh = 0;
-      for (auto iket_kl : tbc.GetKetIndex_hh())
-      {
-        M_hhhh(I_hh, II_hh) = Mat(iket_ij, iket_kl);
-        II_hh++;
-      }
-      I_hh++;
-    }
-    int J = tbc.J;
-    Ehh += (2 * J + 1) * arma::trace(M_hhpp.t() * M_hhhh * M_hhpp);
-  } // for ich
-
-
-  IMSRGProfiler::timer[__func__] += omp_get_wtime() - t_start;
-  return Ehh;
-}
-
-double HFMBPT::GetMP3_ph(const Operator& H) const
-{
-  double t_start = omp_get_wtime();
-  double Eph = 0;
-
-  H.modelspace->PreCalculateSixJ();
-
-  int nch_CC = modelspace->GetNumberTwoBodyChannels_CC();
-
-#pragma omp parallel for schedule(dynamic, 1) reduction(+ : Eph)
-  for (int ich_CC = 0; ich_CC < nch_CC; ++ich_CC)
-  {
-    TwoBodyChannel_CC &tbc_CC = H.modelspace->GetTwoBodyChannel_CC(ich_CC);
-    size_t nkets_ph = tbc_CC.GetKetIndex_ph().size();
-    arma::mat Vbar_iabj(nkets_ph, nkets_ph, arma::fill::zeros);
-    arma::mat Vbar_bjck(nkets_ph, nkets_ph, arma::fill::zeros);
-    int Jph = tbc_CC.J;
-
-    size_t I_ph = 0;
-    for (auto iket_ai : tbc_CC.GetKetIndex_ph())
-    {
-      Ket &ket_ai = tbc_CC.GetKet(iket_ai);
-      index_t a = ket_ai.p;
-      index_t i = ket_ai.q;
-      double ja = 0.5 * H.modelspace->GetOrbit(a).j2;
-      double ji = 0.5 * H.modelspace->GetOrbit(i).j2;
-
-      int phase_ai = 1;
-      int phase_ia = -AngMom::phase(ja + ji - Jph);
-      if (ket_ai.op->occ < ket_ai.oq->occ)
-      {
-        std::swap(a, i);
-        std::swap(ja, ji);
-        std::swap(phase_ai, phase_ia);
-      }
-
-      size_t II_ph = 0;
-      for (auto iket_bj : tbc_CC.GetKetIndex_ph())
-      {
-        Ket &ket_bj = tbc_CC.GetKet(iket_bj);
-        index_t b = ket_bj.p;
-        index_t j = ket_bj.q;
-
-        double jb = 0.5 * H.modelspace->GetOrbit(b).j2;
-        double jj = 0.5 * H.modelspace->GetOrbit(j).j2;
-
-        int phase_bj = 1;
-        int phase_jb = -AngMom::phase(jb + jj - Jph);
-        if (ket_bj.op->occ < ket_bj.oq->occ)
-        {
-          std::swap(b, j);
-          std::swap(jb, jj);
-          std::swap(phase_bj, phase_jb);
-        }
-
-        double Delta_ijab = H.OneBody(i, i) + H.OneBody(j, j) - H.OneBody(a, a) - H.OneBody(b, b);
-        int J1min = std::max(std::abs(ja - jb), std::abs(ji - jj));
-        int J1max = std::min(ja + jb, ji + jj);
-        double tbme_iabj = 0;
-        double tbme_bjck = 0;
-        //         double tbme_ckia = 0;
-
-        if (AngMom::Triangle(jj, jb, Jph) and AngMom::Triangle(ji, ja, Jph))
-        {
-          for (int J1 = J1min; J1 <= J1max; ++J1) // Pandya 1: <ai`| V |jb`>_Jtot
-          {
-            tbme_iabj -= H.modelspace->GetSixJ(ja, ji, Jph, jj, jb, J1) * (2 * J1 + 1) * H.TwoBody.GetTBME_J(J1, i, j, b, a);
-          }
-        }
-
-        J1min = std::max(std::abs(ji - jb), std::abs(ja - jj));
-        J1max = std::min(ji + jb, ja + jj);
-
-        if (AngMom::Triangle(jj, jb, Jph) and AngMom::Triangle(ji, ja, Jph))
-        {
-          for (int J1 = J1min; J1 <= J1max; ++J1) // Pandya 1: <ai`| V |jb`>_Jtot
-          {
-            tbme_bjck -= H.modelspace->GetSixJ(jb, jj, Jph, ja, ji, J1) * (2 * J1 + 1) * H.TwoBody.GetTBME_J(J1, b, i, a, j);
-          }
-        }
-
-        Vbar_iabj(I_ph, II_ph) = tbme_iabj * phase_ia * phase_bj / Delta_ijab;
-        Vbar_bjck(II_ph, I_ph) = tbme_bjck * phase_bj * phase_ai;
-        II_ph++;
-      }
-      I_ph++;
-    }
-    auto Vbar_ckia = Vbar_iabj.t();
-    Eph += (2 * Jph + 1) * arma::trace(Vbar_iabj * Vbar_bjck * Vbar_ckia);
-
-  } // for ich_CC
-
-
-  IMSRGProfiler::timer[__func__] += omp_get_wtime() - t_start;
-  return Eph;
-}
-
-
-double HFMBPT::GetMP3_Energy(const Operator& H) const
-{
-  double Epp = GetMP3_pp(H);
-  double Ehh = GetMP3_hh(H);
-  double Eph = GetMP3_ph(H);
-  return Epp + Ehh + Eph;
-}
-
-
-////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////
-//// Implement Van Vleck Perturbation Theory  ////
-
-void HFMBPT::SetVVApprox( std::string apr)
-{
-   vv_approx = apr;
-}
-
-void HFMBPT::SetVVGenerator_type( std::string g)
-{
-   vv_gen.SetType(g);
-}
-void HFMBPT::SetVVGenerator_partitioning( std::string p)
-{
-   vv_gen.SetDenominatorPartitioning(p);
-}
-
-std::vector<Operator>& HFMBPT::GetVVOmegas()
-{
-   return vv_omegas;
-}
-
-
-////////////////////////////////////////////////////////////////////////////
-/// Solve order-by-order for the generator Omega
-/// in Van Vleck perturbation theory.
-/// cf eq (41) in  J. Chem. Phys. 73, 5711–5717 (1980)
-///  https://doi-org/10.1063/1.440050
-void HFMBPT::SolveVanVleck(Operator& HNO, int order)
-{
-   vv_omegas.resize(order);
-   for (int i=0; i<order; i++)
-   {
-      vv_omegas[i] = 0*HNO;
-      vv_omegas[i].SetAntiHermitian();
-   }
-   Operator H0 = Operator(HNO);
-   Operator VD = Operator(HNO);
-   H0.EraseTwoBody();
-   H0.EraseThreeBody();
-   VD.ZeroBody = 0;
-   VD.EraseOneBody();
-   Operator VX = vv_gen.GetHod(VD);
-   VD -= VX;
-
-   // 1st order
-   // [O1,H0] = -VX
-   vv_gen.UpdateGeneral( VX, H0, vv_omegas[0] ); // first order Omega
-
-   if ( order <2 )   return ;
-
-   if ( vv_approx == "imsrg3n7")
-   {
-       Commutator::SetUseIMSRG3(true);
-       Commutator::SetUseIMSRG3N7(true);
-       for (int i=1;i<order;i++)
-       {
-          vv_omegas[i].ThreeBody.SetMode("pn");
-          vv_omegas[i].SetParticleRank(3);
-       }
-   }
-
-   // 2nd order [for a 2-body V, this goes up to 3-body]
-   // [O2,H0] = [O1, (VD+1/2Vx)]
-   Operator O1V1 = Commutator::Commutator( vv_omegas[0], (VD+1./2*VX) );
-   vv_gen.UpdateGeneral( O1V1, H0, vv_omegas[1] ); // second order Omega
-   if ( order <3 )   return ;
-
-   // 3rd order [for a 2-body V, this should go up to 4-body]
-   // [O3,H0] = [O2,(VD+1/2VX)] + 1/3[O1,[O1,VX]]  -1/4[O1, [O1,VX]X]
-   Operator O2V1 = Commutator::Commutator( vv_omegas[1], VD+1./2*VX);
-   Operator O1VX = Commutator::Commutator( vv_omegas[0], VX);
-   Operator O1O1VX = Commutator::Commutator( vv_omegas[0], O1VX );
-   Operator O1O1VXx = Commutator::Commutator( vv_omegas[0], vv_gen.GetHod( O1VX));
-   if ( vv_approx == "imsrg3f2")
-   {
-      Commutator::FactorizedDoubleCommutator::comm223_231(vv_omegas[0],VX, O1O1VX);
-      Commutator::FactorizedDoubleCommutator::comm223_232(vv_omegas[0],VX, O1O1VX);
-   }
-   Operator Hod = O2V1 + +1./3*O1O1VX - 1./4*O1O1VXx;
-   vv_gen.UpdateGeneral( Hod,  H0, vv_omegas[2] ); // third order Omega
-
-   if ( order <4 )   return ;
-/*
-   // 4th order [for a 2-body V, this should go up to 5-body]
-   Operator O3V1   = Commutator::Commutator(vv_omegas[2],V1);
-   Operator O2O1V1 = Commutator::Commutator(vv_omegas[1],O1V1);
-   O2O1V1 += Commutator::Commutator(vv_omegas[0],O2V1); // Add in [O1,[O2,V]]
-   if ( vv_approx == "imsrg3f2")
-   {
-      // To capture the cross terms [O1,[O2,V]], we do [O1+O2,[O1+O2,V]]
-      // = [O1,[O1,V]] + [O1,[O2,V]] + [O2,[O1,V]] + [O2,[O2,V]].
-      // We want the middle 2 terms, and we can subtract off the 1st and 4th.
-      // In principle, we've already computed the [O1,[O1,V]] so we could
-      // reuse it. But for simplicity I didn't bother.
-      Operator O1O2 = vv_omegas[0]+vv_omegas[1]; // Omega_1 + Omega_2
-      Commutator::FactorizedDoubleCommutator::comm223_231(O1O2,V1, O2O1V1);
-      Commutator::FactorizedDoubleCommutator::comm223_232(O1O2,V1, O2O1V1);
-
-      Operator nV = -V1;
-      Commutator::FactorizedDoubleCommutator::comm223_231(vv_omegas[0],nV, O2O1V1); // -[O1,[O1,V]]
-      Commutator::FactorizedDoubleCommutator::comm223_232(vv_omegas[0],nV, O2O1V1);
-      Commutator::FactorizedDoubleCommutator::comm223_231(vv_omegas[1],nV, O2O1V1); // -[O2,[O2,V]]
-      Commutator::FactorizedDoubleCommutator::comm223_232(vv_omegas[1],nV, O2O1V1);
-   }
-
-   Hod = O3V1 + 1./3*O2O1V1;
-   vv_gen.UpdateGeneral( Hod, H0, vv_omegas[3]); // 4th order Omega
-   if ( order <5 )   return ;
-*/
-   if ( order >=4 )
-   {
-      std::cout << "Orders beyond 4 not yet implemented. So you get up to 4th order." << std::endl;
-   }
-
-}
-
-
-////////////////////////////////////////////////////////////////////////////
-// The Hamiltonian is special because parts of it are driven to be diagonal
-// We return H2,H3,H4,...
-// In principle, H2 has a 3-body piece, H3 has a 4-body piece, H4 has as 5-body piece.
-// To get the 0b-part correct to 4th order, we need 3f2 corrections for O1O1V and O1O1O1V
-// As well as the perturbative triples, which accounts for contributions from the 3b part of O2
-// to the 2b part of O3, which then contribute to H4 here. We can't use 3f2 for that because of
-// the presence of energy denominators which spoil factorization.
-// cf eq (46) in  J. Chem. Phys. 73, 5711–5717 (1980)
-///  https://doi-org/10.1063/1.440050
-std::vector<Operator> HFMBPT::VV_TransformH( Operator& HNO, int order, bool singleref=true)
-{
-   std::vector<Operator> Hout;
-   if ( vv_approx == "imsrg3n7")
-   {
-       Commutator::SetUseIMSRG3(true);
-       Commutator::SetUseIMSRG3N7(true);
-   }
-   Operator VX = vv_gen.GetHod(HNO);
-   Hout.push_back( 1./2* Commutator::Commutator(vv_omegas[0],VX) ); // Hout[0] = H2
-   Hout.push_back( 1./2* Commutator::Commutator(vv_omegas[1],VX) ); // Hout[1] = H3
-   Hout.push_back( 1./2* Commutator::Commutator(vv_omegas[2],VX) ); // Hout[2] = H4
-   Operator O1O1VX = Commutator::Commutator( 2*vv_omegas[0],Hout[0] ); 
-   if (vv_approx == "imsrg3f2")
-   {
-     Commutator::FactorizedDoubleCommutator::comm223_232(vv_omegas[0],VX, O1O1VX);
-     if (not singleref)
-        Commutator::FactorizedDoubleCommutator::comm223_231(vv_omegas[0],VX, O1O1VX);
-     Hout[1] += 1./12 * O1O1VX; // SRS added this. It's not in the Shavitt Redmon paper.
-   }
-   Operator O1O1O1V1 = Commutator::Commutator(vv_omegas[0], O1O1VX );
-   // This part doesn't matter for the 4th order energy
-   if (vv_approx == "imsrg3f2" and (not singleref))
-   {
-     Commutator::FactorizedDoubleCommutator::comm223_231(vv_omegas[0],Hout[0], O1O1O1V1);
-     Commutator::FactorizedDoubleCommutator::comm223_232(vv_omegas[0],Hout[0], O1O1O1V1);
-   }
-   Hout[2] -= 1./24 * O1O1O1V1; 
-   
-   if ( vv_approx == "imsrg3f2")
-   {
-      Operator Wbar(HNO);
-      Wbar.ZeroBody =0;
-      int emax = HNO.modelspace->GetEmax();
-      int E3maxsave = HNO.modelspace->GetE3max();
-      HNO.modelspace->SetE3max(3*emax);
-      Commutator::perturbative_triples = true;
-      Commutator::comm223ss(vv_omegas[0], HNO, Wbar);
-      Commutator::perturbative_triples = false;
-      HNO.modelspace->SetE3max(E3maxsave);
-      std::cout << "4th order triples = " << Wbar.ZeroBody << std::endl;
-      Hout[2].ZeroBody += Wbar.ZeroBody;
-   }
-
-   return Hout;
-}
-
-////////////////////////////////////////////////////////////////////////////
-// We implement the BCH transformation A' = A + [O,A] + 1/2[O,[O,A]] + ... order by order
-//
-//
-std::vector<Operator> HFMBPT::VV_Transform(Operator& Xin, int order)
-{
-  if (order > vv_omegas.size() )
-  {
-     std::cout << "Uh oh. I only have Omega calculated to order " << vv_omegas.size()-1 << "  and you're asking for " << order << std::endl;
-     order = vv_omegas.size();
-  }
-  std::vector<Operator> Xout;
-
-
-  // 1st order [O1,X]
-  Operator O1X = Commutator::Commutator(vv_omegas[0], Xin );
-  Xout.push_back( O1X );
-  if (order<2) return Xout;
-
-  // 2nd order [O2,X] + 1/2 [O1,[O1,X]]
-  Operator O2X = Commutator::Commutator(vv_omegas[1], Xin );
-  Operator O1O1X = Commutator::Commutator(vv_omegas[0],O1X );
-
-  if (vv_approx == "imsrg3f2")
-  {
-      Commutator::FactorizedDoubleCommutator::comm223_231(vv_omegas[0],Xin, O1O1X);
-      Commutator::FactorizedDoubleCommutator::comm223_232(vv_omegas[0],Xin, O1O1X);
-  }
-  Xout.push_back( O2X + 1./2*O1O1X );
-  if (order<3) return Xout;
-
-  // 3rd order [O3,X] + 1/2 [O2,[O1,X]] + 1/2[O1,[O2,X]] + 1/6[O1,[O1,[O1,X]]]
-  Operator O3X = Commutator::Commutator(vv_omegas[2], Xin );
-  Operator O2O1X = Commutator::Commutator(vv_omegas[1], O1X );
-  Operator O1O2X = Commutator::Commutator(vv_omegas[0], O2X );
-  Operator O1O1O1X = Commutator::Commutator(vv_omegas[0], O1O1X );
-
-  if (vv_approx == "imsrg3f2")
-  {
-      Commutator::FactorizedDoubleCommutator::comm223_231(vv_omegas[0],O1X, O1O1O1X);
-      Commutator::FactorizedDoubleCommutator::comm223_232(vv_omegas[0],O1X, O1O1O1X);
-      Operator O1O2 = vv_omegas[0]+vv_omegas[1]; // Omega_1 + Omega_2
-      Commutator::FactorizedDoubleCommutator::comm223_231(O1O2,Xin, O2O1X);
-      Commutator::FactorizedDoubleCommutator::comm223_232(O1O2,Xin, O2O1X);
-
-      Operator nX = -Xin;
-      Commutator::FactorizedDoubleCommutator::comm223_231(vv_omegas[0],nX, O2O1X); // -[O1,[O1,V]]
-      Commutator::FactorizedDoubleCommutator::comm223_232(vv_omegas[0],nX, O2O1X);
-      Commutator::FactorizedDoubleCommutator::comm223_231(vv_omegas[1],nX, O2O1X); // -[O2,[O2,V]]
-      Commutator::FactorizedDoubleCommutator::comm223_232(vv_omegas[1],nX, O2O1X);
-  }
-
-  Xout.push_back( O3X + 1./2*(O2O1X+O1O2X) + 1./6*O1O1O1X );
-
-//  // 4th order. dont do this for now
-
-
-
-  return Xout;
-
-}
-
-double HFMBPT::GetDenom(const Operator& H, const std::vector<index_t>& holes, const std::vector<index_t>& particles) const
+double GetDenom(const Operator& H, const std::vector<index_t>& holes, const std::vector<index_t>& particles)
 {
    double denom = 0;
    for ( auto& h : holes )
@@ -1537,62 +28,7 @@ double HFMBPT::GetDenom(const Operator& H, const std::vector<index_t>& holes, co
 
 }
 
-
-double HFMBPT::GetMP4_term( const Operator& H, int id) const
-{
-   if ( id<1 or id > 39)
-   {
-      std::cout << "There is no 4th order diagram " << id << ". Returning zero." << std::endl;
-      return 0;
-   }
-
-   std::array< std::function<double(const Operator&)>,39> MBPT4diagrams = {
-   [=](const Operator& H){ return this->GetMP4_F1(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F2(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F3(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F4(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F5(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F6(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F7(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F8(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F9(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F10(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F11(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F12(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F13(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F14(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F15(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F16(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F17(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F18(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F19(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F20(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F21(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F22(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F23(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F24(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F25(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F26(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F27(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F28(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F29(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F30(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F31(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F32(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F33(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F34(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F35(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F36(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F37(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F38(H);} ,
-   [=](const Operator& H){ return this->GetMP4_F39(H);} 
-   };
-
-
-   return MBPT4diagrams[id-1](H);
-}
-/*
-double HFMBPT::GetMP4_term( const Operator& H, int diagram) const
+double GetMP4_term( const Operator& H, int diagram)
 {
    double E = 0;
    if      (diagram==1)   E = GetMP4_F1(H);
@@ -1640,12 +76,11 @@ double HFMBPT::GetMP4_term( const Operator& H, int diagram) const
    }
    return E;
 }
-*/
 
 // Diagram F1 (as numbered by ADG)   corresponds to diagram 4 from Shavitt & Bartlett
 // mscheme expression: F1 = 1/4 sum_abcijklm (v_abij v_ijak v_kclm v_lmbc) / (eps_abij eps_bk eps_bclm)
 // agrees.
-double HFMBPT::GetMP4_F1( const Operator& H) const
+double GetMP4_F1( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -1711,7 +146,8 @@ double HFMBPT::GetMP4_F1( const Operator& H) const
 // Diagram F2 (as numbered by ADG)   complex conjugate diagram: F3
 // mscheme expression: F2 = -1/4 sum_abcdijkl (v_abij v_ijak v_cdbl v_klcd) / (eps_ijab eps_kb eps_klcd)
 // agrees.
-double HFMBPT::GetMP4_F2( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F2( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -1779,7 +215,8 @@ double HFMBPT::GetMP4_F2( const Operator& H) const
 // Diagram F3 (as numbered by ADG)   complex conjugate diagram: F2
 // mscheme expression: F3 = -1/4 sum_abcdijkl (v_abij v_icab v_jdkl v_klcd) / (eps_ijab eps_jc eps_klcd)
 // agrees.
-double HFMBPT::GetMP4_F3( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F3( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -1847,7 +284,8 @@ double HFMBPT::GetMP4_F3( const Operator& H) const
 // Diagram F4 (as numbered by ADG)
 // mscheme expression: F4 = 1/4 sum_abcdeijk (v_abij v_icab v_deck v_jkde) / (eps_ijab eps_jc eps_jkde)
 // agrees.
-double HFMBPT::GetMP4_F4( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F4( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -1914,7 +352,8 @@ double HFMBPT::GetMP4_F4( const Operator& H) const
 // Diagram F5 (as numbered by ADG)
 // mscheme expression: F5 = 1/16 sum_abijklmn (v_abij v_ijkl v_klmn v_mnab) / (eps^ij_ab eps^kl_ab eps^mn_ab)
 // agrees.
-double HFMBPT::GetMP4_F5( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F5( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -1976,7 +415,8 @@ double HFMBPT::GetMP4_F5( const Operator& H) const
 // Diagram F6 (as numbered by ADG)   complex conjugate diagram: F8
 // mscheme expression: F6 = 1/2 sum_abcijklm (v_abij v_ijkl v_kcam v_lmbc) / (eps^ij_ab eps^kl_ab eps^lm_bc)
 // agrees.
-double HFMBPT::GetMP4_F6( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F6( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -2051,7 +491,8 @@ double HFMBPT::GetMP4_F6( const Operator& H) const
 // Diagram F7 (as numbered by ADG)   complex conjugate diagram: F14
 // mscheme expression: F7 = 1/16 sum_abcdijkl (v_abij v_ijkl v_cdab v_klcd) / (eps^ij_ab eps^kl_ab eps^kl_cd)
 // agrees.
-double HFMBPT::GetMP4_F7( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F7( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -2113,7 +554,8 @@ double HFMBPT::GetMP4_F7( const Operator& H) const
 // Diagram F8 (as numbered by ADG)   complex conjugate diagram: F6
 // mscheme expression: F8 = 1/2 sum_abcijklm (v_abij v_icak v_jklm v_lmbc) / (eps^ij_ab eps^jk_bc eps^lm_bc)
 // agrees.
-double HFMBPT::GetMP4_F8( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F8( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -2188,7 +630,8 @@ double HFMBPT::GetMP4_F8( const Operator& H) const
 // Diagram F9 (as numbered by ADG)
 // mscheme expression: F9 = sum_abcdijkl (v_abik v_icaj v_jdcl v_klbd) / (eps^ik_ab eps^jk_cb eps^kl_bd)
 // agrees.
-double HFMBPT::GetMP4_F9( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F9( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -2202,8 +645,8 @@ double HFMBPT::GetMP4_F9( const Operator& H) const
      {
        for ( auto c: part_vec )
        {
-         Orbit& oa = H.modelspace->GetOrbit(a);
-         Orbit& ob = H.modelspace->GetOrbit(b);
+     Orbit& oa = H.modelspace->GetOrbit(a);
+       Orbit& ob = H.modelspace->GetOrbit(b);
          Orbit& oc = H.modelspace->GetOrbit(c);
          for ( auto d: H.modelspace->particles )
          {
@@ -2280,8 +723,8 @@ double HFMBPT::GetMP4_F9( const Operator& H) const
 
 // Diagram F10 (as numbered by ADG)
 // mscheme expression: F10 = -sum_abcdijkl (v_abij v_icak v_jdcl v_klbd) / (eps^ij_ab eps^jk_cb eps^kl_bd)
-// POSSIBLE SIGN ERROR?
-double HFMBPT::GetMP4_F10( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F10( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -2296,8 +739,8 @@ double HFMBPT::GetMP4_F10( const Operator& H) const
      {
        for ( auto c: part_vec )
        {
-         Orbit& oa = H.modelspace->GetOrbit(a);
-         Orbit& ob = H.modelspace->GetOrbit(b);
+     Orbit& oa = H.modelspace->GetOrbit(a);
+       Orbit& ob = H.modelspace->GetOrbit(b);
          Orbit& oc = H.modelspace->GetOrbit(c);
          for ( auto d: H.modelspace->particles )
          {
@@ -2375,8 +818,8 @@ double HFMBPT::GetMP4_F10( const Operator& H) const
 
 // Diagram F11 (as numbered by ADG)
 // mscheme expression: F11 = -sum_abcdijkl (v_abik v_icaj v_jdbl v_klcd) / (eps^ik_ab eps^jk_bc eps^kl_cd)
-// POSSIBLE SIGN ERROR?
-double HFMBPT::GetMP4_F11( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F11( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -2391,8 +834,8 @@ double HFMBPT::GetMP4_F11( const Operator& H) const
      {
        for ( auto c: part_vec )
        {
-         Orbit& oa = H.modelspace->GetOrbit(a);
-         Orbit& ob = H.modelspace->GetOrbit(b);
+     Orbit& oa = H.modelspace->GetOrbit(a);
+       Orbit& ob = H.modelspace->GetOrbit(b);
          Orbit& oc = H.modelspace->GetOrbit(c);
          for ( auto d: H.modelspace->particles )
          {
@@ -2469,7 +912,8 @@ double HFMBPT::GetMP4_F11( const Operator& H) const
 // Diagram F12 (as numbered by ADG)
 // mscheme expression: F12 = sum_abcdijkl (v_abij v_icak v_jdbl v_klcd) / (eps^ij_ab eps^jk_bc eps^kl_cd)
 // Fixed the triangle condidions. Now it works.
-double HFMBPT::GetMP4_F12( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F12( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -2562,7 +1006,8 @@ double HFMBPT::GetMP4_F12( const Operator& H) const
 // Diagram F13 (as numbered by ADG)   complex conjugate diagram: F15
 // mscheme expression: F13 = 1/2 sum_abcdeijk (v_abij v_icak v_debc v_jkde) / (eps^ij_ab eps^jk_bc eps^jk_de)
 // agrees.
-double HFMBPT::GetMP4_F13( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F13( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -2637,7 +1082,8 @@ double HFMBPT::GetMP4_F13( const Operator& H) const
 // Diagram F14 (as numbered by ADG)   complex conjugate diagram: F7
 // mscheme expression: F14 = 1/16 sum_abcdijkl (v_abij v_cdab v_ijkl v_klcd) / (eps^ij_ab eps^ij_cd eps^kl_cd)
 // agrees.
-double HFMBPT::GetMP4_F14( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F14( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -2699,7 +1145,8 @@ double HFMBPT::GetMP4_F14( const Operator& H) const
 // Diagram F15 (as numbered by ADG)   complex conjugate diagram: F13
 // mscheme expression: F15 = 1/2 sum_abcdeijk (v_abij v_cdab v_ieck v_jkde) / (eps^ij_ab eps^ij_cd eps^jk_de)
 // agrees.
-double HFMBPT::GetMP4_F15( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F15( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -2774,7 +1221,8 @@ double HFMBPT::GetMP4_F15( const Operator& H) const
 // Diagram F16 (as numbered by ADG)
 // mscheme expression: F16 = 1/16 sum_abcdefij (v_abij v_cdab v_efcd v_ijef) / (eps^ij_ab eps^ij_cd eps^ij_ef)
 // agrees.
-double HFMBPT::GetMP4_F16( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F16( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -2836,7 +1284,8 @@ double HFMBPT::GetMP4_F16( const Operator& H) const
 // Diagram F17 (as numbered by ADG)
 // mscheme expression: F17 = 1/4 sum_abcijklm (v_abil v_icjk v_jkcm v_lmab) / (eps^il_ab eps^jkl_cab eps^lm_ab)
 // Claude was OFF BY A MINUS SIGN. I fixed it.
-double HFMBPT::GetMP4_F17( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F17( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -2906,7 +1355,8 @@ double HFMBPT::GetMP4_F17( const Operator& H) const
 // Diagram F18 (as numbered by ADG)
 // mscheme expression: F18 = 1/2 sum_abcijklm (v_abij v_ickl v_jkcm v_lmab) / (eps^ij_ab eps^jkl_cab eps^lm_ab)
 // agrees.
-double HFMBPT::GetMP4_F18( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F18( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -2976,285 +1426,12 @@ double HFMBPT::GetMP4_F18( const Operator& H) const
   return F18;
 }
 
-/*
-// Diagram F18 (as numbered by ADG)
-// mscheme expression: F18 = 1/2 sum_abcijklm (v_abij v_ickl v_jkcm v_lmab) / (eps^ij_ab eps^jkl_cab eps^lm_ab)
-// Minus sign error due to bug in AMC code
-double HFMBPT::GetMP4_F18( const Operator& H) const
-{
-   double t_start = omp_get_wtime();
-
-   double F18 =0;
-//   #pragma omp parallel for
-   std::vector<size_t> part_vec;
-   for ( auto a : H.modelspace->particles) part_vec.push_back(a);
-   #pragma omp parallel for  collapse(3) reduction(+:F18)
-   for ( auto a : part_vec )
-   {
-     Orbit& oa = H.modelspace->GetOrbit(a);
-     for ( auto b: part_vec )
-     {
-       Orbit& ob = H.modelspace->GetOrbit(b);
-       for ( auto c: part_vec )
-       {
-         Orbit& oc = H.modelspace->GetOrbit(c);
-         for ( auto i: H.modelspace->holes )
-         {
-           Orbit& oi = H.modelspace->GetOrbit(i);
-           for ( auto j: H.modelspace->holes )
-           {
-             Orbit& oj = H.modelspace->GetOrbit(j);
-             for ( auto k: H.modelspace->holes )
-             {
-               Orbit& ok = H.modelspace->GetOrbit(k);
-               for ( auto l: H.modelspace->holes )
-               {
-                 Orbit& ol = H.modelspace->GetOrbit(l);
-                 for ( auto m: H.modelspace->holes )
-                 {
-                   Orbit& om = H.modelspace->GetOrbit(m);
-                   double e_ijab = GetDenom(H,{i,j},{a,b});
-                   double e_jklcab = GetDenom(H,{j,k,l},{c,a,b});
-                   double e_lmab = GetDenom(H,{l,m},{a,b});
-                   double denom = e_ijab * e_jklcab * e_lmab;
-                   int phase_exponent = (oc.j2+oj.j2+ok.j2+ol.j2)/2;  // + J0, added inside the loops below
-                   int J0_min = AngMom::Jmin( {{oa.j2,ob.j2},{oi.j2,oj.j2},{ol.j2,om.j2}} ) /2;
-                   int J0_max = AngMom::Jmax( {{oa.j2,ob.j2},{oi.j2,oj.j2},{ol.j2,om.j2}} ) /2;
-                   int J1_min = AngMom::Jmin( {{oi.j2,oc.j2},{ok.j2,ol.j2}} ) /2;
-                   int J1_max = AngMom::Jmax( {{oi.j2,oc.j2},{ok.j2,ol.j2}} ) /2;
-                   int J2_min = AngMom::Jmin( {{oj.j2,ok.j2},{oc.j2,om.j2}} ) /2;
-                   int J2_max = AngMom::Jmax( {{oj.j2,ok.j2},{oc.j2,om.j2}} ) /2;
-                   for (int J0=J0_min; J0<=J0_max; J0++)
-                   {
-                     double vabij = H.TwoBody.GetTBME_J(J0,J0,a,b,i,j);
-                     double vlmab = H.TwoBody.GetTBME_J(J0,J0,l,m,a,b);
-                     double phase = ( (J0+phase_exponent)%2==0 ) ? 1.0 : -1.0;
-                     for (int J1=J1_min; J1<=J1_max; J1++)
-                     {
-                       double vickl = H.TwoBody.GetTBME_J(J1,J1,i,c,k,l);
-                       for (int J2=J2_min; J2<=J2_max; J2++)
-                       {
-                         double vjkcm = H.TwoBody.GetTBME_J(J2,J2,j,k,c,m);
-                         double ninej = H.modelspace->GetNineJ( oj.j2/2., oi.j2/2., J0, ok.j2/2., J1, ol.j2/2., J2, oc.j2/2., om.j2/2. );
-                         F18 -= 1./2 * phase * (2*J0+1) * (2*J1+1) * (2*J2+1) * ninej * vabij * vickl * vjkcm * vlmab / denom;
-                       }// for J2
-                     }// for J1
-                   }// for J0
-                 }// for m
-               }// for l
-             }// for k
-           }// for j
-         }// for i
-       }//for c
-     }//for b
-   }//for a
-
-  IMSRGProfiler::timer[__func__] += omp_get_wtime() - t_start;
-  return F18;
-}
-*/
-
-/*
-double HFMBPT::GetMP4_F18( const Operator& H) const
-{
-   double t_start = omp_get_wtime();
-
-   double F18 =0;
-//   #pragma omp parallel for
-   std::vector<size_t> part_vec;
-   for ( auto a : H.modelspace->particles) part_vec.push_back(a);
-   #pragma omp parallel for  collapse(3) reduction(+:F18)
-   for ( auto a : part_vec )
-   {
-     Orbit& oa = H.modelspace->GetOrbit(a);
-     for ( auto b: part_vec )
-     {
-       Orbit& ob = H.modelspace->GetOrbit(b);
-       for ( auto c: part_vec )
-       {
-         Orbit& oc = H.modelspace->GetOrbit(c);
-         for ( auto i: H.modelspace->holes )
-         {
-           Orbit& oi = H.modelspace->GetOrbit(i);
-           for ( auto j: H.modelspace->holes )
-           {
-             Orbit& oj = H.modelspace->GetOrbit(j);
-               if ( (oa.l+ob.l+oi.l+oj.l)%2 !=0) continue;
-               if ( (oa.tz2+ob.tz2) != (oi.tz2+oj.tz2) ) continue;
-             for ( auto k: H.modelspace->holes )
-             {
-               Orbit& ok = H.modelspace->GetOrbit(k);
-               for ( auto l: H.modelspace->holes )
-               {
-                 Orbit& ol = H.modelspace->GetOrbit(l);
-                   if ( (oi.l+oc.l+ol.l+ok.l)%2 !=0) continue;
-                   if ( (oi.tz2+oc.tz2) != (ol.tz2+ok.tz2) ) continue;
-                 for ( auto m: H.modelspace->holes )
-                 {
-                   Orbit& om = H.modelspace->GetOrbit(m);
-                   if ( (oa.l+ob.l+ol.l+om.l)%2 !=0) continue;
-                   if ( (oa.tz2+ob.tz2) != (ol.tz2+om.tz2) ) continue;
-                   if ( (oj.l+ok.l+oc.l+om.l)%2 !=0) continue;
-                   if ( (oj.tz2+ok.tz2) != (oc.tz2+om.tz2) ) continue;
-
-
-                   double e_ijab = GetDenom(H,{i,j},{a,b});
-                   double e_jklcab = GetDenom(H,{j,k,l},{c,a,b});
-                   double e_lmab = GetDenom(H,{l,m},{a,b});
-                   double denom = e_ijab * e_jklcab * e_lmab;
-                   int J0_min = AngMom::Jmin( {{oa.j2,ob.j2},{oi.j2,oj.j2},{ol.j2,om.j2}} ) /2;
-                   int J0_max = AngMom::Jmax( {{oa.j2,ob.j2},{oi.j2,oj.j2},{ol.j2,om.j2}} ) /2;
-                   int J1_min = AngMom::Jmin( {{oi.j2,ol.j2},{om.j2,oj.j2}} ) /2;
-                   int J1_max = AngMom::Jmax( {{oi.j2,ol.j2},{om.j2,oj.j2}} ) /2;
-                   int J2_min = AngMom::Jmin( {{oi.j2,oc.j2},{ok.j2,ol.j2}} ) /2;
-                   int J2_max = AngMom::Jmax( {{oi.j2,oc.j2},{ok.j2,ol.j2}} ) /2;
-                   int J3_min = AngMom::Jmin( {{oj.j2,ok.j2},{oc.j2,om.j2}} ) /2;
-                   int J3_max = AngMom::Jmax( {{oj.j2,ok.j2},{oc.j2,om.j2}} ) /2;
-                   for (int J0=J0_min; J0<=J0_max; J0++)
-                   {
-                     double vabij = H.TwoBody.GetTBME_J(J0,J0,a,b,i,j);
-                     double vmlab = H.TwoBody.GetTBME_J(J0,J0,m,l,a,b);
-                     for (int J1=J1_min; J1<=J1_max; J1++)
-                     {
-                        double vbar_ilkc=0;
-                        double vbar_kcmj=0;
-                        for ( int J2=J2_min; J2<=J2_max; J2++)
-                        {
-                           double sixj1 = H.modelspace->GetSixJ(oi.j2/2.,ol.j2/2.,J1, ok.j2/2.,oc.j2/2.,J2);
-                           vbar_ilkc -= (2*J2+1) * sixj1 * H.TwoBody.GetTBME_J(J2,J2,i,c,k,l);
-                        }
-                        for ( int J3=J3_min; J3<=J3_max; J3++)
-                        {
-                           double sixj2 = H.modelspace->GetSixJ(ok.j2/2.,oc.j2/2.,J1, om.j2/2.,oj.j2/2.,J3);
-                           vbar_kcmj -= (2*J3+1) * sixj2 * H.TwoBody.GetTBME_J(J3,J3,k,j,m,c);
-                        }
-                        double sixj3 = H.modelspace->GetSixJ(om.j2/2.,ol.j2/2.,J0,oi.j2/2.,oj.j2/2.,J1);
-                        F18 -= 1./2 * (2*J0+1) * (2*J1+1) * sixj3 * vabij * vmlab * vbar_ilkc * vbar_kcmj / denom;
-                     }// for J1
-                   }// for J0
-                 }// for m
-               }// for l
-             }// for k
-           }// for j
-         }// for i
-       }//for c
-     }//for b
-   }//for a
-
-  IMSRGProfiler::timer[__func__] += omp_get_wtime() - t_start;
-  return F18;
-}
-*/
-
-/*
-///MSCHEME version will be SLOW...
-double HFMBPT::GetMP4_F18( const Operator& H) const
-{
-   double t_start = omp_get_wtime();
-   UnitTest ut(*(H.modelspace));
-
-   double F18 =0;
-//   #pragma omp parallel for
-   std::vector<size_t> part_vec;
-   for ( auto a : H.modelspace->particles) part_vec.push_back(a);
-   #pragma omp parallel for  collapse(3) reduction(+:F18)
-   for ( auto a : part_vec )
-   {
-     Orbit& oa = H.modelspace->GetOrbit(a);
-     for ( auto b: part_vec )
-     {
-       Orbit& ob = H.modelspace->GetOrbit(b);
-       for ( auto c: part_vec )
-       {
-         Orbit& oc = H.modelspace->GetOrbit(c);
-         for ( auto i: H.modelspace->holes )
-         {
-           Orbit& oi = H.modelspace->GetOrbit(i);
-           for ( auto j: H.modelspace->holes )
-           {
-             Orbit& oj = H.modelspace->GetOrbit(j);
-               if ( (oa.l+ob.l+oi.l+oj.l)%2 !=0) continue;
-               if ( (oa.tz2+ob.tz2) != (oi.tz2+oj.tz2) ) continue;
-             for ( auto k: H.modelspace->holes )
-             {
-               Orbit& ok = H.modelspace->GetOrbit(k);
-               for ( auto l: H.modelspace->holes )
-               {
-                 Orbit& ol = H.modelspace->GetOrbit(l);
-                   if ( (oi.l+oc.l+ol.l+ok.l)%2 !=0) continue;
-                   if ( (oi.tz2+oc.tz2) != (ol.tz2+ok.tz2) ) continue;
-                 for ( auto m: H.modelspace->holes )
-                 {
-                   Orbit& om = H.modelspace->GetOrbit(m);
-
-                   if ( (oa.l+ob.l+ol.l+om.l)%2 !=0) continue;
-                   if ( (oa.tz2+ob.tz2) != (ol.tz2+om.tz2) ) continue;
-                   if ( (oj.l+ok.l+oc.l+om.l)%2 !=0) continue;
-                   if ( (oj.tz2+ok.tz2) != (oc.tz2+om.tz2) ) continue;
-
-                   double e_ijab = GetDenom(H,{i,j},{a,b});
-                   double e_jklcab = GetDenom(H,{j,k,l},{c,a,b});
-                   double e_lmab = GetDenom(H,{l,m},{a,b});
-                   double denom = e_ijab * e_jklcab * e_lmab;
-                   for (int two_ma=-oa.j2; two_ma<=oa.j2; two_ma+=2)
-                   {
-                   for (int two_mb=-ob.j2; two_mb<=ob.j2; two_mb+=2)
-                   {
-                   for (int two_mc=-oc.j2; two_mc<=oc.j2; two_mc+=2)
-                   {
-                   for (int two_mi=-oi.j2; two_mi<=oi.j2; two_mi+=2)
-                   {
-                   for (int two_mj=-oj.j2; two_mj<=oj.j2; two_mj+=2)
-                   {
-                      if ( (two_mi + two_mj) != (two_ma+two_mb) ) continue;
-                   for (int two_mk=-ok.j2; two_mk<=ok.j2; two_mk+=2)
-                   {
-                   for (int two_ml=-ol.j2; two_ml<=ol.j2; two_ml+=2)
-                   {
-                      if ( (two_mi + two_mc) != (two_mk+two_ml) ) continue;
-                   for (int two_mm=-om.j2; two_mm<=om.j2; two_mm+=2)
-                   {
-                      if ( (two_ml + two_mm) != (two_ma+two_mb) ) continue;
-                      if ( (two_mj + two_mk) != (two_mc+two_mm) ) continue;
-
-//                      double vabij = ut.GetMschemeMatrixElement_2b( H, a, two_ma, b, two_mb, i, two_mi, j, two_mj );
-//                      double vlmab = ut.GetMschemeMatrixElement_2b( H, l, two_ml, m, two_mm , a, two_ma, b, two_mb);
-//                      double vickl = ut.GetMschemeMatrixElement_2b( H, i, two_mi, c, two_mc , k, two_mk, l, two_ml);
-//                      double vjkcm = ut.GetMschemeMatrixElement_2b( H, j, two_mj, k, two_mk , c, two_mc, m, two_mm);
-//                      F18 += 1./2 * vabij * vickl * vjkcm * vlmab / denom;
-                      double vabij = ut.GetMschemeMatrixElement_2b( H, a, two_ma, b, two_mb, i, two_mi, j, two_mj );
-                      double vickl = ut.GetMschemeMatrixElement_2b( H, i, two_mi, c, two_mc, k, two_mk, l, two_ml);
-                      double vkjmc = ut.GetMschemeMatrixElement_2b( H, k, two_mk, j, two_mj, m, two_mm, c, two_mc );
-                      double vmlab = ut.GetMschemeMatrixElement_2b( H, m, two_mm, l, two_ml, a, two_ma, b, two_mb);
-                      F18 -= 1./2 * vabij * vickl * vkjmc * vmlab / denom;
-                   }
-                   }
-                   }
-                   }
-                   }
-                   }
-                   }
-                   }
-                 }// for m
-               }// for l
-             }// for k
-           }// for j
-         }// for i
-       }//for c
-     }//for b
-   }//for a
-
-  IMSRGProfiler::timer[__func__] += omp_get_wtime() - t_start;
-  return F18;
-}
-*/
-
-
 
 // Diagram F19 (as numbered by ADG)
 // mscheme expression: F19 = 1/2 sum_abcijklm (v_abil v_icjk v_jkam v_lmbc) / (eps^il_ab eps^jkl_abc eps^lm_bc)
 // agrees.
-double HFMBPT::GetMP4_F19( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F19( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -3328,8 +1505,9 @@ double HFMBPT::GetMP4_F19( const Operator& H) const
 
 // Diagram F20 (as numbered by ADG)
 // mscheme expression: F20 = sum_abcijklm (v_abij v_ickl v_jkam v_lmbc) / (eps^ij_ab eps^jkl_abc eps^lm_bc)
-// doesnt agree, and I don't know why
-double HFMBPT::GetMP4_F20( const Operator& H) const
+// There was a bug in Takayuki's Fortran implementation. Now both agree.
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F20( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -3343,8 +1521,8 @@ double HFMBPT::GetMP4_F20( const Operator& H) const
      {
        for ( auto c: part_vec )
        {
-         Orbit& oa = H.modelspace->GetOrbit(a);
-         Orbit& ob = H.modelspace->GetOrbit(b);
+     Orbit& oa = H.modelspace->GetOrbit(a);
+       Orbit& ob = H.modelspace->GetOrbit(b);
          Orbit& oc = H.modelspace->GetOrbit(c);
          for ( auto i: H.modelspace->holes )
          {
@@ -3422,7 +1600,8 @@ double HFMBPT::GetMP4_F20( const Operator& H) const
 // Diagram F21 (as numbered by ADG)   complex conjugate diagram: F25
 // mscheme expression: F21 = -sum_abcdijkl (v_abik v_icjl v_jdac v_klbd) / (eps^ik_ab eps^jkl_acb eps^kl_bd)
 // agrees.
-double HFMBPT::GetMP4_F21( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F21( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -3437,8 +1616,8 @@ double HFMBPT::GetMP4_F21( const Operator& H) const
      {
        for ( auto c: part_vec )
        {
-         Orbit& oa = H.modelspace->GetOrbit(a);
-         Orbit& ob = H.modelspace->GetOrbit(b);
+     Orbit& oa = H.modelspace->GetOrbit(a);
+       Orbit& ob = H.modelspace->GetOrbit(b);
          Orbit& oc = H.modelspace->GetOrbit(c);
          for ( auto d: H.modelspace->particles )
          {
@@ -3515,7 +1694,8 @@ double HFMBPT::GetMP4_F21( const Operator& H) const
 // Diagram F22 (as numbered by ADG)   complex conjugate diagram: F26
 // mscheme expression: F22 = 1/2 sum_abcdijkl (v_abij v_ickl v_jdac v_klbd) / (eps^ij_ab eps^jkl_acb eps^kl_bd)
 // Missing minus sign? Yes, dropped the minus sign from AMC
-double HFMBPT::GetMP4_F22( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F22( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -3590,7 +1770,8 @@ double HFMBPT::GetMP4_F22( const Operator& H) const
 // Diagram F23 (as numbered by ADG)   complex conjugate diagram: F29
 // mscheme expression: F23 = 1/2 sum_abcdijkl (v_abik v_icjl v_jdab v_klcd) / (eps^ik_ab eps^jkl_abc eps^kl_cd)
 // missing minus sign? yep. fixed it.
-double HFMBPT::GetMP4_F23( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F23( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -3665,7 +1846,8 @@ double HFMBPT::GetMP4_F23( const Operator& H) const
 // Diagram F24 (as numbered by ADG)   complex conjugate diagram: F30
 // mscheme expression: F24 = -1/4 sum_abcdijkl (v_abij v_ickl v_jdab v_klcd) / (eps^ij_ab eps^jkl_abc eps^kl_cd)
 // missing minus sign. fixed it.
-double HFMBPT::GetMP4_F24( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F24( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -3735,7 +1917,8 @@ double HFMBPT::GetMP4_F24( const Operator& H) const
 // Diagram F25 (as numbered by ADG)   complex conjugate diagram: F21
 // mscheme expression: F25 = -sum_abcdijkl (v_abik v_cdaj v_ijcl v_klbd) / (eps^ik_ab eps^ijk_cbd eps^kl_bd)
 // agrees.
-double HFMBPT::GetMP4_F25( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F25( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -3750,8 +1933,8 @@ double HFMBPT::GetMP4_F25( const Operator& H) const
      {
        for ( auto c: part_vec )
        {
-         Orbit& oa = H.modelspace->GetOrbit(a);
-         Orbit& ob = H.modelspace->GetOrbit(b);
+     Orbit& oa = H.modelspace->GetOrbit(a);
+       Orbit& ob = H.modelspace->GetOrbit(b);
          Orbit& oc = H.modelspace->GetOrbit(c);
          for ( auto d: H.modelspace->particles )
          {
@@ -3827,8 +2010,9 @@ double HFMBPT::GetMP4_F25( const Operator& H) const
 
 // Diagram F26 (as numbered by ADG)   complex conjugate diagram: F22
 // mscheme expression: F26 = 1/2 sum_abcdijkl (v_abij v_cdak v_ijcl v_klbd) / (eps^ij_ab eps^ijk_cbd eps^kl_bd)
-// Off by a minus sign. not sure why
-double HFMBPT::GetMP4_F26( const Operator& H) const
+// Missing minus sign due to bug in AMC
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F26( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -3903,7 +2087,8 @@ double HFMBPT::GetMP4_F26( const Operator& H) const
 // Diagram F27 (as numbered by ADG)
 // mscheme expression: F27 = 1/4 sum_abcdeijk (v_abjk v_cdai v_iecd v_jkbe) / (eps^jk_ab eps^ijk_cdb eps^jk_be)
 // missing minus sign?  yep. fixed it.
-double HFMBPT::GetMP4_F27( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F27( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -3973,7 +2158,8 @@ double HFMBPT::GetMP4_F27( const Operator& H) const
 // Diagram F28 (as numbered by ADG)
 // mscheme expression: F28 = 1/2 sum_abcdeijk (v_abij v_cdak v_iecd v_jkbe) / (eps^ij_ab eps^ijk_cdb eps^jk_be)
 // agrees.
-double HFMBPT::GetMP4_F28( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F28( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -4048,7 +2234,8 @@ double HFMBPT::GetMP4_F28( const Operator& H) const
 // Diagram F29 (as numbered by ADG)   complex conjugate diagram: F23
 // mscheme expression: F29 = 1/2 sum_abcdijkl (v_abik v_cdaj v_ijbl v_klcd) / (eps^ik_ab eps^ijk_bcd eps^kl_cd)
 // minus sign was missing. fixed it.
-double HFMBPT::GetMP4_F29( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F29( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -4123,7 +2310,8 @@ double HFMBPT::GetMP4_F29( const Operator& H) const
 // Diagram F30 (as numbered by ADG)   complex conjugate diagram: F24
 // mscheme expression: F30 = -1/4 sum_abcdijkl (v_abij v_cdak v_ijbl v_klcd) / (eps^ij_ab eps^ijk_bcd eps^kl_cd)
 // missing minus sign? yep. fixed it.
-double HFMBPT::GetMP4_F30( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F30( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -4193,7 +2381,8 @@ double HFMBPT::GetMP4_F30( const Operator& H) const
 // Diagram F31 (as numbered by ADG)
 // mscheme expression: F31 = 1/2 sum_abcdeijk (v_abjk v_cdai v_iebc v_jkde) / (eps^jk_ab eps^ijk_bcd eps^jk_de)
 // missing minus sign. fixed it.
-double HFMBPT::GetMP4_F31( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F31( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -4268,7 +2457,8 @@ double HFMBPT::GetMP4_F31( const Operator& H) const
 // Diagram F32 (as numbered by ADG)
 // mscheme expression: F32 = sum_abcdeijk (v_abij v_cdak v_iebc v_jkde) / (eps^ij_ab eps^ijk_bcd eps^jk_de)
 // agrees.
-double HFMBPT::GetMP4_F32( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F32( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -4282,8 +2472,8 @@ double HFMBPT::GetMP4_F32( const Operator& H) const
      {
        for ( auto c: part_vec )
        {
-         Orbit& oa = H.modelspace->GetOrbit(a);
-         Orbit& ob = H.modelspace->GetOrbit(b);
+     Orbit& oa = H.modelspace->GetOrbit(a);
+       Orbit& ob = H.modelspace->GetOrbit(b);
          Orbit& oc = H.modelspace->GetOrbit(c);
          for ( auto d: H.modelspace->particles )
          {
@@ -4358,7 +2548,8 @@ double HFMBPT::GetMP4_F32( const Operator& H) const
 // Diagram F33 (as numbered by ADG)
 // mscheme expression: F33 = -1/4 sum_abcdijkl (v_abik v_cdjl v_ijcd v_klab) / (eps^ik_ab eps^ijkl_cdab eps^kl_ab)
 // minus sign error. Fixed.
-double HFMBPT::GetMP4_F33( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F33( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -4428,7 +2619,8 @@ double HFMBPT::GetMP4_F33( const Operator& H) const
 // Diagram F34 (as numbered by ADG)
 // mscheme expression: F34 = 1/16 sum_abcdijkl (v_abij v_cdkl v_ijcd v_klab) / (eps^ij_ab eps^ijkl_cdab eps^kl_ab)
 // agrees.
-double HFMBPT::GetMP4_F34( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F34( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -4490,7 +2682,8 @@ double HFMBPT::GetMP4_F34( const Operator& H) const
 // Diagram F35 (as numbered by ADG)
 // mscheme expression: F35 = -1/4 sum_abcdijkl (v_abkl v_cdij v_ijac v_klbd) / (eps^kl_ab eps^ijkl_acbd eps^kl_bd)
 // minus sign error. Fixed.
-double HFMBPT::GetMP4_F35( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F35( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -4560,7 +2753,8 @@ double HFMBPT::GetMP4_F35( const Operator& H) const
 // Diagram F36 (as numbered by ADG)
 // mscheme expression: F36 = sum_abcdijkl (v_abik v_cdjl v_ijac v_klbd) / (eps^ik_ab eps^ijkl_acbd eps^kl_bd)
 // agrees.
-double HFMBPT::GetMP4_F36( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F36( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -4651,7 +2845,8 @@ double HFMBPT::GetMP4_F36( const Operator& H) const
 // Diagram F37 (as numbered by ADG)
 // mscheme expression: F37 = -1/4 sum_abcdijkl (v_abij v_cdkl v_ijac v_klbd) / (eps^ij_ab eps^ijkl_acbd eps^kl_bd)
 // agrees.
-double HFMBPT::GetMP4_F37( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F37( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -4719,7 +2914,8 @@ double HFMBPT::GetMP4_F37( const Operator& H) const
 // Diagram F38 (as numbered by ADG)
 // mscheme expression: F38 = 1/16 sum_abcdijkl (v_abkl v_cdij v_ijab v_klcd) / (eps^kl_ab eps^ijkl_abcd eps^kl_cd)
 // agrees.
-double HFMBPT::GetMP4_F38( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F38( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -4781,7 +2977,8 @@ double HFMBPT::GetMP4_F38( const Operator& H) const
 // Diagram F39 (as numbered by ADG)
 // mscheme expression: F39 = -1/4 sum_abcdijkl (v_abik v_cdjl v_ijab v_klcd) / (eps^ik_ab eps^ijkl_abcd eps^kl_cd)
 // agrees.
-double HFMBPT::GetMP4_F39( const Operator& H) const
+// Written by AI (Claude sonnet 5) based on expressions and example from Ragnar. Tested and corrected by Ragnar.
+double GetMP4_F39( const Operator& H)
 {
    double t_start = omp_get_wtime();
 
@@ -4846,3 +3043,4 @@ double HFMBPT::GetMP4_F39( const Operator& H) const
 
 
 
+}

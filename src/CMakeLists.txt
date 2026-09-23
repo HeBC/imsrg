@@ -81,6 +81,11 @@ add_subdirectory(extern/half)
 
 add_subdirectory(extern/boost_src)
 
+add_subdirectory(Commutator)
+add_subdirectory(ReferenceImplementations)
+add_subdirectory(ThreeBodyME)
+add_subdirectory(imsrg_util)
+
 # add_subdirectory(profiling)
 
 
@@ -175,26 +180,32 @@ target_link_libraries(
 )
 
 
-add_library(
-    ThreeBodyME OBJECT
-    ThreeBodyME.hh ThreeBodyME.cc
-    ThreeBodyStorage.hh ThreeBodyStorage.cc
-    ThreeBodyStorage_pn.hh ThreeBodyStorage_pn.cc
-    ThreeBodyStorage_no2b.hh ThreeBodyStorage_no2b.cc
-    ThreeBodyStorage_mono.hh ThreeBodyStorage_mono.cc
-    ThreeBodyStorage_iso.hh ThreeBodyStorage_iso.cc
-)
-target_link_libraries(
-    ThreeBodyME
-    PUBLIC
-    ModelSpace
-    IMSRGBoostZip
-    HalfPrecision
-    PRIVATE
-    IMSRGProfiler
-    AngMom
-    OpenMP::OpenMP_CXX
-)
+#add_library(
+#    ThreeBodyME OBJECT
+#    ThreeBodyME.hh                           ThreeBodyME_dir/ThreeBodyME.cc
+#    ThreeBodyStorage.hh      ThreeBodyME_dir/ThreeBodyStorage.cc
+#    ThreeBodyME_dir/ThreeBodyStorage_pn.hh   ThreeBodyME_dir/ThreeBodyStorage_pn.cc
+#    ThreeBodyME_dir/ThreeBodyStorage_no2b.hh ThreeBodyME_dir/ThreeBodyStorage_no2b.cc
+#    ThreeBodyME_dir/ThreeBodyStorage_mono.hh ThreeBodyME_dir/ThreeBodyStorage_mono.cc
+#    ThreeBodyME_dir/ThreeBodyStorage_iso.hh  ThreeBodyME_dir/ThreeBodyStorage_iso.cc
+#)
+#target_include_directories(
+#    ThreeBodyME
+#    PRIVATE
+#    ${CMAKE_CURRENT_SOURCE_DIR}
+#    ${CMAKE_CURRENT_SOURCE_DIR}/ThreeBodyME_dir
+#)
+#target_link_libraries(
+#    ThreeBodyME
+#    PUBLIC
+#    ModelSpace
+#    IMSRGBoostZip
+#    HalfPrecision
+#    PRIVATE
+#    IMSRGProfiler
+#    AngMom
+#    OpenMP::OpenMP_CXX
+#)
 
 add_library(
     Parameters
@@ -204,6 +215,11 @@ add_library(
 add_library(
     Operator  OBJECT
     Operator.hh Operator.cc
+)
+target_include_directories(
+    Operator
+    PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/ThreeBodyME
 )
 target_link_libraries(
     Operator
@@ -300,27 +316,27 @@ target_link_libraries(
 #    Commutator
 #)
 
-add_library(
-    Commutator   OBJECT
-    Commutator.hh Commutator.cc
-    DaggerCommutators.hh DaggerCommutators.cc
-    TensorCommutators.hh TensorCommutators.cc
-    IMSRG3Commutators.hh IMSRG3Commutators.cc
-    FactorizedDoubleCommutator.hh FactorizedDoubleCommutator.cc
-)
-target_link_libraries(
-    Commutator
-    PUBLIC
-    armadillo
-    Operator
-    TwoBodyME
-    ThreeLegME
-    PRIVATE
-    OpenMP::OpenMP_CXX
-    # ${ARMADILLO_LIBRARIES}
-    PhysicalConstants
-    AngMom
-)
+#add_library(
+#    Commutator   OBJECT
+#    Commutator.hh Commutator.cc
+#    DaggerCommutators.hh DaggerCommutators.cc
+#    TensorCommutators.hh TensorCommutators.cc
+#    IMSRG3Commutators.hh IMSRG3Commutators.cc
+#    FactorizedDoubleCommutator.hh FactorizedDoubleCommutator.cc
+#)
+#target_link_libraries(
+#    Commutator
+#    PUBLIC
+#    armadillo
+#    Operator
+#    TwoBodyME
+#    ThreeLegME
+#    PRIVATE
+#    OpenMP::OpenMP_CXX
+#    # ${ARMADILLO_LIBRARIES}
+#    PhysicalConstants
+#    AngMom
+#)
 
 
 add_library(
@@ -401,25 +417,6 @@ target_link_libraries(
     OpenMP::OpenMP_CXX
 )
 
-#add_library(
-#    GeneratorPV OBJECT
-#    GeneratorPV.hh GeneratorPV.cc
-#)
-#target_link_libraries(
-#    GeneratorPV
-#    PUBLIC
-#    ModelSpace
-#    Operator
-#    PRIVATE
-#    Generator
-#    GSL::gsl
-#    imsrg_util
-#    AngMom
-##    Commutator
-#    PhysicalConstants
-#    OpenMP::OpenMP_CXX
-#)
-
 add_library(
     HFMBPT OBJECT
     HFMBPT.hh HFMBPT.cc
@@ -452,24 +449,32 @@ target_link_libraries(
     AngMom
 )
 
-add_library(
-    ReferenceImplementations  OBJECT
-    ReferenceImplementations.hh ReferenceImplementations.cc
-)
-target_link_libraries(
-    ReferenceImplementations
-    PUBLIC
-    ModelSpace
-    Operator
-#    Commutator
-    PRIVATE
-    armadillo
-    PhysicalConstants
-    Version
-    imsrg_util
-    AngMom
-    OpenMP::OpenMP_CXX
-)
+#add_library(
+#    ReferenceImplementations  OBJECT
+#    ReferenceImplementations.hh 
+#    ReferenceImplementations.cc
+#    HFMBPT4.cc
+#    IMSRG2Commutators.cc
+#    IMSRG3Commutators.cc
+#    IMSRG2TensorCommutators.cc
+#    IMSRG3TensorCommutators.cc
+#    FactorizedNestedCommutators.cc
+#)
+#
+#target_link_libraries(
+#    ReferenceImplementations
+#    PUBLIC
+#    ModelSpace
+#    Operator
+##    Commutator
+#    PRIVATE
+#    armadillo
+#    PhysicalConstants
+#    Version
+#    imsrg_util
+#    AngMom
+#    OpenMP::OpenMP_CXX
+#)
 
 add_library(
     UnitTest  OBJECT

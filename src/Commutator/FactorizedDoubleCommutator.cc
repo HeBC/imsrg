@@ -149,6 +149,7 @@ namespace Commutator
       int hEta = Eta.IsHermitian() ? 1 : -1;
       int hGamma = Gamma.IsHermitian() ? 1 : -1;
       // int hZ = Z.IsHermitian() ? 1 : -1;
+//      int hZ = hGamma;
       int hZ = hGamma;
       // ###########################################################
       //  diagram I
