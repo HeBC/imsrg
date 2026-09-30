@@ -12,12 +12,6 @@
 #include <limits>
 
 namespace {
-void RequireOrdinaryMagnusProduct(bool two_omega)
-{
-  if (two_omega && BCH::use_factorized_correction_BCH_Product)
-    throw std::invalid_argument("Factorized hunter-gatherer requires SetUseFactorizedCorrectionBCH_product(false): the legacy product corrections use an anti-Hermitian target and fail fractional-reference tests");
-}
-
 // Recompute the cached source if the user changes diagram options or tolerance.
 std::vector<double> GathererSettings()
 {
@@ -133,7 +127,6 @@ void IMSRGSolver::NewOmega()
 // we want to transform some operator we don't need to do a bunch of transformations.
 void IMSRGSolver::GatherOmega()
 {
-  RequireOrdinaryMagnusProduct(use_two_omega_bch);
   std::cout << "gathering Omega. " << std::endl;
   if (use_two_gatherers)
   {
@@ -499,7 +492,6 @@ void IMSRGSolver::Solve()
 {
   if (use_two_omega_bch)
   {
-    RequireOrdinaryMagnusProduct(true);
     if (method != "magnus" && method != "magnus_euler" && method != "magnus_backoff" && method != "magnus_modified_euler")
       throw std::invalid_argument("Two-Omega BCH supports magnus_euler, magnus_backoff, and magnus_modified_euler");
     // Validate and synchronize manually supplied Omegas before generating eta.
@@ -581,7 +573,6 @@ void IMSRGSolver::Solve_flow_euler()
 // This is the default solver
 void IMSRGSolver::Solve_magnus_euler()
 {
-  RequireOrdinaryMagnusProduct(use_two_omega_bch);
   if (use_two_gatherers) UpdateH();
   istep = 0;
 
@@ -669,7 +660,6 @@ void IMSRGSolver::Solve_magnus_euler()
 /// Modification added by Matthias
 void IMSRGSolver::Solve_magnus_backoff()
 {
-  RequireOrdinaryMagnusProduct(use_two_omega_bch);
   if (use_two_gatherers) UpdateH();
   istep = 0;
 
@@ -796,7 +786,6 @@ void IMSRGSolver::Solve_magnus_backoff()
 
 void IMSRGSolver::Solve_magnus_modified_euler()
 {
-  RequireOrdinaryMagnusProduct(use_two_omega_bch);
   if (use_two_gatherers) UpdateH();
   istep = 0;
   //   generator.Update(&FlowingOps[0],&Eta);
