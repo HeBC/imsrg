@@ -88,6 +88,26 @@ class IMSRGSolver
   void InvalidateGathererCache(bool first=true);
   void ValidateGathererState() const;
 
+  // Ordinary Magnus splitting with retained 223 sources across ALL segments.
+  // No gatherer is merged; SetOmegaNormMax remains the split threshold.
+  bool use_factorized_split_bch = false;
+  bool split_cache_valid = false;
+  size_t split_cache_count = 0;
+  std::deque<Operator> split_sources; // new Htilde_j only, never cumulative
+  std::vector<double> split_cache_settings;
+  void SetUseFactorizedSplitBCH(bool b=true);
+  bool GetUseFactorizedSplitBCH() const { return use_factorized_split_bch; }
+  size_t GetSplitSourceCount() const { return split_sources.size(); }
+  void InvalidateSplitCache();
+  void UpdateSplitCache();
+  void FreezeSplitOmega();
+  std::string SplitOmegaFilename(size_t i) const;
+  const Operator &ReadSplitOmega(size_t i, Operator &buffer) const;
+  void WriteSplitOmega(size_t i, Operator &op) const;
+  std::pair<Operator, Operator> ApplySplitStage(const Operator &H_in, const Operator &Omega_i,
+      const std::deque<Operator> &sources, int first, int direction, bool collect_source) const;
+  Operator TransformSplit(const Operator &OpIn, int first, bool inverse=false) const;
+
   double Elast;
   double cumulative_error;
 //  double pert_triples_this_omega;
@@ -111,9 +131,9 @@ class IMSRGSolver
   void GatherOmega(); // hunter-gatherer mode of updating omega
   void SetHin( Operator& H_in);
 //  void SetReadWrite( ReadWrite& r){rw = &r; scratchdir = rw->GetScratchDir();};
-  void SetScratchDir( std::string sdir) { scratchdir = sdir; };
+  void SetScratchDir(std::string sdir);
   std::string GetScratchDir( ) {return scratchdir; };
-  void SetReadWrite( ReadWrite& r){scratchdir = r.GetScratchDir();}; // for backwards compatibility
+  void SetReadWrite( ReadWrite& r){SetScratchDir(r.GetScratchDir());}; // for backwards compatibility
   void Reset();
   void AddOperator(Operator& Op){FlowingOps.push_back(Op);};
   Operator GetOperator(size_t i){return FlowingOps.at(i);};
@@ -130,7 +150,7 @@ class IMSRGSolver
   Operator Transform(Operator&& OpIn);
   Operator InverseTransform(Operator& OpIn);
   Operator GetOmega(int i){return Omega[i];};
-  std::deque<Operator>& GetOmega() { InvalidateGathererCache(); return Omega; }
+  std::deque<Operator>& GetOmega() { InvalidateGathererCache(); InvalidateSplitCache(); return Omega; }
   void SetOmega(size_t i, Operator& om);
   size_t GetOmegaSize(){return Omega.size();};
   int GetNOmegaWritten(){return n_omega_written;};

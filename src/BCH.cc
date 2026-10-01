@@ -746,9 +746,10 @@ struct IncomingSource
 // the original single-Omega factorized recurrence does.
 std::pair<Operator, Operator> Transform(const Operator &input, const Operator &omega,
                                      std::initializer_list<IncomingSource> incoming,
-                                     bool collect_source)
+                                     bool collect_source, const Operator *cross_term=nullptr)
 {
   Validate(input, omega);
+  if (cross_term) Validate(*cross_term, omega);
   for (const auto &source : incoming)
   {
     Validate(input, source.omega);
@@ -784,6 +785,7 @@ std::pair<Operator, Operator> Transform(const Operator &input, const Operator &o
     correction.Erase();
     if (n == 1 && has_two_body_omega)
     {
+      if (cross_term) correction += Canonical(*cross_term);
       for (const auto &source : incoming)
         ReturnFromThreeBody(a, source.omega, source.two_body, correction);
     }
@@ -814,6 +816,28 @@ std::pair<Operator, Operator> Transform(const Operator &input, const Operator &o
   return {std::move(result), std::move(sum_source)};
 }
 } // namespace
+
+void AddFactorizedCrossTerm(const Operator &Omega_i, const Operator &Omega_j,
+                           const Operator &Htilde_j, Operator &DeltaH)
+{
+  if (!use_factorized_correction) return;
+  Validate(Htilde_j, Omega_i);
+  Validate(Htilde_j, Omega_j);
+  Validate(DeltaH, Omega_i);
+  ReturnFromThreeBody(Omega_i, Omega_j, Htilde_j, DeltaH);
+}
+
+std::pair<Operator, Operator> BCH_TransformWithCrossTerm(
+    const Operator &H_in, const Operator &Omega_i, const Operator &DeltaH, bool collect_source)
+{
+  if (!use_factorized_correction)
+  {
+    Operator source;
+    if (collect_source) { source = H_in; source.Erase(); }
+    return {BCH_Transform(H_in, Omega_i), std::move(source)};
+  }
+  return Transform(H_in, Omega_i, {}, collect_source, &DeltaH);
+}
 
 std::pair<Operator, Operator> BCH_TransformWithSource(const Operator &op, const Operator &omega)
 {

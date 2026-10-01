@@ -46,6 +46,13 @@ namespace BCH
     Operator BCH_TransformFromSources(const Operator &Transformed, const Operator &OmegaOuter,
                                      const Operator &OmegaInner1, const Operator &Source1,
                                      const Operator &OmegaInner2, const Operator &Source2);
+    // Arbitrary splitting: DeltaH = sum_{j<i} D_ij(Htilde_j). Insert this
+    // sum in T_{i,1}, then propagate it through the same BCH recurrence.
+    void AddFactorizedCrossTerm(const Operator &Omega_i, const Operator &Omega_j,
+                                const Operator &Htilde_j, Operator &DeltaH);
+    std::pair<Operator, Operator> BCH_TransformWithCrossTerm(
+        const Operator &H_in, const Operator &Omega_i, const Operator &DeltaH,
+        bool collect_source=true);
     Operator Standard_BCH_Transform(const Operator &Op, const Operator &Omega);
     Operator Brueckner_BCH_Transform(const Operator &Op, const Operator &Omega);
 

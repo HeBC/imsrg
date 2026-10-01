@@ -62,8 +62,189 @@ IMSRGSolver::IMSRGSolver(Operator &H_in)
   Omega.emplace_back(Eta);
 }
 
+void IMSRGSolver::InvalidateSplitCache()
+{
+  split_cache_valid = false;
+  split_cache_count = 0;
+  split_sources.clear();
+}
+
+void IMSRGSolver::SetScratchDir(std::string sdir)
+{
+  if (use_factorized_split_bch)
+  {
+    if (sdir.find("/dev/null") != std::string::npos)
+      throw std::invalid_argument("Factorized splitting needs earlier Omegas; /dev/null discards them");
+    if (n_omega_written != 0 && sdir != scratchdir)
+      throw std::invalid_argument("Cannot move scratch directory while frozen Omegas remain there");
+  }
+  scratchdir = sdir;
+}
+
+void IMSRGSolver::SetUseFactorizedSplitBCH(bool b)
+{
+  if (b == use_factorized_split_bch) return;
+  if (b && scratchdir.find("/dev/null") != std::string::npos)
+    throw std::invalid_argument("Factorized splitting needs earlier Omegas; /dev/null discards them");
+  use_factorized_split_bch = b;
+  InvalidateSplitCache();
+  InvalidateGathererCache();
+  if (b)
+  {
+    // Preserve every existing ordered factor, including any HG slots. Future
+    // factors are split normally; no previously accumulated Omega is dropped.
+    hunter_gatherer = false;
+    use_two_omega_bch = false;
+    use_two_gatherers = false;
+    first_gatherer_saved = Operator();
+    first_gatherer_source = Operator();
+    gatherer_source = Operator();
+  }
+  else if (!Omega.empty())
+  {
+    // Rebuild the ordinary prefix rather than leaving cross terms in H_saved
+    // when comparing the opt-in mode with legacy splitting on the same solver.
+    H_saved = *H_0;
+    Operator buffer = Eta;
+    for (size_t i = 0; i + 1 < n_omega_written + Omega.size(); ++i)
+      H_saved = BCH::BCH_Transform(H_saved, ReadSplitOmega(i, buffer));
+    FlowingOps[0] = BCH::BCH_Transform(H_saved, Omega.back());
+  }
+}
+
+std::string IMSRGSolver::SplitOmegaFilename(size_t i) const
+{
+  std::ostringstream filename;
+  filename << scratchdir << "/OMEGA_" << std::setw(6) << std::setfill('0') << getpid()
+           << std::setw(3) << std::setfill('0') << i;
+  return filename.str();
+}
+
+const Operator &IMSRGSolver::ReadSplitOmega(size_t i, Operator &buffer) const
+{
+  if (i >= size_t(n_omega_written)) return Omega.at(i - n_omega_written);
+  std::ifstream file(SplitOmegaFilename(i), std::ios::binary);
+  if (!file) throw std::runtime_error("Cannot open frozen Omega: " + SplitOmegaFilename(i));
+  buffer.Erase();
+  // A rank-one input Hamiltonian can acquire rank-two Magnus factors. The
+  // binary reader expects the two-body container to already know ModelSpace.
+  if (buffer.GetParticleRank() < 2) buffer.SetParticleRank(2);
+  if (buffer.IsReduced()) buffer.MakeNotReduced();
+  buffer.ReadBinary(file);
+  if (!file) throw std::runtime_error("Cannot read frozen Omega: " + SplitOmegaFilename(i));
+  return buffer;
+}
+
+void IMSRGSolver::WriteSplitOmega(size_t i, Operator &op) const
+{
+  std::ofstream file(SplitOmegaFilename(i), std::ios::binary);
+  if (!file) throw std::runtime_error("Cannot create frozen Omega: " + SplitOmegaFilename(i));
+  // Operator's binary format does not store the reduced/nonreduced flag.
+  // Scalar Magnus factors therefore use one fixed on-disk representation.
+  if (op.IsReduced())
+  {
+    Operator canonical = op;
+    canonical.MakeNotReduced();
+    canonical.WriteBinary(file);
+  }
+  else op.WriteBinary(file);
+  file.close();
+  if (!file) throw std::runtime_error("Cannot write frozen Omega: " + SplitOmegaFilename(i));
+}
+
+std::pair<Operator, Operator> IMSRGSolver::ApplySplitStage(
+    const Operator &H_in, const Operator &Omega_i, const std::deque<Operator> &sources,
+    int first, int direction, bool collect_source) const
+{
+  // IMSRG(2) and full IMSRG(3) retain their original transform. The source
+  // recurrence is used only for the selected factorized rank-two treatment.
+  if (!BCH::use_factorized_correction || Commutator::use_imsrg3)
+    return {BCH::BCH_Transform(H_in, Omega_i), Operator()};
+  Operator DeltaH = H_in;
+  DeltaH.Erase();
+  if (DeltaH.GetParticleRank() < 2) DeltaH.SetParticleRank(2);
+  Operator buffer = Eta;
+  for (size_t j = 0; j < sources.size(); ++j)
+  {
+    const auto &Omega_j = ReadSplitOmega(first + direction * int(j), buffer);
+    if (direction > 0)
+      BCH::AddFactorizedCrossTerm(Omega_i, Omega_j, sources[j], DeltaH);
+    else
+      BCH::AddFactorizedCrossTerm(Omega_i, -Omega_j, sources[j], DeltaH);
+  }
+  return BCH::BCH_TransformWithCrossTerm(H_in, Omega_i, DeltaH, collect_source);
+}
+
+void IMSRGSolver::UpdateSplitCache()
+{
+  if (Omega.empty()) throw std::logic_error("Regular splitting needs an active Omega");
+  const auto settings = GathererSettings();
+  const size_t frozen = n_omega_written + Omega.size() - 1;
+  if (!split_cache_valid || split_cache_settings != settings || split_cache_count > frozen)
+  {
+    InvalidateSplitCache();
+    H_saved = *H_0;
+  }
+  // A newly frozen segment adds exactly one source. Old sources are not
+  // recomputed during subsequent updates of the active segment.
+  Operator buffer = Eta;
+  for (; split_cache_count < frozen; ++split_cache_count)
+  {
+    auto stage = ApplySplitStage(H_saved, ReadSplitOmega(split_cache_count, buffer),
+                                split_sources, 0, 1, true);
+    H_saved = std::move(stage.first);
+    if (BCH::use_factorized_correction && !Commutator::use_imsrg3)
+      split_sources.push_back(std::move(stage.second));
+  }
+  split_cache_settings = settings;
+  split_cache_valid = true;
+}
+
+void IMSRGSolver::FreezeSplitOmega()
+{
+  UpdateSplitCache();
+  auto stage = ApplySplitStage(H_saved, Omega.back(), split_sources, 0, 1, true);
+  FlowingOps[0] = stage.first;
+  H_saved = std::move(stage.first);
+  if (BCH::use_factorized_correction && !Commutator::use_imsrg3)
+    split_sources.push_back(std::move(stage.second));
+  ++split_cache_count;
+}
+
+Operator IMSRGSolver::TransformSplit(const Operator &OpIn, int first, bool inverse) const
+{
+  const int total = n_omega_written + Omega.size();
+  first = std::max(first, 0);
+  Operator H_i = OpIn;
+  if (first >= total) return H_i;
+  if (H_i.GetParticleRank() == 1) H_i.SetParticleRank(2);
+  const int begin = inverse ? total - 1 : first;
+  const int direction = inverse ? -1 : 1;
+  std::deque<Operator> sources;
+  Operator buffer = Eta;
+  for (int k = 0; k < total - first; ++k)
+  {
+    const auto &Omega_i = ReadSplitOmega(begin + direction * k, buffer);
+    const bool collect = k + 1 < total - first;
+    auto stage = inverse ? ApplySplitStage(H_i, -Omega_i, sources, begin, direction, collect)
+                         : ApplySplitStage(H_i, Omega_i, sources, begin, direction, collect);
+    H_i = std::move(stage.first);
+    if (collect && BCH::use_factorized_correction && !Commutator::use_imsrg3)
+      sources.push_back(std::move(stage.second));
+  }
+  return H_i;
+}
+
 void IMSRGSolver::NewOmega()
 {
+  if (use_factorized_split_bch)
+  {
+    if (!scratchdir.empty()) { FlushOmegaToScratch(); return; }
+    FreezeSplitOmega();
+    Omega.emplace_back(Eta);
+    Omega.back().Erase();
+    return;
+  }
   if (use_two_omega_bch)
   {
     GatherOmega();
@@ -253,6 +434,7 @@ void IMSRGSolver::ValidateGathererState() const
 
 void IMSRGSolver::SetHunterGatherer(bool b)
 {
+  if (b && use_factorized_split_bch) SetUseFactorizedSplitBCH(false);
   if (!b && use_two_gatherers) SetUseTwoGatherers(false);
   hunter_gatherer = b;
   if (!b) use_two_omega_bch = false;
@@ -266,7 +448,12 @@ void IMSRGSolver::SetUseTwoOmegaBCH(bool b)
   if (b && (Omega.size() > (use_two_gatherers ? 3u : 2u) || n_omega_written != 0))
     throw std::invalid_argument("Enable two-Omega BCH before creating more than two Magnus segments or writing them to scratch");
   use_two_omega_bch = b;
-  if (b) hunter_gatherer = true;
+  if (b)
+  {
+    use_factorized_split_bch = false;
+    InvalidateSplitCache();
+    hunter_gatherer = true;
+  }
   InvalidateGathererCache();
 }
 
@@ -289,6 +476,8 @@ void IMSRGSolver::SetUseTwoGatherers(bool b)
       Omega.front().Erase();
     }
     use_two_gatherers = true;
+    use_factorized_split_bch = false;
+    InvalidateSplitCache();
     use_two_omega_bch = true;
     hunter_gatherer = true;
   }
@@ -359,6 +548,12 @@ void IMSRGSolver::UpdateGathererCache()
 
 void IMSRGSolver::UpdateH()
 {
+  if (use_factorized_split_bch)
+  {
+    UpdateSplitCache();
+    FlowingOps[0] = ApplySplitStage(H_saved, Omega.back(), split_sources, 0, 1, false).first;
+    return;
+  }
   ValidateGathererState();
   if (use_two_omega_bch && Omega.size() >= 2)
   {
@@ -384,6 +579,15 @@ void IMSRGSolver::SetHin(Operator &H_in)
   Eta = Operator(H_in);
   Eta.Erase();
   Eta.SetAntiHermitian();
+  if (use_factorized_split_bch)
+  {
+    CleanupScratch();
+    n_omega_written = 0;
+    Omega.assign(1, Eta);
+    H_saved = H_in;
+    InvalidateSplitCache();
+    return;
+  }
   if (use_two_omega_bch)
   {
     // A replacement reference Hamiltonian starts a fresh two-Omega evolution.
@@ -405,6 +609,7 @@ void IMSRGSolver::SetHin(Operator &H_in)
 
 void IMSRGSolver::SetOmega(size_t i, Operator &om)
 {
+  if (use_factorized_split_bch && (i + 1 != Omega.size())) InvalidateSplitCache();
   if (use_two_omega_bch && i > (use_two_gatherers ? 2u : 1u))
     throw std::invalid_argument("The requested Omega index exceeds the selected gatherer/hunter capacity");
   if (use_two_gatherers && i == 0 &&
@@ -413,7 +618,13 @@ void IMSRGSolver::SetOmega(size_t i, Operator &om)
   if ((i + 1) > Omega.size())
   {
     InvalidateGathererCache(); // Resizing changes the meaning of the old hunter slot.
-    Omega.resize(i + 1);
+    if (use_factorized_split_bch)
+    {
+      Operator empty = Eta;
+      empty.Erase();
+      Omega.resize(i + 1, empty);
+    }
+    else Omega.resize(i + 1);
   }
   else if (i == 0) InvalidateGathererCache();
   else if (i + 1 < Omega.size()) InvalidateGathererCache(false);
@@ -425,6 +636,16 @@ void IMSRGSolver::Reset()
   s = 0;
   Eta.Erase();
   InvalidateGathererCache();
+  if (use_factorized_split_bch)
+  {
+    CleanupScratch();
+    n_omega_written = 0;
+    Omega.assign(1, Eta);
+    H_saved = *H_0;
+    FlowingOps[0] = *H_0;
+    InvalidateSplitCache();
+    return;
+  }
   if (use_two_omega_bch)
   {
     Omega.assign(use_two_gatherers ? 2 : 1, Eta);
@@ -490,6 +711,9 @@ void IMSRGSolver::SetDsmax(double d)
 
 void IMSRGSolver::Solve()
 {
+  if (use_factorized_split_bch && method != "magnus" && method != "magnus_euler" &&
+      method != "magnus_backoff" && method != "magnus_modified_euler")
+    throw std::invalid_argument("Factorized splitting supports magnus_euler, magnus_backoff, and magnus_modified_euler");
   if (use_two_omega_bch)
   {
     if (method != "magnus" && method != "magnus_euler" && method != "magnus_backoff" && method != "magnus_modified_euler")
@@ -573,7 +797,7 @@ void IMSRGSolver::Solve_flow_euler()
 // This is the default solver
 void IMSRGSolver::Solve_magnus_euler()
 {
-  if (use_two_gatherers) UpdateH();
+  if (use_two_gatherers || use_factorized_split_bch) UpdateH();
   istep = 0;
 
   generator.Update(FlowingOps[0], Eta);
@@ -660,7 +884,7 @@ void IMSRGSolver::Solve_magnus_euler()
 /// Modification added by Matthias
 void IMSRGSolver::Solve_magnus_backoff()
 {
-  if (use_two_gatherers) UpdateH();
+  if (use_two_gatherers || use_factorized_split_bch) UpdateH();
   istep = 0;
 
   generator.Update(FlowingOps[0], Eta);
@@ -786,7 +1010,7 @@ void IMSRGSolver::Solve_magnus_backoff()
 
 void IMSRGSolver::Solve_magnus_modified_euler()
 {
-  if (use_two_gatherers) UpdateH();
+  if (use_two_gatherers || use_factorized_split_bch) UpdateH();
   istep = 0;
   //   generator.Update(&FlowingOps[0],&Eta);
   generator.Update(FlowingOps[0], Eta);
@@ -1258,6 +1482,7 @@ Operator IMSRGSolver::Transform(Operator &&OpIn)
 /// Returns \f$ e^{-Omega} \mathcal{O} e^{Omega} \f$
 Operator IMSRGSolver::InverseTransform(Operator &OpIn)
 {
+  if (use_factorized_split_bch) return TransformSplit(OpIn, 0, true);
   ValidateGathererState();
   if (use_two_gatherers && Omega.size() == 3)
     return BCH::BCH_Transform(OpIn, -Omega.front(), -Omega[1], -Omega.back());
@@ -1281,6 +1506,7 @@ Operator IMSRGSolver::InverseTransform(Operator &OpIn)
 /// for the \f$\Omega_i\f$s with index greater than or equal to n.
 Operator IMSRGSolver::Transform_Partial(Operator &OpIn, int n)
 {
+  if (use_factorized_split_bch) return TransformSplit(OpIn, n);
   ValidateGathererState();
   if (use_two_gatherers)
   {
@@ -1351,7 +1577,7 @@ Operator IMSRGSolver::Transform_Partial(Operator &OpIn, int n)
 
 Operator IMSRGSolver::Transform_Partial(Operator &&OpIn, int n)
 {
-  if (use_two_omega_bch)
+  if (use_two_omega_bch || use_factorized_split_bch)
     return Transform_Partial(OpIn, n);
   //  cout << "Calling r-value version of Transform_Partial, n = " << n << endl;
   Operator OpOut = OpIn;
@@ -1396,6 +1622,22 @@ int IMSRGSolver::GetSystemDimension()
 
 void IMSRGSolver::FlushOmegaToScratch()
 {
+  if (use_factorized_split_bch)
+  {
+    if (scratchdir.empty()) return;
+    if (scratchdir.find("/dev/null") != std::string::npos)
+      throw std::invalid_argument("Factorized splitting needs earlier Omegas; /dev/null discards them");
+    if (n_omega_written + Omega.size() > size_t(max_omega_written))
+      throw std::runtime_error("Maximum number of scratch Omegas exceeded");
+    // Write before committing the cache/history change. Preserve the original
+    // numbering: disk prefix followed by the in-memory segments.
+    for (size_t i = 0; i < Omega.size(); ++i) WriteSplitOmega(n_omega_written + i, Omega[i]);
+    FreezeSplitOmega();
+    n_omega_written += Omega.size();
+    Omega.assign(1, Eta);
+    Omega.back().Erase();
+    return;
+  }
   if (use_two_omega_bch)
     throw std::invalid_argument("Two-Omega BCH keeps its hunter and gatherer in memory; scratch flushing is unsupported");
   if (scratchdir.find("/dev/null") != std::string::npos)

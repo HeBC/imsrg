@@ -615,6 +615,10 @@ PYBIND11_MODULE(pyIMSRG, m)
           .def("GetUseTwoOmegaBCH", &IMSRGSolver::GetUseTwoOmegaBCH)
           .def("SetUseTwoGatherers", &IMSRGSolver::SetUseTwoGatherers, py::arg("enabled")=true)
           .def("GetUseTwoGatherers", &IMSRGSolver::GetUseTwoGatherers)
+          .def("SetUseFactorizedSplitBCH", &IMSRGSolver::SetUseFactorizedSplitBCH, py::arg("enabled")=true)
+          .def("GetUseFactorizedSplitBCH", &IMSRGSolver::GetUseFactorizedSplitBCH)
+          .def("GetSplitSourceCount", &IMSRGSolver::GetSplitSourceCount)
+          .def("SetScratchDir", &IMSRGSolver::SetScratchDir)
           .def("SetHunterNormMax", &IMSRGSolver::SetHunterNormMax, py::arg("limit"))
           .def("GetHunterNormMax", &IMSRGSolver::GetHunterNormMax)
           .def("GatherOmega", &IMSRGSolver::GatherOmega)
@@ -813,6 +817,10 @@ PYBIND11_MODULE(pyIMSRG, m)
                py::arg("Transformed"), py::arg("OmegaOuter"), py::arg("OmegaInner1"), py::arg("Source1"),
                py::arg("OmegaInner2"), py::arg("Source2"));
        BCH.def("BCH_Product", &BCH::BCH_Product);
+       BCH.def("AddFactorizedCrossTerm", &BCH::AddFactorizedCrossTerm,
+               py::arg("Omega_i"), py::arg("Omega_j"), py::arg("Htilde_j"), py::arg("DeltaH"));
+       BCH.def("BCH_TransformWithCrossTerm", &BCH::BCH_TransformWithCrossTerm,
+               py::arg("H_in"), py::arg("Omega_i"), py::arg("DeltaH"), py::arg("collect_source")=true);
        BCH.def("SetUseFactorizedCorrection", &BCH::SetUseFactorizedCorrection);
        BCH.def("SetUseFactorizedCorrectionBCH_product", &BCH::SetUseFactorizedCorrectionBCH_product);
        BCH.def("SetUseFactorized_Correct_ZBTerm", &BCH::SetUseFactorized_Correct_ZBTerm);
