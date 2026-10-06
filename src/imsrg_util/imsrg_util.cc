@@ -18,6 +18,8 @@
 #include <string>
 #include <map>
 #include <array>
+#include <algorithm>
+#include <stdexcept>
 
 
 /// imsrg_util namespace. Used to define some helpful functions.
@@ -110,6 +112,22 @@ namespace imsrg_util
         theop =  UniqueForbidden_ChargeExchange_CS(modelspace,K);
       }
       else if (opname == "Iso2")          theop =  Isospin2_Op(modelspace) ;
+      else if (opname == "SU4Casimir")    theop =  SU4Casimir_Op(modelspace) ;
+      else if (opnamesplit[0] == "VContactIV" or opnamesplit[0] == "VContactIT")
+      {
+         if (opnamesplit.size() > 2)
+            throw std::invalid_argument("Use VContactIV[_a1] or VContactIT[_a2].");
+         const double strength = opnamesplit.size() == 2 ? std::stod(opnamesplit[1]) : 1.0;
+         theop = opnamesplit[0] == "VContactIV"
+                   ? IsovectorContact_Op(modelspace,strength)
+                   : IsotensorContact_Op(modelspace,strength);
+      }
+      else if (opnamesplit[0] == "VContact")
+      {
+         if (opnamesplit.size() != 3)
+            throw std::invalid_argument("Use VContact_a1_a2 with both strengths specified.");
+         theop = IsospinContact_Op(modelspace,std::stod(opnamesplit[1]),std::stod(opnamesplit[2]));
+      }
       else if (opname == "Tz2")           theop =  TzSquared_Op(modelspace) ;
       else if (opname == "R2CM")          theop =  R2CM_Op(modelspace) ;
       else if (opname == "Trel")          theop =  Trel_Op(modelspace) ;
@@ -1863,6 +1881,228 @@ Operator FourierBesselCoeff(ModelSpace& modelspace, int nu, double R, std::set<i
 }
 
 
+
+/// Wigner SU(4) quadratic Casimir in the normalization of Li Muli et al.,
+/// arXiv:2503.16372v4, Eq. (1): S=sigma/2, T=tau/2, G=sigma*tau/2.
+/// C2 = 15 N/4 + sum_{i<j} (2 P_sigma(i,j) P_tau(i,j) - 1/2).
+/// The returned bare operator is dimensionless, Hermitian, scalar, and has
+/// vacuum-normal-ordered one- and two-body parts (ZeroBody = 0).
+Operator SU4Casimir_Op(ModelSpace& modelspace)
+{
+   const double t_start = omp_get_wtime();
+   Operator C2(modelspace,0,0,0,2);
+   C2.SetHermitian();
+   C2.OneBody.diag().fill(15.0/4.0);
+
+   // Ordered, non-antisymmetrized <ab;J|2 P_sigma P_tau - 1/2|cd;J>.
+   // P_tau swaps proton/neutron labels. P_sigma = 1 - 2 P_{S=0}; the
+   // spin-singlet projector has L=J and uses a normalized jj-to-LS 9j.
+   const auto pair_direct = [](const Orbit& a, const Orbit& b,
+                               const Orbit& c, const Orbit& d, int J)
+   {
+      double value = (a.index == c.index and b.index == d.index) ? -0.5 : 0.0;
+      if (a.n != c.n or a.l != c.l or b.n != d.n or b.l != d.l
+          or a.tz2 != d.tz2 or b.tz2 != c.tz2) return value;
+
+      double spin_exchange = (a.j2 == c.j2 and b.j2 == d.j2) ? 1.0 : 0.0;
+      if (std::abs(a.l-b.l) <= J and J <= a.l+b.l)
+      {
+         const double u_ab = AngMom::NormNineJ(a.l,0.5,0.5*a.j2,
+                                               b.l,0.5,0.5*b.j2,J,0,J);
+         const double u_cd = AngMom::NormNineJ(c.l,0.5,0.5*c.j2,
+                                               d.l,0.5,0.5*d.j2,J,0,J);
+         spin_exchange -= 2.0 * u_ab * u_cd;
+      }
+      return value + 2.0 * spin_exchange;
+   };
+
+   const int E2max = modelspace.GetE2max();
+   const int nch = modelspace.GetNumberTwoBodyChannels();
+   // Direct GSL 9j evaluations do not mutate the ModelSpace angular caches.
+   #pragma omp parallel for schedule(dynamic,1)
+   for (int ch=0; ch<nch; ++ch)
+   {
+      TwoBodyChannel& tbc = modelspace.GetTwoBodyChannel(ch);
+      const int nkets = tbc.GetNumberKets();
+      for (int ibra=0; ibra<nkets; ++ibra)
+      {
+         Ket& bra = tbc.GetKet(ibra);
+         const Orbit& a = modelspace.GetOrbit(bra.p);
+         const Orbit& b = modelspace.GetOrbit(bra.q);
+         if (2*(a.n+b.n)+a.l+b.l > E2max) continue;
+         for (int iket=ibra; iket<nkets; ++iket)
+         {
+            Ket& ket = tbc.GetKet(iket);
+            const Orbit& c = modelspace.GetOrbit(ket.p);
+            const Orbit& d = modelspace.GetOrbit(ket.q);
+            if (2*(c.n+d.n)+c.l+d.l > E2max) continue;
+            // Ket::Phase(J) includes the fermionic minus sign. SetTBME
+            // with channel/ket indices stores normalized antisymmetric MEs.
+            const double norm = sqrt((1.0+bra.delta_pq())*(1.0+ket.delta_pq()));
+            const double me = (pair_direct(a,b,c,d,tbc.J)
+                               + ket.Phase(tbc.J)*pair_direct(a,b,d,c,tbc.J)) / norm;
+            C2.TwoBody.SetTBME(ch,ibra,iket,me);
+         }
+      }
+   }
+   C2.profiler.timer["SU4Casimir_Op"] += omp_get_wtime() - t_start;
+   return C2;
+}
+
+// Integral int r^2 dr R_a R_b R_c R_d, including the physical b^-3.
+// For t=2(r/b)^2 the weight is t^alpha exp(-t), alpha=(sum l+1)/2.
+// The remaining product of Laguerre polynomials has degree sum n;
+// an N-point generalized Gauss-Laguerre rule is exact for 2N-1 >= sum n.
+// Golub-Welsch avoids a cancellation-prone expansion in polynomial powers.
+static double ContactDeltaRadialIntegral(const std::array<std::pair<int,int>,4>& nl,
+                                        double oscillator_b)
+{
+   int nsum = 0, lsum = 0;
+   double log_norm = 0.0;
+   for (const auto& orbit : nl)
+   {
+      const int n = orbit.first, l = orbit.second;
+      nsum += n;
+      lsum += l;
+      log_norm += 0.5*(std::log(2.0)+std::lgamma(n+1.0)-std::lgamma(n+l+1.5));
+   }
+   const int order = nsum/2 + 1;
+   const double alpha = 0.5*(lsum+1);
+   arma::mat jacobi(order,order,arma::fill::zeros);
+   for (int k=0; k<order; ++k)
+   {
+      jacobi(k,k) = 2*k+alpha+1;
+      if (k+1 < order)
+         jacobi(k,k+1) = jacobi(k+1,k) = std::sqrt((k+1.0)*(k+1.0+alpha));
+   }
+   arma::vec nodes;
+   arma::mat vectors;
+   if (not arma::eig_sym(nodes,vectors,jacobi))
+      throw std::runtime_error("Contact delta radial quadrature failed.");
+   long double integral = 0.0;
+   for (int k=0; k<order; ++k)
+   {
+      long double product = 1.0;
+      for (const auto& orbit : nl)
+         product *= gsl_sf_laguerre_n(orbit.first,orbit.second+0.5,0.5*nodes(k));
+      integral += vectors(0,k)*vectors(0,k)*product;
+   }
+   return static_cast<double>(integral)
+       * std::exp(log_norm+std::lgamma(alpha+1.0)-0.5*(lsum+5)*std::log(2.0))
+       / std::pow(oscillator_b,3);
+}
+
+/// Confirmed whiteboard contact contributions (long-distance terms excluded):
+/// a1 sum_{i!=j} delta^3(ri-rj) [tau3(i)+tau3(j)]
+/// + a2 sum_{i!=j} delta^3(ri-rj) [tau3(i)tau3(j)-tau(i).tau(j)/3].
+/// tau are Pauli matrices, tau3(p)=-1 and tau3(n)=+1. Unit strengths
+/// yield fm^-3; energy-valued strengths have units MeV fm^3.
+/// Naive laboratory-coordinate HO implementation: radial quadrature and
+/// coincident spherical harmonics, with explicit jj-to-LS recoupling.
+Operator IsospinContact_Op(ModelSpace& modelspace, double a1, double a2)
+{
+   const double t_start = omp_get_wtime();
+   const double hw = modelspace.GetHbarOmega();
+   if (not std::isfinite(hw) or hw <= 0.0 or not std::isfinite(a1) or not std::isfinite(a2))
+      throw std::invalid_argument("Contact delta needs positive finite hbar omega and finite strengths.");
+   // rank_T=0 selects Delta Tz=0 in the proton-neutron code, even though
+   // these brackets have abstract isospin tensor ranks 1 and 2.
+   Operator contact(modelspace,0,0,0,2);
+   contact.SetHermitian();
+   if (a1 == 0.0 and a2 == 0.0) return contact;
+   const double oscillator_b = std::sqrt(HBARC*HBARC/(M_NUCLEON*hw));
+   std::map<std::array<std::pair<int,int>,4>,double> radial_cache;
+   std::map<std::array<int,9>,double> angular_cache;
+
+   const auto spatial_direct = [&](const Orbit& a, const Orbit& b,
+                                   const Orbit& c, const Orbit& d, int J)
+   {
+      const std::array<int,9> angular_key = {{a.l,a.j2,b.l,b.j2,c.l,c.j2,d.l,d.j2,J}};
+      auto angular_it = angular_cache.find(angular_key);
+      if (angular_it == angular_cache.end())
+      {
+         double angular = 0.0;
+         const int Lmin = std::max({std::abs(a.l-b.l),std::abs(c.l-d.l),J-1,0});
+         const int Lmax = std::min({a.l+b.l,c.l+d.l,J+1});
+         for (int L=Lmin; L<=Lmax; ++L)
+         {
+            if ((a.l+b.l+L)%2 != 0 or (c.l+d.l+L)%2 != 0) continue;
+            // [Y_la(Omega) x Y_lb(Omega)]_LM = c_ab(L) Y_LM(Omega).
+            const double cab = std::sqrt((2*a.l+1.0)*(2*b.l+1.0)/(4*PI*(2*L+1.0)))
+                                  * AngMom::CG(a.l,0,b.l,0,L,0);
+            const double ccd = std::sqrt((2*c.l+1.0)*(2*d.l+1.0)/(4*PI*(2*L+1.0)))
+                                  * AngMom::CG(c.l,0,d.l,0,L,0);
+            for (int S=0; S<=1; ++S)
+            {
+               if (std::abs(L-S)>J or L+S<J) continue;
+               const double uab = AngMom::NormNineJ(a.l,0.5,0.5*a.j2,
+                                                  b.l,0.5,0.5*b.j2,L,S,J);
+               const double ucd = AngMom::NormNineJ(c.l,0.5,0.5*c.j2,
+                                                  d.l,0.5,0.5*d.j2,L,S,J);
+               angular += cab*ccd*uab*ucd;
+            }
+         }
+         angular_it = angular_cache.emplace(angular_key,angular).first;
+      }
+      if (angular_it->second == 0.0) return 0.0;
+      std::array<std::pair<int,int>,4> nl = {{{a.n,a.l},{b.n,b.l},{c.n,c.l},{d.n,d.l}}};
+      std::sort(nl.begin(),nl.end()); // radial product is invariant under all permutations
+      auto radial_it = radial_cache.find(nl);
+      if (radial_it == radial_cache.end())
+         radial_it = radial_cache.emplace(nl,ContactDeltaRadialIntegral(nl,oscillator_b)).first;
+      return radial_it->second*angular_it->second;
+   };
+   const auto pair_direct = [&](const Orbit& a, const Orbit& b,
+                                const Orbit& c, const Orbit& d, int J)
+   {
+      const double identity = (a.tz2 == c.tz2 and b.tz2 == d.tz2) ? 1.0 : 0.0;
+      const double exchange = (a.tz2 == d.tz2 and b.tz2 == c.tz2) ? 1.0 : 0.0;
+      const double tau_sum = identity*(c.tz2+d.tz2);
+      // tau.dot(tau) = 2 P_tau - 1, including the pn charge-exchange term.
+      const double tensor = identity*(c.tz2*d.tz2+1.0/3.0)-2.0*exchange/3.0;
+      // The photo's ordered sum i != j is twice the stored pair sum i < j.
+      const double factor = 2.0*(a1*tau_sum+a2*tensor);
+      return factor == 0.0 ? 0.0 : factor*spatial_direct(a,b,c,d,J);
+   };
+
+   const int E2max = modelspace.GetE2max();
+   // Serial loops keep these per-construction caches local and deterministic.
+   for (int ch=0; ch<modelspace.GetNumberTwoBodyChannels(); ++ch)
+   {
+      TwoBodyChannel& tbc = modelspace.GetTwoBodyChannel(ch);
+      const int nkets = tbc.GetNumberKets();
+      for (int ibra=0; ibra<nkets; ++ibra)
+      {
+         Ket& bra = tbc.GetKet(ibra);
+         const Orbit& a = modelspace.GetOrbit(bra.p);
+         const Orbit& b = modelspace.GetOrbit(bra.q);
+         if (2*(a.n+b.n)+a.l+b.l > E2max) continue;
+         for (int iket=ibra; iket<nkets; ++iket)
+         {
+            Ket& ket = tbc.GetKet(iket);
+            const Orbit& c = modelspace.GetOrbit(ket.p);
+            const Orbit& d = modelspace.GetOrbit(ket.q);
+            if (2*(c.n+d.n)+c.l+d.l > E2max) continue;
+            const double norm = std::sqrt((1.0+bra.delta_pq())*(1.0+ket.delta_pq()));
+            const double me = (pair_direct(a,b,c,d,tbc.J)
+                              + ket.Phase(tbc.J)*pair_direct(a,b,d,c,tbc.J))/norm;
+            contact.TwoBody.SetTBME(ch,ibra,iket,me);
+         }
+      }
+   }
+   contact.profiler.timer["IsospinContact_Op"] += omp_get_wtime()-t_start;
+   return contact;
+}
+
+Operator IsovectorContact_Op(ModelSpace& modelspace, double a1)
+{
+   return IsospinContact_Op(modelspace,a1,0.0);
+}
+
+Operator IsotensorContact_Op(ModelSpace& modelspace, double a2)
+{
+   return IsospinContact_Op(modelspace,0.0,a2);
+}
 
 /// Returns the \f$ T^{2} \f$ operator
  Operator Isospin2_Op(ModelSpace& modelspace)

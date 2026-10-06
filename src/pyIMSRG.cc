@@ -1053,6 +1053,17 @@ PYBIND11_MODULE(pyIMSRG, m)
       m.def("SchiffOp",imsrg_util::SchiffOp);
       m.def("Sigma_Op", imsrg_util::Sigma_Op);
       m.def("Isospin2_Op", imsrg_util::Isospin2_Op);
+      m.def("SU4Casimir_Op", imsrg_util::SU4Casimir_Op, py::arg("modelspace"),
+            "Wigner SU(4) Casimir C2 = S^2 + T^2 + G^2 (one nucleon: 15/4).");
+      m.def("IsospinContact_Op", imsrg_util::IsospinContact_Op,
+            py::arg("modelspace"), py::arg("a1"), py::arg("a2"),
+            "Contact contributions a1*sum(i!=j) delta^3(rij)*(tau3_i+tau3_j) "
+            "+ a2*sum(i!=j) delta^3(rij)*(tau3_i*tau3_j-tau_i.dot(tau_j)/3). "
+            "Pauli tau3: proton=-1, neutron=+1; unit strengths give fm^-3.");
+      m.def("IsovectorContact_Op", imsrg_util::IsovectorContact_Op,
+            py::arg("modelspace"), py::arg("a1")=1.0);
+      m.def("IsotensorContact_Op", imsrg_util::IsotensorContact_Op,
+            py::arg("modelspace"), py::arg("a2")=1.0);
       m.def("LdotS_Op", imsrg_util::LdotS_Op);
       m.def("HO_density", imsrg_util::HO_density);
       m.def("GetOccupationsHF", imsrg_util::GetOccupationsHF);

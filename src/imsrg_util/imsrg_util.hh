@@ -81,6 +81,11 @@ namespace imsrg_util
  Operator FourierBesselCoeff(ModelSpace& modelspace, int nu, double R, std::set<index_t> index_list);
 
  Operator Isospin2_Op(ModelSpace& modelspace);
+ Operator SU4Casimir_Op(ModelSpace& modelspace);
+ // Bare contact contributions with Pauli tau and an ordered sum i != j.
+ Operator IsospinContact_Op(ModelSpace& modelspace, double a1, double a2);
+ Operator IsovectorContact_Op(ModelSpace& modelspace, double a1=1.0);
+ Operator IsotensorContact_Op(ModelSpace& modelspace, double a2=1.0);
  Operator TzSquared_Op(ModelSpace& modelspace);
  Operator AllowedFermi_Op(ModelSpace& modelspace);
  Operator AllowedFermi_pm_Op(ModelSpace& modelspace, std::string beta_type);

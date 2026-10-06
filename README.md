@@ -16,3 +16,11 @@ This code also uses the Armadillo library, which is covered under the Mozilla Pu
 * Implementation of operators for neutrinoless double beta decay was done by Charlie Payne, and these were ported back to the main fork by Antoine Belley.
 *  Some tweaks to the 3rd order MBPT code were contributed by Johannes Simonis.
 * Implementation of the IMSRG(3f2) routines, and tensor IMSRG(3) commutators by Bingcheng He.
+
+
+⚠️ Development notice — AI contaminated
+This branch has diverged from Ragnar’s devel branch and contains substantial AI-generated modifications. When bugs are found and fixed in Ragnar’s branch, I merge those changes here as well.
+However, this branch may still contain incorrect or insufficiently tested AI-generated code. Use with caution.
+Thanks to ChatGPT and Claude for assistance.
+
+
