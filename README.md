@@ -19,8 +19,10 @@ This code also uses the Armadillo library, which is covered under the Mozilla Pu
 
 
 ⚠️ Development notice — AI contaminated
+
 This branch has diverged from Ragnar’s devel branch and contains substantial AI-generated modifications. When bugs are found and fixed in Ragnar’s branch, I merge those changes here as well.
 However, this branch may still contain incorrect or insufficiently tested AI-generated code. Use with caution.
+
 Thanks to ChatGPT and Claude for assistance.
 
 

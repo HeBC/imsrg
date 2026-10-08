@@ -1728,6 +1728,7 @@ double IMSRGSolver::EstimateBCHError()
 /// \f[ W=[\Omega,H]_3b \f]
 double IMSRGSolver::CalculatePerturbativeTriples()
 {
+  if (use_factorized_split_bch) return CalculatePerturbativeTriplesSplit();
 
   Operator Wbar((*modelspace), 0, 0, 0, 2);
   // Wbar.ThreeBody.SetMode("pn");  // Dont do this. It automatically allocates and we don't want that.
@@ -1770,8 +1771,66 @@ double IMSRGSolver::CalculatePerturbativeTriples()
   return pert_triples;
 }
 
+void IMSRGSolver::SetPerturbativeTriplesBackend(const std::string &backend)
+{
+  if (backend != "reference" && backend != "packed")
+    throw std::invalid_argument("Triples backend must be reference or packed");
+  perturbative_triples_backend = backend;
+}
+
+// W = sum_i [Omega_i, Htilde_i]_3; Htilde_i comes from the ordered 3f2 source recurrence.
+double IMSRGSolver::CalculatePerturbativeTriplesSplit()
+{
+  if (!use_factorized_split_bch || !BCH::use_factorized_correction ||
+      Commutator::use_imsrg3 || BCH::bch_skip_ieq1)
+    throw std::invalid_argument("Split triples requires regular factorized rank-two splitting with skip-i=1 disabled");
+
+  UpdateSplitCache();
+  auto active = ApplySplitStage(H_saved, Omega.back(), split_sources, 0, 1, true);
+  FlowingOps[0] = active.first; // one common final Hamiltonian for every denominator
+  const size_t total = size_t(n_omega_written) + Omega.size();
+  if (split_sources.size() + 1 != total)
+    throw std::logic_error("Split triples source history is incomplete");
+
+  // Frozen disk factors are loaded once for the shared amplitude loop.
+  // In-memory Omegas and frozen sources are borrowed without duplicate storage.
+  std::vector<Operator> disk_omegas;
+  disk_omegas.reserve(n_omega_written);
+  std::vector<Commutator::Comm223Source> pairs;
+  pairs.reserve(total);
+  Operator buffer = Eta;
+  for (size_t i = 0; i < total; ++i)
+  {
+    const Operator *omega = &ReadSplitOmega(i, buffer);
+    if (i < size_t(n_omega_written))
+    {
+      disk_omegas.push_back(*omega);
+      omega = &disk_omegas.back();
+    }
+    const Operator *source = i + 1 == total ? &active.second : &split_sources[i];
+    pairs.emplace_back(omega, source);
+  }
+  Operator energy(*modelspace, 0, 0, 0, 2);
+  energy.OneBody = FlowingOps[0].OneBody;
+  if (FlowingOps[0].IsReduced())
+    for (size_t p : modelspace->all_orbits)
+      energy.OneBody.row(p) /= std::sqrt(modelspace->GetOrbit(p).j2 + 1.0);
+  // Match the legacy energy model-space policy and restore it on all exits.
+  struct RestoreE3max
+  {
+    ModelSpace &ms;
+    int saved;
+    ~RestoreE3max() { ms.SetE3max(saved); }
+  } restore{*modelspace, modelspace->GetE3max()};
+  modelspace->SetE3max(3 * modelspace->GetEmax());
+  Commutator::comm223ss_sum(pairs, energy, perturbative_triples_backend);
+  return energy.ZeroBody;
+}
+
 double IMSRGSolver::CalculatePerturbativeTriples(Operator &Op_0)
 {
+  if (use_factorized_split_bch)
+    throw std::invalid_argument("Split triples currently supports the Hamiltonian correction only; use the no-argument overload");
   Operator Wbar((*modelspace), 0, 0, 0, 2);
   // Wbar.ThreeBody.SetMode("pn");  // Dont do this. It automatically allocates and we don't want that.
 

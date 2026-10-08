@@ -22,6 +22,9 @@
 
 #include "Operator.hh"
 #include <array>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace Commutator
 {
@@ -75,6 +78,11 @@ namespace Commutator
 
     void comm133ss(const Operator &X, const Operator &Y, Operator &Z);             // implemented and tested.
     void comm223ss(const Operator &X, const Operator &Y, Operator &Z);             // implemented and tested.
+    // Non-owning (Omega_i, Htilde_i...1^(2)) pairs, in one common model space.
+    // Sum all 223 amplitudes before squaring; no three-body storage is allocated.
+    using Comm223Source = std::pair<const Operator*, const Operator*>;
+    void comm223ss_sum(const std::vector<Comm223Source> &sources, Operator &Z,
+                       const std::string &backend = "reference");
     void comm223ss_new(const Operator &X, const Operator &Y, Operator &Z);         // implemented and tested.
     void comm223ss_debug(const Operator &X, const Operator &Y, Operator &Z);       // implemented and tested.
     void comm233_pp_hhss(const Operator &X, const Operator &Y, Operator &Z);       // implemented and tested.

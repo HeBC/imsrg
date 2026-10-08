@@ -3,6 +3,8 @@
 #include "Commutator.hh"
 #include "AngMom.hh"
 #include "PhysicalConstants.hh"
+#include <stdexcept>
+#include <algorithm>
 
 
 namespace Commutator
@@ -4959,17 +4961,27 @@ namespace Commutator
   //
   //// Trying the more straighforward way again
   /////////////////////////////////////////////////
-  void comm223ss(const Operator &X, const Operator &Y, Operator &Z)
+  // Shared recoupling implementation. The legacy wrapper passes one pair
+  // and keeps its historical norm screen. The summed triples entry keeps
+  // every nonzero pair: screening individual small stages is split-dependent.
+  static void comm223ss_impl(const std::vector<Comm223Source> &sources,
+                            Operator &Z, bool triples, bool strict)
   {
     double tstart = omp_get_wtime();
     if (Commutator::verbose)
       std::cout << __func__ << std::endl;
+    const Operator &X = *sources.front().first;
+    const Operator &Y = *sources.front().second;
     auto &Z3 = Z.ThreeBody;
     auto &X2 = X.TwoBody;
     auto &Y2 = Y.TwoBody;
-    if ((std::abs(X2.Norm() * Y2.Norm()) < 1e-6) and not Z.modelspace->scalar3b_transform_first_pass)
+    if (!strict and (std::abs(X2.Norm() * Y2.Norm()) < 1e-6) and not Z.modelspace->scalar3b_transform_first_pass)
       return;
 
+    arma::vec single_particle_energy = Z.OneBody.diag();
+    if (strict && Z.IsReduced())
+      for (size_t p : Z.modelspace->all_orbits)
+        single_particle_energy(p) /= std::sqrt(Z.modelspace->GetOrbit(p).j2 + 1.0);
 
     Z.modelspace->PreCalculateSixJ(); // If we already did this, this does nothing.
 
@@ -4990,7 +5002,7 @@ namespace Commutator
 
     // If we're doing perturbative triples, we can avoid allocating any 3-body structures.
     // In this case, Z3 isn't allocated, so we need to manually specify which channels to loop over.
-    if (perturbative_triples)
+    if (triples)
     {
       bra_ket_channels.clear(); // just in case we somehow had things allocated, we don't want to double count.
       size_t nch3 = Z.modelspace->GetNumberThreeBodyChannels();
@@ -5014,7 +5026,8 @@ namespace Commutator
     size_t n_bra_ket_ch = bra_ket_channels.size();
 
     double Emp2 = 0;
-#pragma omp parallel for schedule(dynamic, 1) reduction(+ : Emp2)
+    int invalid_energy = 0;
+#pragma omp parallel for schedule(dynamic, 1) reduction(+ : Emp2) reduction(| : invalid_energy)
     for (size_t ibra_ket = 0; ibra_ket < n_bra_ket_ch; ibra_ket++)
     {
       size_t ch3bra = bra_ket_channels[ibra_ket][0];
@@ -5061,7 +5074,7 @@ namespace Commutator
       if ((occnat_i * (1 - occnat_i) * occnat_j * (1 - occnat_j) * occnat_k * (1 - occnat_k)) < Z.modelspace->GetOccNat3Cut())
         continue;
 
-      if (perturbative_triples and  (occ_ijk<1e-8) and (unocc_ijk<1e-8) )
+      if (triples and  (occ_ijk<1e-8) and (unocc_ijk<1e-8) )
         continue;
       if (imsrg3_no_qqq and (oi.cvq + oj.cvq + ok.cvq) > 5)
         continue; // Need at least one core or valence particle
@@ -5098,9 +5111,9 @@ namespace Commutator
         if ((occnat_l * (1 - occnat_l) * occnat_m * (1 - occnat_m) * occnat_n * (1 - occnat_n)) < Z.modelspace->GetOccNat3Cut())
           continue;
 
-        if (perturbative_triples and (std::abs(occ_ijk*unocc_lmn - unocc_ijk*occ_lmn)<1e-8) )
+        if (triples and (std::abs(occ_ijk*unocc_lmn - unocc_ijk*occ_lmn)<1e-8) )
           continue;
-        if ( perturbative_triples and pert_trip_novvv and oi.cvq==1 and oj.cvq==1 and ok.cvq==1 and ol.cvq==1 and om.cvq==1 and on.cvq==1 )
+        if ( triples and pert_trip_novvv and oi.cvq==1 and oj.cvq==1 and ok.cvq==1 and ol.cvq==1 and om.cvq==1 and on.cvq==1 )
           continue;
         if (imsrg3_no_qqq and (ol.cvq + om.cvq + on.cvq) > 5)
           continue;
@@ -5267,12 +5280,18 @@ namespace Commutator
                         // We want un-normalized TBMEs. But since GetTBME just calls GetTBME_norm and adds the sqrt(2) factors
                         // for this routine we figure out the sqrt(2) factors in the outer loops to speed up the look up
                         // in the deeply nested loop.
-                        double x_126a = X_126a_good ? X.TwoBody.GetTBME_norm(ch12, ch6a, I1, I2, I6, a) : 0;
-                        double y_126a = Y_126a_good ? Y.TwoBody.GetTBME_norm(ch12, ch6a, I1, I2, I6, a) : 0;
-                        double x_3a45 = X_3a45_good ? X.TwoBody.GetTBME_norm(ch3a, ch45, I3, a, I4, I5) : 0;
-                        double y_3a45 = Y_3a45_good ? Y.TwoBody.GetTBME_norm(ch3a, ch45, I3, a, I4, I5) : 0;
-
-                        zijklmn += prefactor * phase_6a * phase_3a * (x_126a * y_3a45 - y_126a * x_3a45);
+                        // bar H^(3) = sum_i [Omega_i^(2), Htilde_i...1^(2)]_3.
+                        // One shared permutation/6j loop; the square is AFTER this sum.
+                        for (const auto &source : sources)
+                        {
+                          const auto &Xi = source.first->TwoBody;
+                          const auto &Yi = source.second->TwoBody;
+                          double x_126a = X_126a_good ? Xi.GetTBME_norm(ch12, ch6a, I1, I2, I6, a) : 0;
+                          double y_126a = Y_126a_good ? Yi.GetTBME_norm(ch12, ch6a, I1, I2, I6, a) : 0;
+                          double x_3a45 = X_3a45_good ? Xi.GetTBME_norm(ch3a, ch45, I3, a, I4, I5) : 0;
+                          double y_3a45 = Y_3a45_good ? Yi.GetTBME_norm(ch3a, ch45, I3, a, I4, I5) : 0;
+                          zijklmn += prefactor * phase_6a * phase_3a * (x_126a * y_3a45 - y_126a * x_3a45);
+                        }
 
 
                       } // for a
@@ -5288,7 +5307,7 @@ namespace Commutator
 
         // If we're doing perturbative triples, we don't need to store the full 3N, we just want the energy contribution.
         // The relevant one-body matrix elements should have been put in Z.
-        if (perturbative_triples)
+        if (triples)
         {
 
           // double occ_ijk = (bra.op->occ) * (bra.oq->occ) * (bra.oR->occ);
@@ -5307,8 +5326,16 @@ namespace Commutator
           else if (l == m or l == n or m == n)
             symm_lmn = 3;
 
-          double Eijk = Z.OneBody(i, i) + Z.OneBody(j, j) + Z.OneBody(k, k);
-          double Elmn = Z.OneBody(l, l) + Z.OneBody(m, m) + Z.OneBody(n, n);
+          double Eijk = single_particle_energy(i) + single_particle_energy(j) + single_particle_energy(k);
+          double Elmn = single_particle_energy(l) + single_particle_energy(m) + single_particle_energy(n);
+          // Do not throw from an OpenMP worker. Reject singular/nonfinite
+          // nonzero contributions after the reduction, before publishing Z0.
+          if (strict && zijklmn == 0.0) continue;
+          if (strict && (!std::isfinite(zijklmn) || !std::isfinite(Eijk - Elmn) || Eijk == Elmn))
+          {
+            invalid_energy = 1;
+            continue;
+          }
           Emp2 += 1. / 36 * symm_ijk * symm_lmn * (twoJ + 1) * zijklmn * zijklmn * (occ_ijk * unocc_lmn - occ_lmn * unocc_ijk) / (Eijk - Elmn);
         }
         else
@@ -5320,13 +5347,280 @@ namespace Commutator
     }   // for i_bra_ket
 
     // If we're doing perturbative triples, store the result in the zero-body part of Z since this function returns void.
-    if (perturbative_triples)
+    if (triples)
     {
+      if (strict && (invalid_energy || !std::isfinite(Emp2)))
+        throw std::runtime_error("Split triples has a singular denominator or non-finite energy");
       Z.ZeroBody = Emp2;
     }
 
-    Z.profiler.timer[__func__] += omp_get_wtime() - tstart;
-  }// comm223ss
+    Z.profiler.timer[strict ? "comm223ss_sum" : "comm223ss"] += omp_get_wtime() - tstart;
+  }// comm223ss_impl
+
+  void comm223ss(const Operator &X, const Operator &Y, Operator &Z)
+  {
+    comm223ss_impl({{&X, &Y}}, Z, perturbative_triples, false);
+  }
+
+  namespace
+  {
+    constexpr double occupation_screen=1e-8; // exactly the existing kernel screen
+    struct PermutationPlan {
+      size_t a,b,c,channel,pair_index;
+      int J;
+      double recoupling, pair_phase;
+    };
+    struct KetPlan {
+      double occupied, unoccupied, energy, symmetry;
+      bool all_valence;
+      std::vector<PermutationPlan> permutations;
+    };
+    struct ChannelPlan {
+      int twoJ;
+      std::vector<KetPlan> kets;
+      std::vector<size_t> occupied,unoccupied;
+    };
+    struct PackedBlock {
+      size_t dimension=0;
+      std::vector<double> omega,source;
+    };
+
+    std::vector<PermutationPlan> MakePermutations(ModelSpace& ms,Operator& Z,
+                                                 const Ket3& ket,int twoJ) {
+      using S=ThreeBodyStorage;
+      const std::array<S::Permutation,3> permutations={S::ABC,S::CBA,S::ACB};
+      std::vector<PermutationPlan> out;
+      auto& oi = ms.GetOrbit(ket.p);
+      auto& oj = ms.GetOrbit(ket.q);
+      auto& ok = ms.GetOrbit(ket.r);
+      for(auto perm:permutations) {
+        size_t a,b,c;
+        Z.ThreeBody.Permute(perm,ket.p,ket.q,ket.r,a,b,c);
+        auto& oa = ms.GetOrbit(a);
+        auto& ob = ms.GetOrbit(b);
+        auto& oc = ms.GetOrbit(c);
+        int jmin=ket.Jpq,jmax=ket.Jpq;
+        if(perm!=S::ABC) {
+          jmin=std::max(std::abs(oa.j2-ob.j2),std::abs(twoJ-oc.j2))/2;
+          jmax=std::min(oa.j2+ob.j2,twoJ+oc.j2)/2;
+        }
+        for(int J=jmin;J<=jmax;++J) {
+          double rec=Z.ThreeBody.RecouplingCoefficient(perm,.5*oi.j2,.5*oj.j2,.5*ok.j2,J,ket.Jpq,twoJ);
+          rec*=Z.ThreeBody.PermutationPhase(perm);
+          if(a==b) rec*=PhysConst::SQRT2;
+          size_t ch=ms.GetTwoBodyChannelIndex(J,(oa.l+ob.l)%2,(oa.tz2+ob.tz2)/2);
+          auto& tb=ms.GetTwoBodyChannel(ch);
+          size_t idx=tb.GetLocalIndex(std::min(a,b),std::max(a,b));
+          if(idx>=tb.GetNumberKets()) continue;
+          double phase=a>b ? tb.GetKet(idx).Phase(J) : 1.;
+          out.push_back({a,b,c,ch,idx,J,rec,phase});
+        }
+      }
+      return out;
+    }
+    void comm223ss_packed(const std::vector<Comm223Source>& sources, Operator& Z)
+    {
+      const double start=omp_get_wtime();
+      auto& ms=*Z.modelspace;
+      arma::vec eps=Z.OneBody.diag();
+      if(Z.IsReduced())
+        for(size_t p:ms.all_orbits) eps(p)/=std::sqrt(ms.GetOrbit(p).j2+1.);
+      ms.PreCalculateSixJ();
+      const auto ef=ms.GetEFermi();
+      const size_t ns=sources.size();
+
+      // Source index is contiguous so each resolved matrix element feeds one SIMD sum.
+      std::vector<PackedBlock> packed(ms.GetNumberTwoBodyChannels());
+      {
+        for(size_t ch=0;ch<packed.size();++ch) {
+          auto& block = packed[ch];
+          const size_t d = ms.GetTwoBodyChannel(ch).GetNumberKets();
+          const size_t limit = block.omega.max_size();
+          if (d && (d > limit/d || ns > limit/(d*d)))
+            throw std::length_error("Packed triples source storage exceeds vector capacity");
+          block.dimension = d;
+          block.omega.resize(d*d*ns);
+          block.source.resize(d*d*ns);
+          for(size_t s=0;s<ns;++s) {
+            const auto& O=sources[s].first->TwoBody.GetMatrix(ch);
+            const auto& V=sources[s].second->TwoBody.GetMatrix(ch);
+            for(size_t k=0;k<d*d;++k) {
+              block.omega[k*ns+s] = O[k];
+              block.source[k*ns+s] = V[k];
+            }
+          }
+        }
+      }
+
+      std::vector<ChannelPlan> channels(ms.GetNumberThreeBodyChannels());
+      std::vector<std::pair<size_t,size_t>> work;
+      // Three-body channels already enforce E3max and EMax3Body.
+      for(size_t ch=0;ch<channels.size();++ch) {
+        auto& cp = channels[ch];
+        auto& tbc = ms.GetThreeBodyChannel(ch);
+        cp.twoJ = tbc.twoJ;
+        for(size_t k=0;k<tbc.GetNumberKets();++k) {
+          auto& ket=tbc.GetKet(k);
+          auto& a = ms.GetOrbit(ket.p);
+          auto& b = ms.GetOrbit(ket.q);
+          auto& c = ms.GetOrbit(ket.r);
+          double n=a.occ*b.occ*c.occ,u=(1-a.occ)*(1-b.occ)*(1-c.occ);
+          if(n<occupation_screen && u<occupation_screen) continue;
+          const double de=std::abs(2*a.n+a.l-ef.at(a.tz2))+
+            std::abs(2*b.n+b.l-ef.at(b.tz2))+std::abs(2*c.n+c.l-ef.at(c.tz2));
+          if(de>ms.GetdE3max()) continue;
+          const double nat=a.occ_nat*(1-a.occ_nat)*b.occ_nat*(1-b.occ_nat)*c.occ_nat*(1-c.occ_nat);
+          if(nat<ms.GetOccNat3Cut()) continue;
+          if(Commutator::imsrg3_no_qqq && a.cvq+b.cvq+c.cvq>5) continue;
+          bool vvv=a.cvq==1 && b.cvq==1 && c.cvq==1;
+          if(Commutator::imsrg3_only_vvv && !vvv) continue;
+          double sym=ket.p==ket.q && ket.p==ket.r ? 1. :
+            (ket.p==ket.q || ket.p==ket.r || ket.q==ket.r ? 3. : 6.);
+          size_t index=cp.kets.size();
+          cp.kets.push_back({n,u,eps(ket.p)+eps(ket.q)+eps(ket.r),sym,vvv,
+                            MakePermutations(ms,Z,ket,tbc.twoJ)});
+          if(n>=occupation_screen) cp.occupied.push_back(index);
+          if(u>=occupation_screen) cp.unoccupied.push_back(index);
+          work.emplace_back(ch,index);
+        }
+      }
+
+      double energy = 0.;
+      int invalid = 0;
+#pragma omp parallel for schedule(dynamic,1) reduction(+:energy) reduction(|:invalid)
+      for(size_t row=0;row<work.size();++row) {
+        const auto& cp = channels[work[row].first];
+        const size_t ib = work[row].second;
+        const auto& bra = cp.kets[ib];
+        const int twoJ = cp.twoJ;
+        // Merge the two support lists when both occupations are nonzero. Canonical
+        // index order and deduplication preserve fractional-reference counting.
+        const auto& first=bra.occupied>=occupation_screen ? cp.unoccupied : cp.occupied;
+        const bool use_second=bra.occupied>=occupation_screen && bra.unoccupied>=occupation_screen;
+        const auto& second=cp.occupied;
+        size_t i1=0,i2=0;
+        while(i1<first.size() || (use_second && i2<second.size())) {
+          size_t ik;
+          if(!use_second || i2==second.size() || (i1<first.size() && first[i1]<second[i2])) ik=first[i1++];
+          else if(i1==first.size() || second[i2]<first[i1]) ik=second[i2++];
+          else {ik=first[i1++];++i2;}
+          if(ik>ib) break;
+          const auto& ket=cp.kets[ik];
+          const double occ=bra.occupied*ket.unoccupied-bra.unoccupied*ket.occupied;
+          if(std::abs(occ)<occupation_screen) continue;
+          if(Commutator::pert_trip_novvv && bra.all_valence && ket.all_valence) continue;
+          double amplitude=0.;
+          for(const auto& p:bra.permutations) for(const auto& q:ket.permutations) {
+            const auto& o1=ms.GetOrbit(p.a);
+            const auto& o2=ms.GetOrbit(p.b);
+            const auto& o3=ms.GetOrbit(p.c);
+            const auto& o4=ms.GetOrbit(q.a);
+            const auto& o5=ms.GetOrbit(q.b);
+            const auto& o6=ms.GetOrbit(q.c);
+            const int parity_a=(o1.l+o2.l+o6.l)%2;
+            const int tza=o1.tz2+o2.tz2-o6.tz2;
+            if(std::abs(tza)!=1 || o3.tz2+tza!=o4.tz2+o5.tz2 ||
+               (o3.l+parity_a+o4.l+o5.l)%2) continue;
+            const int jmin=std::max(std::abs(o6.j2-2*p.J),std::abs(o3.j2-2*q.J));
+            const int jmax=std::min(o6.j2+2*p.J,o3.j2+2*q.J);
+            const double hat=std::sqrt((2*p.J+1.)*(2*q.J+1.));
+            for(const auto& obc:ms.OneBodyChannels) {
+              const int la=obc.first[0],j2a=obc.first[1];
+              if(la%2!=parity_a || obc.first[2]!=tza || j2a<jmin || j2a>jmax) continue;
+              double sixj;
+              if(twoJ<=2*ms.GetEmax()+1) sixj=ms.GetCachedSixJ(o3.j2,twoJ,p.J,o6.j2,j2a,q.J);
+              else sixj=j2a<twoJ ? ms.GetSixJ(.5*o6.j2,.5*j2a,p.J,.5*o3.j2,.5*twoJ,q.J)
+                : ms.GetSixJ(.5*o6.j2,.5*twoJ,q.J,.5*o3.j2,.5*j2a,p.J);
+              const double pref=p.recoupling*q.recoupling*sixj*hat*p.pair_phase*q.pair_phase;
+              auto& left_channel=ms.GetTwoBodyChannel(p.channel);
+              auto& right_channel=ms.GetTwoBodyChannel(q.channel);
+              for(size_t a:obc.second) {
+                double norm_left=p.pair_phase*(q.c==a ? PhysConst::SQRT2 : 1.);
+                double norm_right=q.pair_phase*(p.c==a ? PhysConst::SQRT2 : 1.);
+                const double coefficient=pref*norm_left*norm_right;
+                const size_t il=left_channel.GetLocalIndex(std::min(q.c,a),std::max(q.c,a));
+                const size_t ir=right_channel.GetLocalIndex(std::min(p.c,a),std::max(p.c,a));
+                if(il>=left_channel.GetNumberKets() || ir>=right_channel.GetNumberKets()) continue;
+                const double phase_left=p.pair_phase*(q.c>a ? left_channel.GetKet(il).Phase(p.J) : 1.);
+                const double phase_right=q.pair_phase*(p.c>a ? right_channel.GetKet(ir).Phase(q.J) : 1.);
+                const auto& l=packed[p.channel];
+                const auto& r=packed[q.channel];
+                const size_t lo=(p.pair_index+il*l.dimension)*ns;
+                const size_t ro=(ir+q.pair_index*r.dimension)*ns;
+                const double* ol=l.omega.data()+lo;
+                const double* vl=l.source.data()+lo;
+                const double* orr=r.omega.data()+ro;
+                const double* vr=r.source.data()+ro;
+                double stage_sum=0.;
+#pragma omp simd reduction(+:stage_sum)
+                for(size_t s=0;s<ns;++s) stage_sum+=ol[s]*vr[s]-vl[s]*orr[s];
+                amplitude+=coefficient*phase_left*phase_right*stage_sum;
+
+              }
+            }
+          }
+          if(amplitude==0.) continue;
+          // Square the complete W amplitude to retain interference between all stages.
+          const double gap=bra.energy-ket.energy;
+          if(!std::isfinite(amplitude) || !std::isfinite(gap) || gap==0.) {invalid=1;continue;}
+          energy+=(1./36)*bra.symmetry*ket.symmetry*(twoJ+1)*amplitude*amplitude*occ/gap;
+        }
+      }
+      if(invalid || !std::isfinite(energy))
+        throw std::runtime_error("Split triples has a singular denominator or non-finite energy");
+      Z.ZeroBody=energy;
+      Z.profiler.timer["comm223ss_packed"] += omp_get_wtime()-start;
+    }
+  } // namespace
+
+  void comm223ss_sum(const std::vector<Comm223Source> &sources, Operator &Z, const std::string &backend)
+  {
+    if (backend != "reference" && backend != "packed")
+      throw std::invalid_argument("Triples backend must be reference or packed");
+    auto scalar_two_body = [&Z](const Operator &op)
+    {
+      return op.modelspace && op.modelspace == Z.modelspace &&
+             op.GetJRank() == 0 && op.GetTRank() == 0 && op.GetParity() == 0 &&
+             op.IsNumberConserving() && op.GetParticleRank() <= 2 &&
+             !op.ThreeBody.IsAllocated();
+    };
+    if (!scalar_two_body(Z) || !Z.IsHermitian() || Z.IsAntiHermitian())
+      throw std::invalid_argument("Split triples requires a scalar rank <=2 Hermitian denominator operator");
+    for (size_t p : Z.modelspace->all_orbits)
+      if (!std::isfinite(Z.OneBody(p,p)))
+        throw std::invalid_argument("Split triples requires finite one-body diagonal energies");
+
+    // Canonicalize only when necessary. Scalar reduced inputs and one-body-only
+    // Omegas are accepted without changing the caller's operators.
+    std::vector<Operator> canonical;
+    canonical.reserve(2 * sources.size());
+    std::vector<Comm223Source> active;
+    active.reserve(sources.size());
+    auto prepare = [&canonical](const Operator *op) -> const Operator*
+    {
+      if (!op->IsReduced() && op->GetParticleRank() == 2) return op;
+      canonical.push_back(*op);
+      if (canonical.back().GetParticleRank() < 2) canonical.back().SetParticleRank(2);
+      if (canonical.back().IsReduced()) canonical.back().MakeNotReduced();
+      return &canonical.back();
+    };
+    for (const auto &source : sources)
+    {
+      if (!source.first || !source.second ||
+          !scalar_two_body(*source.first) || !scalar_two_body(*source.second) ||
+          !source.first->IsAntiHermitian() || source.first->IsHermitian() ||
+          !source.second->IsHermitian() || source.second->IsAntiHermitian())
+        throw std::invalid_argument("Split triples requires paired scalar anti-Hermitian Omegas and Hermitian two-body sources");
+      const auto *omega = prepare(source.first);
+      const auto *htilde = prepare(source.second);
+      if (omega->TwoBodyNorm() != 0.0 && htilde->TwoBodyNorm() != 0.0)
+        active.emplace_back(omega, htilde);
+    }
+    if (active.empty()) { Z.ZeroBody = 0.0; return; }
+    if (backend == "packed") comm223ss_packed(active, Z);
+    else comm223ss_impl(active, Z, true, true);
+  }
+
 
 
 

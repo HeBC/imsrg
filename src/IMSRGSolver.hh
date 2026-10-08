@@ -199,6 +199,12 @@ class IMSRGSolver
 
 //  double GetPerturbativeTriples();
   double CalculatePerturbativeTriples();
+  // Testing implementation for the ordered regular-splitting source history.
+  double CalculatePerturbativeTriplesSplit();
+  // Split triples only: packed trades extra memory for faster contraction.
+  std::string perturbative_triples_backend = "reference";
+  void SetPerturbativeTriplesBackend(const std::string &backend);
+  const std::string &GetPerturbativeTriplesBackend() const { return perturbative_triples_backend; }
   double CalculatePerturbativeTriples(Operator &Op_0);
 
   // This is used to get flow info from odeint

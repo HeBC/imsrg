@@ -626,6 +626,9 @@ PYBIND11_MODULE(pyIMSRG, m)
           .def("Transform_Partial", [](IMSRGSolver &self, Operator &op, int n) { return self.Transform_Partial(op, n); },
                py::arg("Op"), py::arg("first_omega"))
           .def("CalculatePerturbativeTriples", py::overload_cast<>(&IMSRGSolver::CalculatePerturbativeTriples))
+          .def("CalculatePerturbativeTriplesSplit", &IMSRGSolver::CalculatePerturbativeTriplesSplit)
+          .def("SetPerturbativeTriplesBackend", &IMSRGSolver::SetPerturbativeTriplesBackend, py::arg("backend"))
+          .def("GetPerturbativeTriplesBackend", &IMSRGSolver::GetPerturbativeTriplesBackend)
           .def("CalculatePerturbativeTriples", py::overload_cast<Operator &>(&IMSRGSolver::CalculatePerturbativeTriples))
           .def("AddOperator", &IMSRGSolver::AddOperator)
           .def("GetOperator", &IMSRGSolver::GetOperator)
@@ -739,6 +742,21 @@ PYBIND11_MODULE(pyIMSRG, m)
        Commutator.def("comm332_pphhss", &Commutator::comm332_pphhss);
        Commutator.def("comm332ss", [](Operator& X,Operator& Y, Operator& Z){ Commutator::comm332_ppph_hhhpss(X,Y,Z); Commutator::comm332_pphhss(X,Y,Z);}  );
        Commutator.def("comm223ss", &Commutator::comm223ss);
+       Commutator.def("comm223ss_sum", [](py::sequence omegas, py::sequence sources,
+                                               Operator &energy, const std::string &backend)
+       {
+         if (py::len(omegas) != py::len(sources))
+           throw std::invalid_argument("Mismatched triples source counts");
+         // Own Python references while the GIL is released; do not copy the operators.
+         py::tuple omega_refs(omegas), source_refs(sources);
+         std::vector<Commutator::Comm223Source> pairs;
+         pairs.reserve(py::len(omega_refs));
+         for (size_t i=0; i<py::len(omega_refs); ++i)
+           pairs.emplace_back(&omega_refs[i].cast<const Operator&>(), &source_refs[i].cast<const Operator&>());
+         py::gil_scoped_release release;
+         Commutator::comm223ss_sum(pairs, energy, backend);
+       }, py::arg("omegas"), py::arg("sources"), py::arg("energy"), py::arg("backend")="reference");
+       Commutator.def("GetPerturbativeTriples", [](){ return Commutator::perturbative_triples; });
        Commutator.def("comm133ss", &Commutator::comm133ss);
        Commutator.def("comm233_pp_hhss", &Commutator::comm233_pp_hhss);
        Commutator.def("comm233_phss", &Commutator::comm233_phss);
