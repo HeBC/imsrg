@@ -626,6 +626,8 @@ PYBIND11_MODULE(pyIMSRG, m)
           .def("Transform_Partial", [](IMSRGSolver &self, Operator &op, int n) { return self.Transform_Partial(op, n); },
                py::arg("Op"), py::arg("first_omega"))
           .def("CalculatePerturbativeTriples", py::overload_cast<>(&IMSRGSolver::CalculatePerturbativeTriples))
+          .def("CalculatePerturbativeTriples_new", &IMSRGSolver::CalculatePerturbativeTriples_new,
+               "Compute packed regular-split triples without changing the backend setting.")
           .def("CalculatePerturbativeTriplesSplit", &IMSRGSolver::CalculatePerturbativeTriplesSplit)
           .def("SetPerturbativeTriplesBackend", &IMSRGSolver::SetPerturbativeTriplesBackend, py::arg("backend"))
           .def("GetPerturbativeTriplesBackend", &IMSRGSolver::GetPerturbativeTriplesBackend)
@@ -707,7 +709,16 @@ PYBIND11_MODULE(pyIMSRG, m)
       py::module Commutator = m.def_submodule("Commutator", "Commutator namespace");
        Commutator.def("Commutator", &Commutator::Commutator);
        Commutator.def("CommutatorScalarScalar", &Commutator::CommutatorScalarScalar);
-       Commutator.def("CommutatorScalarTensor", &Commutator::CommutatorScalarTensor);
+       Commutator.def("CommutatorScalarTensor",
+         py::overload_cast<const Operator&, const Operator&>(&Commutator::CommutatorScalarTensor),
+         py::arg("X"), py::arg("Y"));
+       Commutator.def("CommutatorScalarTensor",
+         py::overload_cast<const Operator&, const Operator&, int, int, bool>(&Commutator::CommutatorScalarTensor),
+         py::arg("X"), py::arg("Y"), py::arg("qX"), py::arg("qY"), py::arg("normal_ordered")=true,
+         "Full J=0 parity-even IMSRG(2) commutator with signed charges. "
+         "X ordinary, Y/result angular-reduced; output charge 0,-1,-2. "
+         "Positive-charge 2b inputs use stored adjoint blocks; 1b has physical direction.",
+         py::call_guard<py::gil_scoped_release>());
        Commutator.def("SetUseIMSRG3", &Commutator::SetUseIMSRG3);
        Commutator.def("SetUseIMSRG3N7", &Commutator::SetUseIMSRG3N7);
        Commutator.def("SetUseIMSRG3N7_Tensor", &Commutator::SetUseIMSRG3N7_Tensor);

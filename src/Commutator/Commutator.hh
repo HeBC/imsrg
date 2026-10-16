@@ -58,6 +58,16 @@ namespace Commutator
     Operator Commutator(const Operator &X, const Operator &Y);
     Operator CommutatorScalarScalar(const Operator &X, const Operator &Y);
     Operator CommutatorScalarTensor(const Operator &X, const Operator &Y);
+    // Full IMSRG(2), parity-even J=0, with explicitly SIGNED charge components.
+    // X is angular-non-reduced; Y and the result are angular-reduced.
+    // qX/qY are delta Tz, while rank_T is abs(delta Tz); qX+qY must be 0,-1,-2.
+    // A q>0 input stores its 2b adjoint in negative-charge blocks, and its 1b
+    // matrix in the physical direction. Neutral matrices keep both triangles.
+    // normal_ordered=false uses vacuum contractions regardless of occupations.
+    // Always retains 110,220,111,121,221,122,222pp/hh,222ph; no IMSRG(3) terms.
+    Operator CommutatorScalarTensor(const Operator &X, const Operator &Y,
+                                   int qX, int qY, bool normal_ordered=true);
+
     Operator CommutatorScalarDagger(const Operator &X, const Operator &Y);
 
     void DoPandyaTransformation(const Operator &Z, std::deque<arma::mat> &, std::string orientation);

@@ -1778,8 +1778,18 @@ void IMSRGSolver::SetPerturbativeTriplesBackend(const std::string &backend)
   perturbative_triples_backend = backend;
 }
 
-// W = sum_i [Omega_i, Htilde_i]_3; Htilde_i comes from the ordered 3f2 source recurrence.
 double IMSRGSolver::CalculatePerturbativeTriplesSplit()
+{
+  return CalculatePerturbativeTriplesSplitImpl(perturbative_triples_backend);
+}
+
+double IMSRGSolver::CalculatePerturbativeTriples_new()
+{
+  return CalculatePerturbativeTriplesSplitImpl("packed");
+}
+
+// W = sum_i [Omega_i, Htilde_i]_3; Htilde_i comes from the ordered 3f2 source recurrence.
+double IMSRGSolver::CalculatePerturbativeTriplesSplitImpl(const std::string &backend)
 {
   if (!use_factorized_split_bch || !BCH::use_factorized_correction ||
       Commutator::use_imsrg3 || BCH::bch_skip_ieq1)
@@ -1823,7 +1833,7 @@ double IMSRGSolver::CalculatePerturbativeTriplesSplit()
     ~RestoreE3max() { ms.SetE3max(saved); }
   } restore{*modelspace, modelspace->GetE3max()};
   modelspace->SetE3max(3 * modelspace->GetEmax());
-  Commutator::comm223ss_sum(pairs, energy, perturbative_triples_backend);
+  Commutator::comm223ss_sum(pairs, energy, backend);
   return energy.ZeroBody;
 }
 

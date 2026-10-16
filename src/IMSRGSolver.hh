@@ -199,7 +199,9 @@ class IMSRGSolver
 
 //  double GetPerturbativeTriples();
   double CalculatePerturbativeTriples();
-  // Testing implementation for the ordered regular-splitting source history.
+  // Packed regular-split triples for this call; preserves the backend setting.
+  double CalculatePerturbativeTriples_new();
+  // Ordered regular-splitting source history with the selected backend.
   double CalculatePerturbativeTriplesSplit();
   // Split triples only: packed trades extra memory for faster contraction.
   std::string perturbative_triples_backend = "reference";
@@ -256,6 +258,9 @@ class IMSRGSolver
   void Solve_ode_adaptive();
   void Solve_ode_magnus();
 
+
+private:
+  double CalculatePerturbativeTriplesSplitImpl(const std::string &backend);
 
 };
 

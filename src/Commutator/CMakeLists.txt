@@ -3,6 +3,7 @@ add_library(
     Commutator.hh Commutator.cc
     DaggerCommutators.hh DaggerCommutators.cc
     TensorCommutators.hh TensorCommutators.cc
+    ChargeChangingCommutators.cc
     IMSRG3Commutators.hh IMSRG3Commutators.cc
     FactorizedDoubleCommutator.hh FactorizedDoubleCommutator.cc
 )
