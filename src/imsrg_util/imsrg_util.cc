@@ -105,11 +105,55 @@ namespace imsrg_util
       else if (opname == "beta+")         theop =  AllowedFermi_pm_Op(modelspace, "beta+") ;
       else if (opname == "beta-")         theop =  AllowedFermi_pm_Op(modelspace, "beta-") ;
       else if (opname == "GamowTeller")   theop =  AllowedGamowTeller_Op(modelspace) ;
-      else if (opnamesplit[0] == "ForbidenBetaDecay") // Forbidden Beta Decay Operators   format e.g.  ForbidenBetaDecay_K
-      {      
-        int K;
-        std::istringstream(opnamesplit[1]) >> K;
-        theop =  UniqueForbidden_ChargeExchange_CS(modelspace,K);
+      else if (opnamesplit[0] == "ForbidenBetaDecay" || opnamesplit[0] == "ForbiddenBetaDecay")
+      {
+        // Keep the historical spelling and two-field call. N is the BB
+        // radial moment (N=0 is leading); the radial power is K+2N.
+        if (opnamesplit.size()<2 || opnamesplit.size()>5)
+          throw std::invalid_argument("Use ForbiddenBetaDecay_K[_N[_weight[_radius-fm]]]");
+        auto integer=[](const std::string& token) {
+          size_t used=0; int value=std::stoi(token,&used);
+          if (used!=token.size()) throw std::invalid_argument("Invalid forbidden-decay integer: "+token);
+          return value;
+        };
+        const int K=integer(opnamesplit[1]);
+        const int N=opnamesplit.size()>=3 ? integer(opnamesplit[2]) : 0;
+        if (opnamesplit.size()>=4) {
+          static const std::map<std::string,int> electron_k_for_weight={
+            {"I1111",1},{"I2111",2},{"I3111",3},{"I4111",4}
+          };
+          const auto weight=electron_k_for_weight.find(opnamesplit[3]);
+          if (weight==electron_k_for_weight.end())
+            throw std::invalid_argument("Use BB charge weight I1111, I2111, I3111 or I4111");
+          double radius_fm=0.0;
+          if (opnamesplit.size()==5) {
+            size_t used=0;
+            radius_fm=std::stod(opnamesplit[4],&used);
+            if (used!=opnamesplit[4].size())
+              throw std::invalid_argument("Invalid BB charge radius");
+          }
+          theop=UniqueForbidden_Coulomb_ChargeExchange_CS(modelspace,K,N,weight->second,radius_fm);
+        } else {
+          theop=UniqueForbidden_ChargeExchange_CS(modelspace,K,N);
+        }
+      }
+      else if (opnamesplit[0] == "FirstForbidden")
+      {
+        // FirstForbidden_name[_N[_beta-type[_radius-fm]]]
+        if (opnamesplit.size()<2 || opnamesplit.size()>5)
+          throw std::invalid_argument("Use FirstForbidden_name[_N[_beta-type[_radius-fm]]]");
+        int N=0;
+        if (opnamesplit.size()>2) {
+          size_t used=0; N=std::stoi(opnamesplit[2],&used);
+          if (used!=opnamesplit[2].size()) throw std::invalid_argument("Invalid first-forbidden radial order");
+        }
+        const std::string beta_type=opnamesplit.size()>3 ? opnamesplit[3] : "beta-";
+        double radius=0.0;
+        if (opnamesplit.size()>4) {
+          size_t used=0; radius=std::stod(opnamesplit[4],&used);
+          if (used!=opnamesplit[4].size()) throw std::invalid_argument("Invalid first-forbidden radius");
+        }
+        theop=FirstForbiddenBetaDecay_Op(modelspace,opnamesplit[1],N,beta_type,radius);
       }
       else if (opname == "Iso2")          theop =  Isospin2_Op(modelspace) ;
       else if (opname == "SU4Casimir")    theop =  SU4Casimir_Op(modelspace) ;
@@ -2884,88 +2928,11 @@ Operator IsotensorContact_Op(ModelSpace& modelspace, double a2)
     return GT;
   }
 
-// Kth-forbidden unique beta decay
-// Suhonen Eq. (7.189) for m^(Ku)(ab), CS phase convention only. 
-static double mKu_ab_CS(const Orbit& oa, const Orbit& ob, int K)
-{
-  const int la = oa.l;
-  const int lb = ob.l;
-  const int ja = oa.j2;
-  const int jb = ob.j2;
-
-  // Selection factor: (1 + (-1)^{la+lb+K})
-  const int sel = (1 + AngMom::phase(la + lb + K));
-  if (sel == 0) return 0.0;
-
-  // Overall phase: (-1)^{la + ja + jb + K + 1}
-  const int exp1 = la + (ja + jb) / 2 + K + 1;
-  const double ph1 = AngMom::phase(exp1);
-
-  const double pref = 0.5 / std::sqrt((K + 1.0) * (2.0 * K + 3.0));
-  const double jhat_a = std::sqrt(ja + 1.0);
-  const double jhat_b = std::sqrt(jb + 1.0);
-
-  // 3j: (ja jb K+1; 1/2 -1/2 0)
-  const double threej = AngMom::ThreeJ(ja * 0.5, jb * 0.5, K + 1.0, 0.5, -0.5, 0.0);
-
-  // bracket terms in Eq. (7.189)
-  const double termA = AngMom::phase(K) * ( ja + 1.0 ); // (-1)^K * jhat_a^2
-
-  const int exp_jsum = (ja + jb) / 2 + 1;
-  const double termB = AngMom::phase(exp_jsum) * ( jb + 1.0 ); // (-1)^{ja+jb+1} * jhat_b^2
-
-  // (-1)^{la+ja+K-1/2} is integer exponent (half + half + integer)
-  const int expC = la + K + ( ja  - 1 ) /2;
-  const double termC_phase = AngMom::phase(expC);
-
-  // Your RadialIntegral returns the scaled (b=1) Suhonen integral \tilde R^{(K)}_{ab}
-  const double Rtilde = RadialIntegral(oa.n, oa.l, ob.n, ob.l, K);
-  // const double Rtilde = RadialIntegral_Numerical(oa.n, oa.l, ob.n, ob.l, K);
-
-  const double termC = 2.0 * (K + 1.0) * termC_phase;
-
-  const double bracket = termA + termB + termC;
-
-  return pref * ph1 * sel / 2.0 * jhat_a * jhat_b * threej * bracket * Rtilde;
-}
-
-// Hermitian charge-exchange operator for Kth-forbidden unique decay, CS phase only.
-// the function return  m(Ku)(ab)
-// M(1u)(ab)=2.990 C 10b3 C b[fm]C m(Ku)(ab)
-// the factor 2.990 C 10b3 C b[fm] is not included
+// Legacy two-argument entry point for the leading Suhonen coefficient.
 Operator UniqueForbidden_ChargeExchange_CS(ModelSpace& modelspace, int K)
 {
-  if (K < 1)
-  {
-    std::cout<<"The order K must be larger than 1! " << std::endl;
-    exit(0);
-  }
-
-  const int J = K + 1; // unique forbidden: rank NJ=NK+1 (max NJ) 
-
-  // Jrank=NJ, Trank=1, Parity=L%2, particle-rank=2
-  Operator Op(modelspace, J, 1, (K % 2), 2);
-  Op.SetHermitian(); // label only in your codebase
-  int norbits = modelspace.GetNumberOrbits();
-
-  // oscillator length b [fm]
-  const double b = std::sqrt(HBARC * HBARC / M_NUCLEON / modelspace.GetHbarOmega());
-  const double scale = std::pow(2.990e-3 * b, K); // Eq. (7.188) 
-  for (int i=0; i<norbits; ++i)
-  {
-    Orbit& oi = modelspace.GetOrbit(i);
-    for (int j : Op.OneBodyChannels[{oi.l,oi.j2,oi.tz2}] )
-    {
-      Orbit& oj = modelspace.GetOrbit(j);
-      const double m_ku = mKu_ab_CS(oi, oj, K);
-      if ( fabs(m_ku) < 1.e-5 ) continue;
-      Op.OneBody(i,j) = m_ku; // scale * 
-    }
-  }
-  return Op;
+  return UniqueForbidden_ChargeExchange_CS(modelspace,K,0);
 }
-
-
 
  /// Pauli spin operator \f[ \langle f \| \sigma \| i \rangle \f]
  Operator Sigma_Op(ModelSpace& modelspace)

@@ -91,6 +91,23 @@ namespace imsrg_util
  Operator AllowedFermi_pm_Op(ModelSpace& modelspace, std::string beta_type);
  Operator AllowedGamowTeller_Op(ModelSpace& modelspace);
  Operator UniqueForbidden_ChargeExchange_CS(ModelSpace& modelspace, int K);
+ // BB radial moment N>=0: (r/b)^(K+2N), with the legacy Suhonen angular coefficient.
+ // The two-argument overload is exactly N=0. No gA or radius conversion is included.
+ Operator UniqueForbidden_ChargeExchange_CS(ModelSpace& modelspace, int K, int N);
+ // Same Suhonen coefficient weighted by the uniform-sphere BB I(1,1,1,1;r).
+ // radius_fm is the charge-surface radius; zero selects KSHELL's Brown radius.
+ Operator UniqueForbidden_I1111_ChargeExchange_CS(ModelSpace& modelspace, int K, int N,
+                                                  double radius_fm=0.0);
+ // Uniform-sphere BB I(k_e,1,1,1;r) for electron partial waves k_e=1..4.
+ Operator UniqueForbidden_Coulomb_ChargeExchange_CS(ModelSpace& modelspace, int K, int N,
+                                                    int electron_k, double radius_fm=0.0);
+ // KSHELL's nine first-forbidden operators as physical CS reduced matrix elements.
+ // name: 0rs, 0sp, 0rsd, 1r, 1rs, 1p, 1rd, 1rsd, 2rs.
+ // Coordinate operators allow r -> r^(1+2N); gradients currently require N=0.
+ // radius_fm=0 uses KSHELL's Brown radius for the three 'd' operators.
+ Operator FirstForbiddenBetaDecay_Op(ModelSpace& modelspace, const std::string& name,
+                                    int N=0, const std::string& beta_type="beta-",
+                                    double radius_fm=0.0);
  Operator Sigma_Op(ModelSpace& modelspace);
  Operator Sigma_Op_pn(ModelSpace& modelspace, std::string pn);
  Operator RadialOverlap(ModelSpace& modelspace);

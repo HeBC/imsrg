@@ -3,6 +3,7 @@ add_library(
     imsrg_util OBJECT
     imsrg_util.hh
     imsrg_util.cc
+    ForbiddenBetaDecay.cc
     GaussLaguerre.hh
     M0nu.hh
     M0nu.cc
