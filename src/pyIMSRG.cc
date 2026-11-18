@@ -668,6 +668,8 @@ PYBIND11_MODULE(pyIMSRG, m)
           .def("SetUseIsospinAveraging", &Generator::SetUseIsospinAveraging, py::arg("tf"))
           .def("Update", &Generator::Update, py::arg("H"), py::arg("Eta"))
           .def("UpdateGeneral", &Generator::UpdateGeneral, py::arg("H"), py::arg("H_denom"), py::arg("Eta"))
+          .def("GetHod_GradeTransfer", &Generator::GetHod_GradeTransfer, py::arg("op"), py::arg("lowering_only")=false,
+               "Return the signed c/v/q grade transfer, or its lowering part D when lowering_only=True.")
           .def("GetHod_SingleRef", &Generator::GetHod_SingleRef, py::arg("H"))
           .def("GetHod", &Generator::GetHod, py::arg("H"))
       ;

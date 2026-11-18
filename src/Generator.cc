@@ -5,10 +5,18 @@
 #include "PhysicalConstants.hh" // for HBARC and M_NUCLEON
 
 #include "omp.h"
+#include <array>
+#include <stdexcept>
 #include <string>
 
 using PhysConst::M_NUCLEON;
 using PhysConst::HBARC;
+
+namespace {
+std::function<double(double,double)> abs_gap_angle = [](double h, double gap) {
+   return 0.5 * std::atan2(2.*h, std::abs(gap));
+};
+}
 
 std::function<double(double,double)> Generator::wegner_func = [] (double Hod, double denom){ return Hod * denom;};
 std::function<double(double,double)> Generator::white_func = [] (double Hod, double denom){ return Hod / denom;};
@@ -69,6 +77,7 @@ void Generator::AddToEta(Operator& H_s, Operator& H_d,  Operator& Eta_s)
    else if (generator_type == "shell-model-wegner")           ConstructGenerator_ShellModel(wegner_func); // never tested, probably doesn't work.
    else if (generator_type == "shell-model")                  ConstructGenerator_ShellModel(white_func);
    else if (generator_type == "shell-model-atan")             ConstructGenerator_ShellModel(atan_func);
+   else if (generator_type == "shell-model-abs-gap-atan")     ConstructGenerator_ShellModel(abs_gap_angle);
    else if (generator_type == "shell-model-atan-npnh")        ConstructGenerator_ShellModel_NpNh(atan_func);
    else if (generator_type == "shell-model-imaginary-time")   ConstructGenerator_ShellModel(imaginarytime_func);
    else if (generator_type == "hartree-fock")                 ConstructGenerator_HartreeFock();
@@ -95,7 +104,7 @@ Operator Generator::GetHod(Operator& H)
    {
       if (generator_type == sr )  return GetHod_SingleRef(H);
    }
-   for (auto sm : {"shell-model-wegner","shell-model","shell-model-atan","shell-model-imaginary-time"})
+   for (auto sm : {"shell-model-wegner","shell-model","shell-model-atan","shell-model-abs-gap-atan","shell-model-imaginary-time"})
    {
       if (generator_type == sm )  return GetHod_ShellModel(H);
    }
@@ -431,12 +440,25 @@ void Generator::ConstructGenerator_SingleRef_3body(std::function<double (double,
  
 void Generator::ConstructGenerator_ShellModel(std::function<double (double,double)>& etafunc)
 {
+   const bool absolute_gap = (&etafunc == &abs_gap_angle);
+   if (absolute_gap && (H->rank_J != 0 || H->rank_T != 0 || H->parity != 0 ||
+                       H->GetParticleRank() > 2 || H->IsReduced() || !H->IsHermitian()))
+      throw std::invalid_argument("shell-model-abs-gap-atan requires a scalar unreduced IMSRG(2) Hamiltonian");
    // One body piece -- make sure the valence one-body part is diagonal
    for ( auto& a : VectorUnion( H->modelspace->core, H->modelspace->valence))
    {
       for (auto& i : VectorUnion( H->modelspace->valence, H->modelspace->qspace ) )
       {
          if (i==a) continue;
+         if (absolute_gap)
+         {
+            // The valence-valence pair occurs twice. Use the orientation of its last visit.
+            if (H->modelspace->GetOrbit(a).cvq == 1 && H->modelspace->GetOrbit(i).cvq == 1 && a < i)
+               continue;
+            Eta->OneBody(i,a) = etafunc(H->OneBody(i,a), Get1bDenominator(i,a));
+            Eta->OneBody(a,i) = -Eta->OneBody(i,a);
+            continue;
+         }
          double denominator = Get1bDenominator(i,a);
          Eta->OneBody(i,a) = etafunc(H->OneBody(i,a), denominator);
          Eta->OneBody(a,i) = etafunc(H->OneBody(a,i), -denominator); // This includes possible phase from reduced matrix element
@@ -723,6 +745,64 @@ void Generator::ConstructGenerator_1PA(std::function<double(double,double)>& eta
 
 
 
+
+/// Extract the SU(4) grade transfer A = D^dagger - D, or just its lowering part D.
+/// Grades add on pair kets: cc < cv < {cq,vv} < vq < qq.
+Operator Generator::GetHod_GradeTransfer(const Operator& op, bool lowering_only) const
+{
+   if (op.GetModelSpace() == nullptr)
+      throw std::invalid_argument("GetHod_GradeTransfer requires an operator with a model space");
+   const int rank = op.GetParticleRank();
+   if (not op.IsHermitian() or op.GetJRank() != 0 or op.GetTRank() != 0 or op.GetParity() != 0
+       or (rank != 1 and rank != 2) or op.GetNumberLegs() != 2*rank)
+      throw std::invalid_argument("GetHod_GradeTransfer requires a Hermitian number-conserving scalar of rank one or two");
+
+   Operator result(op);
+   result *= 0.0;
+   if (lowering_only)
+      result.SetNonHermitian();
+   else
+      result.SetAntiHermitian();
+
+   const auto copy_block = [lowering_only](const arma::mat& input, arma::mat& output,
+                                            const auto& lower, const auto& higher)
+   {
+      for (auto ket : lower)
+      {
+         for (auto bra : higher)
+         {
+            const double value = input(bra,ket);
+            if (lowering_only)
+               output(ket,bra) = value;
+            else
+            {
+               output(bra,ket) = value;
+               output(ket,bra) = -value;
+            }
+         }
+      }
+   };
+
+   const ModelSpace& ms = *op.GetModelSpace();
+   copy_block(op.OneBody, result.OneBody, ms.core, ms.valence);
+   copy_block(op.OneBody, result.OneBody, ms.core, ms.qspace);
+   copy_block(op.OneBody, result.OneBody, ms.valence, ms.qspace);
+   if (rank == 1) return result;
+
+   for (auto& entry : result.TwoBody.MatEl)
+   {
+      const auto ch = entry.first[0];  // Scalar operators are channel diagonal.
+      const auto& tbc = ms.GetTwoBodyChannel(ch);
+      const std::array<arma::uvec,5> groups = {tbc.GetKetIndex_cc(), tbc.GetKetIndex_vc(),
+         arma::join_cols(tbc.GetKetIndex_qc(), tbc.GetKetIndex_vv()),
+         tbc.GetKetIndex_qv(), tbc.GetKetIndex_qq()};
+      const auto& input = op.TwoBody.GetMatrix(ch);
+      for (size_t low = 0; low < groups.size(); ++low)
+         for (size_t high = low+1; high < groups.size(); ++high)
+            copy_block(input, entry.second, groups[low], groups[high]);
+   }
+   return result;
+}
 
 Operator  Generator::GetHod_SingleRef(Operator& H )
 {

@@ -92,6 +92,7 @@ class Generator
 
   Operator GetHod_SingleRef( Operator& H );
   Operator GetHod_ShellModel( Operator& H );
+  Operator GetHod_GradeTransfer(const Operator& op, bool lowering_only=false) const;
   
 
 };
